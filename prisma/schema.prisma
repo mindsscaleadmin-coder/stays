@@ -1,0 +1,284 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id         String    @id @default(cuid())
+  email      String?   @unique
+  phone      String?   @unique
+  fullName   String
+  /// JSON string array of roles: guest | host | admin
+  roles      String    @default("[\"guest\"]")
+  language   String    @default("en")
+  isVerified Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  listings   Listing[]
+  bookingsMade Booking[] @relation("GuestBookings")
+  reviews    Review[]
+  hostProfile HostProfile?
+  hostTrust   HostTrust?
+  hostReviewsMeta HostReviewsMeta?
+  hostStaff   HostStaff[]
+  hostNotifications HostNotifications?
+  hostAddons        HostAddons?
+  hostAnalytics     HostAnalytics?
+
+  @@index([createdAt])
+}
+
+/// Full listing document stored as JSON so the existing UI shape is preserved.
+model Listing {
+  id            String         @id
+  hostId        String
+  host          User           @relation(fields: [hostId], references: [id])
+  title         String
+  status        String         @default("pending")
+  /// Full SubmittedListing JSON
+  payload       String
+  maxGuests     Int            @default(4)
+  pricePerNight Float?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  bookings      Booking[]
+  reviews       Review[]
+  availability  Availability[]
+  promotions    ListingPromotion[]
+  /// Mirrors active featured promotion for fast search ranking
+  featured      Boolean        @default(false)
+  pricing       ListingPricing?
+  availabilityMeta ListingAvailabilityMeta?
+
+  @@index([hostId])
+  @@index([status])
+  @@index([featured])
+}
+
+model Availability {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  date      DateTime
+  isBlocked Boolean  @default(false)
+
+  @@unique([listingId, date])
+  @@index([listingId, date])
+}
+
+/// Host pricing rules — full ListingPricingSettings JSON
+model ListingPricing {
+  listingId String  @id
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
+/// Host calendar rules (seasonal closures, min stay) + blockedDates in payload
+model ListingAvailabilityMeta {
+  listingId String  @id
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
+model Booking {
+  id            String    @id @default(cuid())
+  listingId     String
+  listing       Listing   @relation(fields: [listingId], references: [id])
+  guestId       String
+  guest         User      @relation("GuestBookings", fields: [guestId], references: [id])
+  checkIn       DateTime
+  checkOut      DateTime?
+  guestCount    Int
+  status        String    @default("pending")
+  totalPrice    Float
+  paymentStatus String    @default("unpaid")
+  /// Request-to-book: host must respond before this time
+  expiresAt     DateTime?
+  /// flexible | moderate | strict | non-refundable
+  policyId      String    @default("flexible")
+  cancelledAt   DateTime?
+  cancelReason  String?
+  refundPercent Int?
+  refundAmount  Float?
+  stripeSessionId String?
+  createdAt     DateTime  @default(now())
+  messages      BookingMessage[]
+
+  @@index([listingId, checkIn, checkOut])
+  @@index([status, expiresAt])
+  @@index([guestId, status])
+  @@index([listingId, status])
+}
+
+/// Singleton platform configuration (admin)
+model PlatformSettings {
+  id        String   @id @default("default")
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
+/// Host public profile — guest-facing host identity
+model HostProfile {
+  hostId    String   @id
+  host      User     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
+model BookingMessage {
+  id        String   @id @default(cuid())
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  /// guest | host | admin
+  senderRole String
+  senderId   String
+  senderName String
+  body       String
+  createdAt  DateTime @default(now())
+
+  @@index([bookingId, createdAt])
+}
+
+/// Paid Featured / Trending placements — same source search ranking reads
+model ListingPromotion {
+  id           String   @id
+  listingId    String
+  listing      Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  hostId       String
+  kind         String
+  durationDays Int
+  priceAed     Float
+  purchasedAt  DateTime
+  startsAt     DateTime
+  endsAt       DateTime
+  status       String
+  paymentRef   String
+  createdAt    DateTime @default(now())
+
+  @@index([listingId, kind, status])
+  @@index([kind, status, endsAt])
+}
+
+/// Admin promote catalog (packages, pricing, copy)
+model PromotionCatalogSettings {
+  id        String   @id @default("default")
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
+/// Admin trust badge catalog + manual host flags
+model TrustCatalogSettings {
+  id        String   @id @default("default")
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
+/// Shared admin catalogs (taxonomy, photo-tags, extra-charges)
+model PlatformCatalog {
+  key       String   @id
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
+/// Host farm certifications + safety checklist
+model HostTrust {
+  hostId    String   @id
+  host      User     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
+/// Host review templates + per-review moderation/response overlays
+model HostReviewsMeta {
+  hostId    String   @id
+  host      User     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
+/// Host dashboard team members (manager/staff delegated access)
+model HostStaff {
+  id          String   @id @default(cuid())
+  hostId      String
+  host        User     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  name        String
+  email       String
+  /// owner | manager | staff
+  role        String
+  /// JSON array of HostStaffPermission strings
+  permissions String
+  active      Boolean  @default(true)
+  /// Demo-only plain password; omit from API responses
+  password    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([hostId, email])
+  @@index([email])
+  @@index([hostId])
+}
+
+/// Host notification prefs + inbox alerts
+model HostNotifications {
+  hostId    String   @id
+  host      User     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
+/// Farm activities, products, and weather advisories for a host
+model HostAddons {
+  hostId    String   @id
+  host      User     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
+/// Host dashboard analytics snapshot (demo seed; future: derived from bookings)
+model HostAnalytics {
+  hostId    String   @id
+  host      User     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
+/// Platform admin console team (Super Admin / sub-admin / support)
+model PlatformStaff {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  /// admin | sub_admin | support
+  role        String
+  /// JSON array of StaffPermission strings
+  permissions String
+  active      Boolean  @default(true)
+  /// Demo-only plain password; omit from API list responses
+  password    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([role])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  /// One review per completed booking
+  bookingId String?  @unique
+  rating    Int
+  comment   String
+  /// pending | published | removed
+  status    String   @default("published")
+  createdAt DateTime @default(now())
+
+  @@index([listingId, status])
+}

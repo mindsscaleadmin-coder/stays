@@ -1,0 +1,134 @@
+import { prisma } from "@/lib/prisma";
+import { resolveHostName } from "@/lib/admin/trust-data";
+import { defaultHostNotifications } from "@/lib/host/host-notifications-data";
+import type {
+  HostNotificationAlert,
+  HostNotificationPrefs,
+  HostNotificationsData,
+} from "@/lib/host/host-notifications-types";
+
+type StoredNotifications = Omit<HostNotificationsData, "hostId">;
+
+async function ensureHostUser(hostId: string) {
+  const existing = await prisma.user.findUnique({ where: { id: hostId } });
+  if (existing) return existing;
+  return prisma.user.create({
+    data: {
+      id: hostId,
+      fullName: resolveHostName(hostId),
+      email: `${hostId.replace(/[^a-zA-Z0-9]/g, "")}@hosts.local`,
+      roles: JSON.stringify(["host"]),
+      isVerified: true,
+    },
+  });
+}
+
+function parsePayload(raw: string): StoredNotifications | null {
+  try {
+    return JSON.parse(raw) as StoredNotifications;
+  } catch {
+    return null;
+  }
+}
+
+function merge(
+  hostId: string,
+  stored: StoredNotifications | null
+): HostNotificationsData {
+  const defaults = defaultHostNotifications(hostId);
+  if (!stored) return defaults;
+  return {
+    ...defaults,
+    ...stored,
+    hostId,
+    prefs: { ...defaults.prefs, ...stored.prefs },
+    alerts: Array.isArray(stored.alerts) ? stored.alerts : defaults.alerts,
+  };
+}
+
+async function persist(data: HostNotificationsData): Promise<HostNotificationsData> {
+  await ensureHostUser(data.hostId);
+  const { hostId, ...payload } = data;
+  await prisma.hostNotifications.upsert({
+    where: { hostId },
+    create: { hostId, payload: JSON.stringify(payload) },
+    update: { payload: JSON.stringify(payload) },
+  });
+  return data;
+}
+
+export async function getHostNotifications(hostId: string): Promise<HostNotificationsData> {
+  const row = await prisma.hostNotifications.findUnique({ where: { hostId } });
+  return merge(hostId, row ? parsePayload(row.payload) : null);
+}
+
+export async function saveNotificationPrefs(
+  hostId: string,
+  prefs: HostNotificationPrefs
+): Promise<HostNotificationsData> {
+  const current = await getHostNotifications(hostId);
+  return persist({ ...current, prefs });
+}
+
+export async function markAlertRead(
+  hostId: string,
+  alertId: string
+): Promise<HostNotificationsData> {
+  const current = await getHostNotifications(hostId);
+  return persist({
+    ...current,
+    alerts: current.alerts.map((a) => (a.id === alertId ? { ...a, read: true } : a)),
+  });
+}
+
+export async function markAllAlertsRead(hostId: string): Promise<HostNotificationsData> {
+  const current = await getHostNotifications(hostId);
+  return persist({
+    ...current,
+    alerts: current.alerts.map((a) => ({ ...a, read: true })),
+  });
+}
+
+export async function collectNotificationHostIds(): Promise<string[]> {
+  const [users, listingHosts, existing] = await Promise.all([
+    prisma.user.findMany({
+      where: { roles: { contains: "host" } },
+      select: { id: true },
+    }),
+    prisma.listing.findMany({
+      distinct: ["hostId"],
+      select: { hostId: true },
+    }),
+    prisma.hostNotifications.findMany({ select: { hostId: true } }),
+  ]);
+
+  const ids = new Set<string>();
+  for (const u of users) ids.add(u.id);
+  for (const l of listingHosts) ids.add(l.hostId);
+  for (const e of existing) ids.add(e.hostId);
+  return Array.from(ids);
+}
+
+export async function pushPolicyAlertToAllHosts(
+  title: string,
+  message: string
+): Promise<number> {
+  const hostIds = await collectNotificationHostIds();
+  const date = new Date().toISOString();
+  const alertId = `n-policy-${Date.now()}`;
+
+  for (const hostId of hostIds) {
+    const data = await getHostNotifications(hostId);
+    const alert: HostNotificationAlert = {
+      id: `${alertId}-${hostId}`,
+      type: "policy",
+      title,
+      message,
+      date,
+      read: false,
+    };
+    await persist({ ...data, alerts: [alert, ...data.alerts] });
+  }
+
+  return hostIds.length;
+}

@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: farmstays
+      POSTGRES_PASSWORD: farmstays
+      POSTGRES_DB: farmstays
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U farmstays -d farmstays"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://farmstays:farmstays@postgres:5432/farmstays?pgbouncer=false
+      DIRECT_URL: postgresql://farmstays:farmstays@postgres:5432/farmstays
+      NEXT_PUBLIC_APP_URL: http://localhost:8080
+      NEXT_PUBLIC_USE_SHARED_DB: "1"
+      # Optional: Upstash for shared rate limits across instances (recommended in prod)
+      UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-}
+      UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-}
+      REDIS_URL: redis://redis:6379
+      CRON_SECRET: ${CRON_SECRET:-dev-cron-secret}
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "3000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker/Dockerfile
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  expire-cron:
+    image: curlimages/curl:8.11.1
+    environment:
+      CRON_SECRET: ${CRON_SECRET:-dev-cron-secret}
+    depends_on:
+      - nginx
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          curl -sS -H "Authorization: Bearer $$CRON_SECRET" \
+            http://nginx/api/bookings/expire-pending || true
+          sleep 900
+        done
+
+volumes:
+  postgres_data:

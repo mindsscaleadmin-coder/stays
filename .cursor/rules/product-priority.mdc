@@ -1,0 +1,26 @@
+---
+description: Product priority — finish booking spine before growth features or more dashboards
+alwaysApply: true
+---
+
+# Farm Stays — product rule of thumb
+
+When choosing what to build next, follow this order. Do not start later items until earlier ones work end-to-end.
+
+## Priority order
+
+1. **Checkout → pay → confirm booking → host calendar** (spine)
+2. **Host accept/decline, cancellation/refund rules, pending expiry**
+3. **Messaging / support between guest and host** (per booking thread)
+4. **Reviews that unlock only after a completed stay**
+5. **Promotions / featured backed by the same DB as search**
+6. **Multi-country as a real filter + currency story**
+
+## Rules
+
+- **1 → 2 are the spine.** Without a paid booking that shows on the host calendar, nothing else is “real.”
+- **3 → 4 are trust/ops.** Build only after bookings exist in one shared store.
+- **5 → 6 are growth.** Do not start until a paid booking appears on the host calendar.
+- Prefer wiring **one guest → pay → host path** over adding more dashboard screens.
+- Prefer **server-owned totals and authz** over client/localStorage-only flows for money and bookings.
+- When unsure, ask: *Does this help a guest pay and a host see the same booking?* If no, defer it.

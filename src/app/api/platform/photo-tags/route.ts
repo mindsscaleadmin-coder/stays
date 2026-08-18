@@ -1,0 +1,45 @@
+import { NextResponse } from "next/server";
+import {
+  getPhotoTagsCatalogFromDb,
+  savePhotoTagsCatalogToDb,
+} from "@/lib/server/platform-catalog-repo";
+import { requireSessionUser, AuthError } from "@/lib/auth/session";
+import { getUserRoles, isDemoApiMode, BookingAccessError } from "@/lib/auth/booking-access";
+import { canAccessAdmin } from "@/lib/auth/roles";
+import { hostDataErrorResponse } from "@/lib/auth/listing-access";
+import { getRequestId } from "@/lib/observability/logger";
+import type { PhotoTagCatalogItem } from "@/lib/admin/photo-tags-catalog-types";
+
+export const dynamic = "force-dynamic";
+
+async function requireAdminWhenConfigured() {
+  if (isDemoApiMode()) return;
+  const user = await requireSessionUser();
+  if (!canAccessAdmin(getUserRoles(user))) {
+    throw new BookingAccessError("Admin access required");
+  }
+}
+
+export async function GET() {
+  const items = await getPhotoTagsCatalogFromDb();
+  return NextResponse.json({ items });
+}
+
+export async function PATCH(request: Request) {
+  const requestId = getRequestId(request);
+  try {
+    await requireAdminWhenConfigured();
+    const body = (await request.json()) as { items?: PhotoTagCatalogItem[] };
+    if (!Array.isArray(body.items)) {
+      return NextResponse.json({ error: "Invalid catalog payload" }, { status: 400 });
+    }
+    const items = await savePhotoTagsCatalogToDb(body.items);
+    return NextResponse.json({ items }, { headers: { "x-request-id": requestId } });
+  } catch (error) {
+    if (error instanceof AuthError || error instanceof BookingAccessError) {
+      return hostDataErrorResponse(error, requestId);
+    }
+    console.error("Photo tags catalog save error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
