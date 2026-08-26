@@ -53,6 +53,33 @@ export async function checkRateLimit(identifier: string) {
   return { success: result.success, remaining: result.remaining };
 }
 
+const memoryHits = new Map<string, { count: number; resetAt: number }>();
+
+function memoryAuthLimit(ip: string, userKey?: string) {
+  const now = Date.now();
+  const windowMs = 60_000;
+  const keys = [`ip:${ip}`, userKey ? `user:${userKey.trim().toLowerCase()}` : null].filter(
+    (key): key is string => Boolean(key)
+  );
+  for (const key of keys) {
+    const row = memoryHits.get(key);
+    if (!row || row.resetAt < now) {
+      memoryHits.set(key, { count: 1, resetAt: now + windowMs });
+      continue;
+    }
+    row.count += 1;
+    const max = key.startsWith("user:") ? 5 : 10;
+    if (row.count > max) {
+      return {
+        success: false,
+        remaining: 0,
+        limitedBy: (key.startsWith("user:") ? "user" : "ip") as "ip" | "user",
+      };
+    }
+  }
+  return { success: true, remaining: -1, limitedBy: null as "ip" | "user" | null };
+}
+
 export function getClientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0]?.trim() || "anonymous";
@@ -69,6 +96,9 @@ export async function checkAuthRateLimit(request: Request, userKey?: string) {
   const userLimiterInstance = userKey ? getUserLimiter() : null;
 
   if (!ipLimiterInstance) {
+    if (process.env.NODE_ENV === "production") {
+      return memoryAuthLimit(ip, userKey);
+    }
     return { success: true, remaining: -1, limitedBy: null as "ip" | "user" | null };
   }
 

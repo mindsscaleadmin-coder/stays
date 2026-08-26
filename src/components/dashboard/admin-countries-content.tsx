@@ -12,16 +12,20 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { Link } from "@/i18n/routing";
 import { AdminDashboardShell } from "./admin-dashboard-shell";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import {
   getCountryGeoPreset,
   hasCountryGeoPreset,
   LOCATION_UPLOAD_TEMPLATE_CSV,
+  LOCATION_UPLOAD_TEMPLATE_JSON,
+  flattenLocationRows,
   parseLocationUpload,
   type CountryGeoState,
 } from "@/lib/admin/country-geo";
 import type { Country, CountryInput } from "@/lib/admin/taxonomy-types";
+import { suggestCountryMarketplace } from "@/lib/admin/country-utils";
 import { cn } from "@/lib/utils";
 
 const EMPTY_FORM: CountryInput = {
@@ -41,17 +45,27 @@ const EMPTY_FORM: CountryInput = {
 type LocationSource = "none" | "defaults" | "upload";
 
 export function AdminCountriesContent() {
-  const { data, saveCountry, importCountryLocations, deleteCountry } = useAdminTaxonomy();
+  const { data, saveCountry, deleteCountry } = useAdminTaxonomy();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<CountryInput>(EMPTY_FORM);
-  const [locationSource, setLocationSource] = useState<LocationSource>("defaults");
+  const [locationSource, setLocationSource] = useState<LocationSource>("none");
   const [uploadGeo, setUploadGeo] = useState<CountryGeoState[] | null>(null);
   const [uploadName, setUploadName] = useState("");
   const [uploadError, setUploadError] = useState("");
   const [replaceExisting, setReplaceExisting] = useState(false);
+  const [fileDragging, setFileDragging] = useState(false);
   const [message, setMessage] = useState("");
+  const [formError, setFormError] = useState("");
+  const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  function openFilePicker() {
+    const input = fileRef.current;
+    if (!input) return;
+    input.value = "";
+    input.click();
+  }
 
   const countries = data.countries;
 
@@ -75,6 +89,11 @@ export function AdminCountriesContent() {
     return { states: uploadGeo.length, districts };
   }, [uploadGeo]);
 
+  const previewRows = useMemo(
+    () => (uploadGeo ? flattenLocationRows(uploadGeo) : []),
+    [uploadGeo]
+  );
+
   const locationCountsByCountry = useMemo(() => {
     const map = new Map<string, { states: number; districts: number }>();
     for (const country of countries) {
@@ -91,7 +110,7 @@ export function AdminCountriesContent() {
     setTimeout(() => setMessage(""), 4000);
   }
 
-  function resetLocationUi(preferDefaults = true) {
+  function resetLocationUi(preferDefaults = false) {
     setLocationSource(preferDefaults ? "defaults" : "none");
     setUploadGeo(null);
     setUploadName("");
@@ -104,12 +123,14 @@ export function AdminCountriesContent() {
     setEditingId(null);
     setCreating(true);
     setForm(EMPTY_FORM);
-    resetLocationUi(true);
+    setFormError("");
+    resetLocationUi(false);
   }
 
   function startEdit(c: Country) {
     setCreating(false);
     setEditingId(c.id);
+    setFormError("");
     setForm({
       id: c.id,
       name: c.name,
@@ -131,7 +152,45 @@ export function AdminCountriesContent() {
     setCreating(false);
     setEditingId(null);
     setForm(EMPTY_FORM);
-    resetLocationUi(true);
+    setFormError("");
+    setSaving(false);
+    resetLocationUi(false);
+  }
+
+  function fillFromMarketplace(current: CountryInput, query: string): CountryInput {
+    const hint = suggestCountryMarketplace(query);
+    if (!hint) return current;
+    return {
+      ...current,
+      name: current.name.trim() || hint.name,
+      code: (current.code ?? "").trim() || hint.code,
+      flag: current.flag?.trim() || hint.flag,
+      currency: current.currency?.trim() || hint.currency,
+      currencySymbol: current.currencySymbol?.trim() || hint.currencySymbol,
+      dialCode: current.dialCode?.trim() || hint.dialCode,
+      exchangeRateToAED:
+        current.exchangeRateToAED === 1 ? hint.exchangeRateToAED : current.exchangeRateToAED,
+    };
+  }
+
+  const ISO3: Record<string, string> = {
+    IND: "IN",
+    ARE: "AE",
+    SAU: "SA",
+    OMN: "OM",
+    QAT: "QA",
+    USA: "US",
+    GBR: "GB",
+  };
+
+  function applyCountryCode(raw: string) {
+    let code = raw.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
+    if (ISO3[code]) code = ISO3[code];
+    setForm((f) => fillFromMarketplace({ ...f, code }, code));
+    setFormError("");
+    if (hasCountryGeoPreset(code) && locationSource === "none") {
+      setLocationSource("defaults");
+    }
   }
 
   async function handleFile(file: File | null) {
@@ -153,50 +212,92 @@ export function AdminCountriesContent() {
     }
   }
 
-  function downloadTemplate() {
-    const blob = new Blob([LOCATION_UPLOAD_TEMPLATE_CSV], { type: "text/csv;charset=utf-8" });
+  function downloadTemplate(kind: "csv" | "json") {
+    const csv = kind === "csv";
+    const blob = new Blob(
+      [csv ? LOCATION_UPLOAD_TEMPLATE_CSV : LOCATION_UPLOAD_TEMPLATE_JSON],
+      { type: csv ? "text/csv;charset=utf-8" : "application/json;charset=utf-8" }
+    );
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "country-states-districts-template.csv";
+    a.download = csv
+      ? "country-states-districts-template.csv"
+      : "country-states-districts-template.json";
     a.click();
     URL.revokeObjectURL(url);
   }
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.name.trim()) return;
+    setFormError("");
+    setUploadError("");
 
-    if (locationSource === "defaults" && !presetAvailable) {
-      setUploadError(
-        "No built-in states for this country code. Choose Upload or leave as None."
-      );
+    const name = form.name.trim();
+    const code = (form.code ?? "").trim().toUpperCase();
+    if (!name) {
+      setFormError("Enter a country name.");
       return;
     }
+    if (!code || code.length < 2) {
+      setFormError("Enter a 2–3 letter country code (e.g. AE, SA, IN).");
+      return;
+    }
+    const duplicateCode = countries.find(
+      (c) => c.id !== editingId && c.code?.toUpperCase() === code
+    );
+    if (duplicateCode) {
+      setFormError(`Country code ${code} is already used by ${duplicateCode.name}.`);
+      return;
+    }
+    const duplicateName = countries.find(
+      (c) => c.id !== editingId && c.name.trim().toLowerCase() === name.toLowerCase()
+    );
+    if (duplicateName) {
+      setFormError(`"${name}" is already in the country list.`);
+      return;
+    }
+
     if (locationSource === "upload" && !uploadGeo?.length) {
       setUploadError("Upload a CSV or JSON file with states and districts.");
       return;
     }
 
-    const id = saveCountry({
-      ...form,
-      id: editingId ?? undefined,
-      name: form.name.trim(),
-    });
+    const geo =
+      locationSource === "defaults" && preset?.length
+        ? preset
+        : locationSource === "upload"
+          ? uploadGeo
+          : null;
 
-    let locMessage = "";
-    if (locationSource === "defaults" && preset) {
-      const result = importCountryLocations(id, preset, replaceExisting ? "replace" : "merge");
-      locMessage = ` Loaded ${result.statesAdded} states and ${result.districtsAdded} districts from defaults.`;
-    } else if (locationSource === "upload" && uploadGeo) {
-      const result = importCountryLocations(id, uploadGeo, replaceExisting ? "replace" : "merge");
-      locMessage = ` Imported ${result.statesAdded} states and ${result.districtsAdded} districts from file.`;
+    setSaving(true);
+    try {
+      const saved = await saveCountry(
+        {
+          ...form,
+          id: editingId ?? undefined,
+          name,
+          code,
+        },
+        geo?.length
+          ? { geo, mode: replaceExisting ? "replace" : "merge" }
+          : undefined
+      );
+
+      let locMessage = "";
+      if (geo?.length) {
+        locMessage = ` Loaded ${saved.statesAdded} states and ${saved.districtsAdded} districts.`;
+      }
+
+      flash(
+        (editing ? `Updated ${name}.` : `Added ${name}.`) + locMessage
+      );
+      cancel();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Could not save this country.");
+    } finally {
+      setSaving(false);
     }
-
-    flash(
-      (editing ? `Updated ${form.name}.` : `Added ${form.name}.`) + locMessage
-    );
-    cancel();
   }
 
   const showForm = creating || editingId !== null;
@@ -250,23 +351,42 @@ export function AdminCountriesContent() {
               </button>
             </div>
 
+            {formError && (
+              <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                {formError}
+              </p>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Name (English)" required>
                 <input
                   value={form.name ?? ""}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setForm((f) => ({ ...f, name }));
+                    setFormError("");
+                  }}
+                  onBlur={() => {
+                    if (!form.name.trim()) return;
+                    setForm((f) => fillFromMarketplace(f, f.name));
+                    const hint = suggestCountryMarketplace(form.name);
+                    if (hint && hasCountryGeoPreset(hint.code) && locationSource === "none") {
+                      setLocationSource("defaults");
+                    }
+                  }}
                   className="w-full border rounded-xl px-3 py-2 text-sm"
                   placeholder="United Arab Emirates"
                   required
                 />
               </Field>
-              <Field label="Country code">
+              <Field label="Country code" required>
                 <input
                   value={form.code ?? ""}
-                  onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+                  onChange={(e) => applyCountryCode(e.target.value)}
                   className="w-full border rounded-xl px-3 py-2 text-sm uppercase"
                   placeholder="AE"
                   maxLength={3}
+                  required
                 />
               </Field>
               <Field label="Flag emoji">
@@ -369,7 +489,8 @@ export function AdminCountriesContent() {
                 <div>
                   <h4 className="text-sm font-semibold text-gray-900">States &amp; districts</h4>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Load built-in locations for this country code, or upload a CSV/JSON file.
+                    Upload a CSV/JSON from a data site. Extra columns are ignored; we keep State and
+                    District only.
                   </p>
                 </div>
               </div>
@@ -408,46 +529,105 @@ export function AdminCountriesContent() {
                       ? `${uploadName}: ${uploadSummary.states} states · ${uploadSummary.districts} districts`
                       : "CSV or JSON with state + district columns"
                   }
-                  onClick={() => {
-                    setLocationSource("upload");
-                    setUploadError("");
-                  }}
+                  onClick={openFilePicker}
                 />
               </div>
 
-              {locationSource === "upload" && (
-                <div className="space-y-3">
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept=".csv,.json,.txt,text/csv,application/json"
-                    className="hidden"
-                    onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => fileRef.current?.click()}
-                      className="inline-flex items-center gap-2 text-sm font-semibold border border-gray-300 bg-white hover:border-green-500 text-gray-700 px-3 py-2 rounded-xl"
-                    >
-                      <Upload className="w-4 h-4" />
-                      Choose file
-                    </button>
-                    <button
-                      type="button"
-                      onClick={downloadTemplate}
-                      className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-green-700 px-3 py-2"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download CSV template
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-gray-400">
-                    CSV columns: <code className="bg-white px-1 rounded">state,district</code>. JSON:{" "}
-                    <code className="bg-white px-1 rounded">
-                      [{`{ "state": "…", "districts": ["…"] }`}]
-                    </code>
+              <div
+                className={cn(
+                  "relative rounded-xl border-2 border-dashed px-4 py-5 text-center transition-colors",
+                  fileDragging
+                    ? "border-green-500 bg-green-50"
+                    : locationSource === "upload"
+                      ? "border-green-400 bg-white"
+                      : "border-gray-200 bg-white hover:border-green-400"
+                )}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer.types.includes("Files")) setFileDragging(true);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setFileDragging(false);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setFileDragging(false);
+                  const file = e.dataTransfer.files?.[0] ?? null;
+                  if (file) void handleFile(file);
+                }}
+              >
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".csv,.json,.txt,.tsv,.geojson,text/csv,application/json"
+                  className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+                  aria-label="Upload states and districts file"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    void handleFile(file);
+                    e.target.value = "";
+                  }}
+                />
+                <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2 pointer-events-none" />
+                <p className="text-sm font-medium text-gray-700 pointer-events-none">
+                  {fileDragging
+                    ? "Drop your CSV or JSON file"
+                    : uploadName
+                      ? uploadName
+                      : "Drop a file here, or click to choose"}
+                </p>
+                <p className="text-xs text-gray-400 mt-1 pointer-events-none">
+                  Same columns as public downloads: state, district
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={openFilePicker}
+                  className="inline-flex items-center gap-2 text-sm font-semibold border border-gray-300 bg-white hover:border-green-500 text-gray-700 px-3 py-2 rounded-xl"
+                >
+                  <Upload className="w-4 h-4" />
+                  Choose file
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadTemplate("csv")}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-green-700 px-3 py-2"
+                >
+                  <Download className="w-4 h-4" />
+                  CSV template
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadTemplate("json")}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-green-700 px-3 py-2"
+                >
+                  <Download className="w-4 h-4" />
+                  JSON template
+                </button>
+              </div>
+
+              {locationSource === "defaults" && preset && (
+                <LocationPreviewTable
+                  rows={flattenLocationRows(preset)}
+                  caption={`${presetSummary?.states ?? 0} states · ${presetSummary?.districts ?? 0} districts from built-in list`}
+                />
+              )}
+
+              {uploadSummary && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-green-800 bg-green-50 border border-green-100 rounded-lg px-3 py-2">
+                    Ready to import {uploadSummary.states} states and {uploadSummary.districts}{" "}
+                    districts from {uploadName}. Save the country to apply.
                   </p>
+                  <LocationPreviewTable rows={previewRows} />
                 </div>
               )}
 
@@ -473,15 +653,17 @@ export function AdminCountriesContent() {
             <div className="flex gap-2 pt-1">
               <button
                 type="submit"
-                className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2 rounded-xl"
+                disabled={saving}
+                className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 rounded-xl"
               >
                 <Check className="w-4 h-4" />
-                Save country
+                {saving ? "Saving…" : "Save country"}
               </button>
               <button
                 type="button"
                 onClick={cancel}
-                className="text-sm font-medium text-gray-600 hover:text-gray-900 px-3 py-2"
+                disabled={saving}
+                className="text-sm font-medium text-gray-600 hover:text-gray-900 px-3 py-2 disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -534,7 +716,12 @@ export function AdminCountriesContent() {
                         .filter(Boolean)
                         .join(" · ") || "No marketplace details"}
                       {" · "}
-                      {counts.states} states · {counts.districts} districts
+                      <Link
+                        href={`/admin/settings/filters?tab=state&country=${encodeURIComponent(c.id)}`}
+                        className="text-green-700 font-medium hover:underline"
+                      >
+                        {counts.states} states · {counts.districts} districts
+                      </Link>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -623,5 +810,43 @@ function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+function LocationPreviewTable({
+  rows,
+  caption,
+}: {
+  rows: { state: string; district: string }[];
+  caption?: string;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      {caption && (
+        <p className="px-3 py-2 text-[11px] text-gray-500 border-b bg-gray-50">{caption}</p>
+      )}
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+          <tr>
+            <th className="px-3 py-2 text-start font-semibold">State</th>
+            <th className="px-3 py-2 text-start font-semibold">District</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {rows.slice(0, 12).map((row, idx) => (
+            <tr key={`${row.state}-${row.district}-${idx}`}>
+              <td className="px-3 py-1.5 text-gray-800">{row.state}</td>
+              <td className="px-3 py-1.5 text-gray-600">{row.district || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length > 12 && (
+        <p className="px-3 py-2 text-[11px] text-gray-400 border-t">
+          Showing 12 of {rows.length} rows. All rows import on Save.
+        </p>
+      )}
+    </div>
   );
 }

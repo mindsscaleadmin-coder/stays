@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import type { StayReview } from "./stay-reviews-types";
+import { bookingStayHasEnded } from "@/lib/booking/stay-ended";
+import type { ReviewEligibility, StayReview } from "./stay-reviews-types";
 
 function toDto(row: {
   id: string;
@@ -52,17 +53,10 @@ export async function createStayReview(input: {
       code: "FORBIDDEN",
     });
   }
-  if (booking.status !== "completed") {
-    const checkOut = booking.checkOut;
-    const confirmedAndStayed =
-      booking.status === "confirmed" &&
-      checkOut &&
-      checkOut.getTime() <= Date.now();
-    if (!confirmedAndStayed) {
-      throw Object.assign(new Error("Reviews unlock only after a completed stay"), {
-        code: "NOT_ELIGIBLE",
-      });
-    }
+  if (!bookingStayHasEnded(booking)) {
+    throw Object.assign(new Error("Reviews unlock only after a completed stay"), {
+      code: "NOT_ELIGIBLE",
+    });
   }
   if (booking.listingId !== input.listingId) {
     throw Object.assign(new Error("Listing does not match booking"), { code: "INVALID" });
@@ -110,5 +104,93 @@ export async function createStayReview(input: {
     include: { author: true },
   });
 
+  try {
+    const listing = await prisma.listing.findUnique({
+      where: { id: input.listingId },
+      select: { hostId: true, title: true },
+    });
+    if (listing) {
+      const { pushHostAlert } = await import("@/lib/server/host-notifications-repo");
+      await pushHostAlert(listing.hostId, {
+        type: "review",
+        title: "New guest review",
+        message: `${input.authorName} left a ${rating}-star review for ${listing.title}.`,
+        href: "/host/reviews",
+      });
+    }
+  } catch {
+    // inbox write should not block the review
+  }
+
   return toDto(row);
+}
+
+export async function getReviewByBookingId(bookingId: string): Promise<StayReview | null> {
+  const row = await prisma.review.findFirst({
+    where: { bookingId },
+    include: { author: true },
+  });
+  return row ? toDto(row) : null;
+}
+
+export async function getReviewEligibilityForBooking(
+  bookingId: string
+): Promise<ReviewEligibility | null> {
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { listing: { select: { title: true } } },
+  });
+  if (!booking) return null;
+
+  const listingId = booking.listingId;
+  const property = booking.listing.title || "Stay";
+  const existing = await prisma.review.findFirst({ where: { bookingId } });
+  if (existing) {
+    return {
+      eligible: false,
+      reason: "You already reviewed this stay",
+      bookingId,
+      listingId,
+      property,
+    };
+  }
+
+  if (!bookingStayHasEnded(booking)) {
+    return {
+      eligible: false,
+      reason:
+        booking.status === "confirmed"
+          ? "Available after your check-out date"
+          : "Only completed stays can be reviewed",
+      bookingId,
+      listingId,
+      property,
+    };
+  }
+
+  return { eligible: true, bookingId, listingId, property };
+}
+
+export async function listListingReviewStats(
+  listingIds: string[]
+): Promise<Map<string, { rating: number; reviews: number }>> {
+  const map = new Map<string, { rating: number; reviews: number }>();
+  if (listingIds.length === 0) return map;
+
+  const grouped = await prisma.review.groupBy({
+    by: ["listingId"],
+    where: { listingId: { in: listingIds }, status: "published" },
+    _avg: { rating: true },
+    _count: { _all: true },
+  });
+
+  for (const row of grouped) {
+    const count = row._count._all;
+    const avg = row._avg.rating ?? 0;
+    map.set(row.listingId, {
+      rating: Math.round(avg * 10) / 10,
+      reviews: count,
+    });
+  }
+  return map;
 }

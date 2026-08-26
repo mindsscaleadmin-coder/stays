@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStripe, isStripeConfigured } from "@/lib/stripe/server";
-import { markBookingPaid } from "@/lib/booking/mark-paid";
+import { confirmPaidFromStripe } from "@/lib/stripe/confirm-payment";
 import { BookingError } from "@/lib/booking/confirm-booking";
-import { enqueueBookingConfirmedJob } from "@/lib/queue/enqueue";
 
 export async function POST(request: Request) {
   if (!isStripeConfigured()) {
@@ -19,7 +18,6 @@ export async function POST(request: Request) {
     if (secret && signature) {
       event = stripe.webhooks.constructEvent(rawBody, signature, secret);
     } else {
-      // Local/dev without webhook secret: parse JSON (never use in production)
       event = JSON.parse(rawBody);
       if (process.env.NODE_ENV === "production") {
         return NextResponse.json({ error: "Webhook secret required" }, { status: 400 });
@@ -31,15 +29,27 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (event.type === "checkout.session.completed") {
+    if (
+      event.type === "checkout.session.completed" ||
+      event.type === "checkout.session.async_payment_succeeded"
+    ) {
       const session = event.data.object as {
-        metadata?: { bookingId?: string };
-        payment_status?: string;
+        id?: string;
+        metadata?: { bookingId?: string; bookingIds?: string; promotionId?: string };
       };
-      const bookingId = session.metadata?.bookingId;
-      if (bookingId && session.payment_status === "paid") {
-        const paid = await markBookingPaid(bookingId);
-        void enqueueBookingConfirmedJob({ bookingId: paid.id, guestId: paid.guestId });
+      if (session.metadata?.promotionId) {
+        const { activatePromotionInDb } = await import("@/lib/listings/promotions-repo");
+        await activatePromotionInDb(session.metadata.promotionId, session.id ?? "");
+      }
+      const bookingIds = (session.metadata?.bookingIds || session.metadata?.bookingId || "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
+      if (bookingIds[0]) {
+        await confirmPaidFromStripe({
+          bookingId: bookingIds[0],
+          sessionId: session.id,
+        });
       }
     }
     return NextResponse.json({ received: true });

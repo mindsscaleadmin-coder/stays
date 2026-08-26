@@ -14,7 +14,7 @@ import { enqueueBookingConfirmedJob } from "@/lib/queue/enqueue";
  * Demo-only: mark an unpaid booking as paid when Stripe is not configured.
  * Rejects if Stripe keys are present (use Checkout + webhook instead).
  */
-export const POST = withBookingAuth(async (_request, context, userId) => {
+export const POST = withBookingAuth(async (_request, context, actor) => {
   try {
     if (isStripeConfigured()) {
       return NextResponse.json(
@@ -30,7 +30,7 @@ export const POST = withBookingAuth(async (_request, context, userId) => {
     }
 
     if (!isDemoApiMode()) {
-      assertGuestOwnsBooking(booking, userId);
+      assertGuestOwnsBooking(booking, actor.id);
     }
 
     const paid = await markBookingPaid(id);

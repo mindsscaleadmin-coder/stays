@@ -35,7 +35,7 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
       flag: "🇸🇦",
       currency: "SAR",
       currencySymbol: "ر.س",
-      exchangeRateToAED: 1,
+      exchangeRateToAED: 0.98,
       taxPct: 15,
       taxLabel: "VAT",
       dialCode: "+966",
@@ -63,7 +63,7 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
       flag: "🇶🇦",
       currency: "QAR",
       currencySymbol: "ر.ق",
-      exchangeRateToAED: 1,
+      exchangeRateToAED: 1.01,
       taxPct: 0,
       taxLabel: "VAT",
       dialCode: "+974",
@@ -88,6 +88,7 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     { id: "d6", name: "Diriyah", stateId: "s5" },
     { id: "d7", name: "AlUla Old Town", stateId: "s6" },
   ],
+  cities: [],
   parents: [
     { id: "p1", name: "Stays" },
     { id: "p3", name: "Experiences" },
@@ -345,106 +346,6 @@ function dedupeCustomItems(
   return next;
 }
 
-function parentKind(name: string): "stays" | "experiences" | "venues" | "other" {
-  const n = normalizeFilterName(name);
-  if (n === "stays" || n === "farm stays" || n === "farm stay") return "stays";
-  if (n === "experiences" || n === "experience") return "experiences";
-  if (n === "venues" || n === "venue") return "venues";
-  return "other";
-}
-
-/**
- * Collapse extra stay-type parents (Beach Houses, Homestays, …) into categories
- * under Stays. Keep only Stays, Experiences, and Venues as parents.
- */
-function collapseToThreeParents(data: TaxonomyData): TaxonomyData {
-  const incoming = data.parents ?? [];
-  if (incoming.length === 0) return data;
-
-  const pick = (
-    kind: "stays" | "experiences" | "venues",
-    preferredId: string,
-    name: string
-  ) => {
-    const match =
-      incoming.find((p) => p.id === preferredId) ||
-      incoming.find((p) => parentKind(p.name) === kind);
-    return match ? { ...match, name } : null;
-  };
-
-  let stays = pick("stays", "p1", "Stays");
-  const experiences = pick("experiences", "p3", "Experiences");
-  const venues = pick("venues", "p4", "Venues");
-  const keeperIdSet = new Set(
-    [stays, experiences, venues].filter(Boolean).map((p) => p!.id)
-  );
-
-  const extras = incoming.filter((p) => !keeperIdSet.has(p.id));
-  const stayTypeExtras = extras.filter((p) => parentKind(p.name) === "other");
-  if (stayTypeExtras.length > 0 && !stays) {
-    stays = { id: "p1", name: "Stays", enabled: true };
-  }
-
-  const keepers = [stays, experiences, venues].filter(
-    (p): p is NonNullable<typeof p> => p != null
-  );
-  if (keepers.length === 0) return data;
-
-  const fallbackId = stays?.id ?? keepers[0].id;
-
-  const remapParentId = (parentId: string) => {
-    if (stays && parentId === stays.id) return stays.id;
-    if (experiences && parentId === experiences.id) return experiences.id;
-    if (venues && parentId === venues.id) return venues.id;
-    const src = incoming.find((p) => p.id === parentId);
-    if (!src) return fallbackId;
-    const kind = parentKind(src.name);
-    if (kind === "experiences" && experiences) return experiences.id;
-    if (kind === "venues" && venues) return venues.id;
-    return fallbackId;
-  };
-
-  const categories = (data.categories ?? []).map((cat) => ({
-    ...cat,
-    parentId: remapParentId(cat.parentId),
-  }));
-
-  const seenCats = new Set(
-    categories.map((cat) => `${cat.parentId}::${normalizeFilterName(cat.name)}`)
-  );
-
-  for (const extra of stayTypeExtras) {
-    const key = `${fallbackId}::${normalizeFilterName(extra.name)}`;
-    if (seenCats.has(key)) continue;
-    categories.push({
-      id: extra.id.startsWith("cat") ? extra.id : `cat-${extra.id}`,
-      name: extra.name,
-      parentId: fallbackId,
-      enabled: extra.enabled,
-    });
-    seenCats.add(key);
-  }
-
-  const subcategories = (data.subcategories ?? []).map((sc) => ({
-    ...sc,
-    parentId: remapParentId(sc.parentId),
-  }));
-
-  const featureFilters = (data.featureFilters ?? []).map((ff) => ({
-    ...ff,
-    parentId: remapParentId(ff.parentId),
-  }));
-
-  return {
-    ...data,
-    parents: keepers,
-    categories,
-    subcategories,
-    featureFilters,
-  };
-}
-
-/** Keep stored parents. Seed only when nothing has been saved yet. */
 function normalizeParents(
   stored: TaxonomyData["parents"] | undefined
 ): TaxonomyData["parents"] {
@@ -537,18 +438,18 @@ function normalizeSubcategories(
 }
 
 export function normalizeTaxonomy(parsed: Partial<TaxonomyData>): TaxonomyData {
-  const collapsed = collapseToThreeParents({
+  const incoming: TaxonomyData = {
     ...SEED_TAXONOMY,
     ...parsed,
     parents: parsed.parents ?? SEED_TAXONOMY.parents,
     categories: parsed.categories ?? SEED_TAXONOMY.categories,
     subcategories: parsed.subcategories ?? SEED_TAXONOMY.subcategories,
     featureFilters: parsed.featureFilters ?? SEED_TAXONOMY.featureFilters,
-  });
+  };
 
   const mainTabs = mergeMainTabs(parsed.mainTabs);
-  const parents = normalizeParents(collapsed.parents);
-  const categories = normalizeCategories(collapsed.categories, parents);
+  const parents = normalizeParents(incoming.parents);
+  const categories = normalizeCategories(incoming.categories, parents);
   const customItems = dedupeCustomItems(
     mergeCustomItems(parsed.customItems, parsed.mainTabs, mainTabs)
   );
@@ -558,7 +459,7 @@ export function normalizeTaxonomy(parsed: Partial<TaxonomyData>): TaxonomyData {
     migrateBuiltInAliasCustomItems(
       parsed.mainTabs ?? [],
       customItems,
-      collapsed.subcategories ?? [],
+      incoming.subcategories ?? [],
       parents,
       categories
     );
@@ -574,7 +475,7 @@ export function normalizeTaxonomy(parsed: Partial<TaxonomyData>): TaxonomyData {
       "type"
     ),
     featureFilters: dedupeByNameAndParent(
-      collapsed.featureFilters ?? SEED_TAXONOMY.featureFilters,
+      incoming.featureFilters ?? SEED_TAXONOMY.featureFilters,
       "parentId"
     ),
     countries: normalizeCountries(parsed.countries),
@@ -583,6 +484,7 @@ export function normalizeTaxonomy(parsed: Partial<TaxonomyData>): TaxonomyData {
       parsed.districts ?? SEED_TAXONOMY.districts,
       "stateId"
     ),
+    cities: dedupeByNameAndParent(parsed.cities ?? [], "districtId"),
     parents,
     categories,
     subcategories: normalizeSubcategories(fromAliases, parents, categories),

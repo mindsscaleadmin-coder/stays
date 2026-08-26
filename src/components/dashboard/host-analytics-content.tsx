@@ -37,32 +37,34 @@ function BarRow({
   );
 }
 
-export function HostAnalyticsContent() {
+export function HostAnalyticsPanel({
+  className,
+  data: dataProp,
+  ready: readyProp,
+}: {
+  className?: string;
+  data?: ReturnType<typeof useHostAnalytics>["data"];
+  ready?: boolean;
+}) {
   const { user } = useAuth();
   const hostId = resolveHostId(user);
-  const { data, ready } = useHostAnalytics(hostId);
+  const controlled = readyProp !== undefined;
+  const fetched = useHostAnalytics(controlled ? undefined : hostId);
+  const data = dataProp ?? fetched.data;
+  const ready = controlled ? Boolean(readyProp) : fetched.ready;
 
   if (!ready || !data) {
     return (
-      <HostDashboardShell>
-        <div className="flex items-center justify-center min-h-[320px]">
-          <Loader2 className="w-8 h-8 animate-spin text-green-600" />
-        </div>
-      </HostDashboardShell>
+      <div className={cn("flex items-center justify-center min-h-[240px]", className)}>
+        <Loader2 className="w-8 h-8 animate-spin text-green-600" />
+      </div>
     );
   }
 
   const maxBookings = Math.max(...data.bookingTrend.map((b) => b.bookings), 1);
 
   return (
-    <HostDashboardShell>
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900 font-display">Analytics & Insights</h2>
-          <p className="text-gray-500 text-sm mt-1">
-            Occupancy, revenue, guest demographics, and benchmarking vs nearby listings.
-          </p>
-        </div>
+    <div className={cn("space-y-6", className)}>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-white rounded-2xl border p-4">
@@ -152,14 +154,18 @@ export function HostAnalyticsContent() {
             </div>
             <div>
               <p className="text-xs font-semibold text-gray-400 mb-2">Top guest countries</p>
-              <ul className="space-y-1.5">
-                {data.demographics.topCountries.map((c) => (
-                  <li key={c.country} className="flex justify-between text-sm">
-                    <span className="text-gray-600">{c.country}</span>
-                    <span className="font-medium text-gray-900">{c.pct}%</span>
-                  </li>
-                ))}
-              </ul>
+              {data.demographics.topCountries.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {data.demographics.topCountries.map((c) => (
+                    <li key={c.country} className="flex justify-between text-sm">
+                      <span className="text-gray-600">{c.country}</span>
+                      <span className="font-medium text-gray-900">{c.pct}%</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-gray-400">Guest origin is not stored on bookings yet.</p>
+              )}
             </div>
           </section>
         </div>
@@ -212,7 +218,14 @@ export function HostAnalyticsContent() {
             </table>
           </div>
         </section>
-      </div>
+    </div>
+  );
+}
+
+export function HostAnalyticsContent() {
+  return (
+    <HostDashboardShell>
+      <HostAnalyticsPanel />
     </HostDashboardShell>
   );
 }

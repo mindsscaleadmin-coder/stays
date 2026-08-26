@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "@/i18n/routing";
-import { Search, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, Search, SlidersHorizontal } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { useCountry } from "@/components/providers/country-provider";
 import { filterActiveCountries } from "@/lib/admin/country-utils";
-import { isFilterEnabled } from "@/lib/admin/taxonomy-types";
+import { tabEnabled, tabLabel } from "@/lib/admin/taxonomy-nav";
 import type { SortOption } from "@/lib/listings/public-listings";
 import { AdvancedFilterPopover } from "@/components/search/advanced-filter-popover";
 import { AdvancedFilterPanel } from "@/components/search/advanced-filter-panel";
@@ -51,11 +51,17 @@ export function SearchFilterBar({
   variant = "top",
   initialCountry = "",
   initialState = "",
+  initialDistrict = "",
+  initialCity = "",
   initialParent = "",
   initialCategory = "",
   initialSubcategory = "",
   initialCheckIn = "",
   initialCheckOut = "",
+  initialGuests = 0,
+  initialAdults = 0,
+  initialChildren = 0,
+  initialInfants = 0,
   initialAdvanced = "",
   initialSort = "recommended",
   activeAdvancedCount = 0,
@@ -64,11 +70,17 @@ export function SearchFilterBar({
   variant?: "top" | "hero";
   initialCountry?: string;
   initialState?: string;
+  initialDistrict?: string;
+  initialCity?: string;
   initialParent?: string;
   initialCategory?: string;
   initialSubcategory?: string;
   initialCheckIn?: string;
   initialCheckOut?: string;
+  initialGuests?: number;
+  initialAdults?: number;
+  initialChildren?: number;
+  initialInfants?: number;
   initialAdvanced?: string;
   initialSort?: SortOption;
   activeAdvancedCount?: number;
@@ -81,6 +93,8 @@ export function SearchFilterBar({
 
   const [countryId, setCountryId] = useState("");
   const [stateId, setStateId] = useState("");
+  const [districtId, setDistrictId] = useState("");
+  const [cityId, setCityId] = useState("");
   const [parentId, setParentId] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [subcategoryId, setSubcategoryId] = useState("");
@@ -88,8 +102,8 @@ export function SearchFilterBar({
   const [checkOut, setCheckOut] = useState(initialCheckOut);
   const [sort, setSort] = useState<SortOption>(initialSort);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
   const [draftAdvancedIds, setDraftAdvancedIds] = useState<string[]>([]);
-  const [countryError, setCountryError] = useState(false);
 
   const appliedAdvancedIds = useMemo(
     () => (initialAdvanced ? initialAdvanced.split(",").filter(Boolean) : []),
@@ -115,6 +129,12 @@ export function SearchFilterBar({
     if (initialState) {
       setStateId(data.states.find((s) => s.name === initialState)?.id ?? "");
     }
+    if (initialDistrict) {
+      setDistrictId(data.districts.find((s) => s.name === initialDistrict)?.id ?? "");
+    }
+    if (initialCity) {
+      setCityId((data.cities ?? []).find((c) => c.name === initialCity)?.id ?? "");
+    }
     if (initialParent) {
       setParentId(data.parents.find((p) => p.name === initialParent)?.id ?? "");
     }
@@ -131,11 +151,15 @@ export function SearchFilterBar({
   }, [
     initialCountry,
     initialState,
+    initialDistrict,
+    initialCity,
     initialParent,
     initialCategory,
     initialSubcategory,
     data.countries,
     data.states,
+    data.districts,
+    data.cities,
     data.parents,
     data.categories,
     data.subcategories,
@@ -182,13 +206,35 @@ export function SearchFilterBar({
     [data.states, selectedCountryId]
   );
 
+  const districts = useMemo(
+    () =>
+      data.districts.filter(
+        (d) =>
+          d.enabled !== false && (!stateId || d.stateId === stateId)
+      ),
+    [data.districts, stateId]
+  );
+
+  const cities = useMemo(
+    () =>
+      (data.cities ?? []).filter(
+        (c) => c.enabled !== false && districtId && c.districtId === districtId
+      ),
+    [data.cities, districtId]
+  );
+
   const parents = useMemo(
     () => data.parents.filter((p) => p.enabled !== false),
     [data.parents]
   );
 
-  const showCategory = isFilterEnabled(data.mainTabs.find((t) => t.id === "category"));
-  const showSubcategory = isFilterEnabled(data.mainTabs.find((t) => t.id === "subcategory"));
+  const isHero = variant === "hero";
+  const showState = tabEnabled(data, "state");
+  const showDistrict = !isHero && tabEnabled(data, "district");
+  const showCity = !isHero && tabEnabled(data, "city");
+  const showParent = tabEnabled(data, "parent");
+  const showCategory = !isHero && tabEnabled(data, "category");
+  const showSubcategory = !isHero && tabEnabled(data, "subcategory");
 
   const categories = useMemo(
     () =>
@@ -229,32 +275,29 @@ export function SearchFilterBar({
   const filterCount = activeAdvancedCount || appliedAdvancedIds.length;
 
   function pushSearch(advancedIds: string[]) {
-    if (!selectedCountryId) {
-      setCountryError(true);
-      return;
-    }
-    setCountryError(false);
-
     const params = new URLSearchParams();
 
     const country = data.countries.find((c) => c.id === selectedCountryId)?.name;
     const state = data.states.find((s) => s.id === stateId)?.name;
+    const district = data.districts.find((d) => d.id === districtId)?.name;
+    const city = (data.cities ?? []).find((c) => c.id === cityId)?.name;
     const parent = data.parents.find((p) => p.id === selectedParentId)?.name;
     const category = (data.categories ?? []).find((c) => c.id === selectedCategoryId)?.name;
     const subcategory = data.subcategories.find((sc) => sc.id === selectedSubcategoryId)?.name;
 
-    if (!country) {
-      setCountryError(true);
-      return;
-    }
-
-    params.set("country", country);
+    if (country) params.set("country", country);
     if (state) params.set("state", state);
+    if (district) params.set("district", district);
+    if (city) params.set("city", city);
     if (parent) params.set("parent", parent);
     if (category) params.set("category", category);
     if (subcategory) params.set("subcategory", subcategory);
     if (checkIn) params.set("checkIn", checkIn);
     if (checkOut) params.set("checkOut", checkOut);
+    if (initialGuests > 0) params.set("guests", String(initialGuests));
+    if (initialAdults > 0) params.set("adults", String(initialAdults));
+    if (initialChildren > 0) params.set("children", String(initialChildren));
+    if (initialInfants > 0) params.set("infants", String(initialInfants));
     if (sort && sort !== "recommended") params.set("sort", sort);
     if (advancedIds.length > 0) params.set("advanced", advancedIds.join(","));
 
@@ -284,13 +327,10 @@ export function SearchFilterBar({
     setDraftAdvancedIds([]);
   }
 
-  const isHero = variant === "hero";
-  const fieldClass = cn(isHero && "flex-1 min-w-0");
-  const labelClass = cn(
-    "block font-medium text-gray-500 mb-1",
-    isHero ? "text-[10px]" : "text-xs"
-  );
-  const inputClass = cn(selectClass, isHero && "py-2 px-2 text-xs");
+  const compactFields = true;
+  const fieldClass = "min-w-0 flex-1";
+  const labelClass = "block font-medium text-gray-500 mb-1 text-[10px] truncate";
+  const inputClass = cn(selectClass, "py-2 px-2 text-xs");
 
   return (
     <>
@@ -298,64 +338,28 @@ export function SearchFilterBar({
         className={cn(
           isHero
             ? "w-full bg-white rounded-2xl shadow-2xl p-5"
-            : "bg-white border-b shadow-sm sticky top-0 z-30 overflow-visible"
+            : "bg-white border-b shadow-sm sticky top-[3.75rem] sm:top-[4.25rem] z-30 overflow-visible"
         )}
       >
-        <div className={cn(!isHero && "max-w-7xl mx-auto px-4 py-4")}>
+        <div className={cn(!isHero && "max-w-7xl mx-auto px-4 py-2.5")}>
           {isHero && (
             <p className="text-sm font-semibold text-gray-700 mb-3">{t("label")}</p>
           )}
 
-          <div
-            className={cn(
-              isHero
-                ? "flex flex-col sm:flex-row sm:flex-wrap items-end gap-2"
-                : "grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7"
-            )}
-          >
-            <div className={fieldClass}>
-              <label htmlFor="search-country" className={labelClass}>
-                {t("country")}
-              </label>
-              <select
-                id="search-country"
-                value={selectedCountryId}
-                required
-                aria-invalid={countryError}
-                onChange={(e) => {
-                  setCountryId(e.target.value);
-                  setStateId("");
-                  setCountryError(false);
-                }}
-                className={cn(
-                  inputClass,
-                  countryError && "border-red-400 ring-2 ring-red-200"
-                )}
-              >
-                <option value="" disabled hidden>
-                  {t("countryPlaceholder")}
-                </option>
-                {countries.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-              {countryError && (
-                <p className="mt-1 text-[11px] text-red-600 font-medium">
-                  {t("countryRequired")}
-                </p>
-              )}
-            </div>
-
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-row lg:items-end gap-2">
+            {showState && (
             <div className={fieldClass}>
               <label htmlFor="search-state" className={labelClass}>
-                {t("state")}
+                {tabLabel(data, "state", t("state"))}
               </label>
               <select
                 id="search-state"
                 value={stateId}
-                onChange={(e) => setStateId(e.target.value)}
+                onChange={(e) => {
+                  setStateId(e.target.value);
+                  setDistrictId("");
+                  setCityId("");
+                }}
                 className={inputClass}
               >
                 <option value="">ALL</option>
@@ -366,10 +370,59 @@ export function SearchFilterBar({
                 ))}
               </select>
             </div>
+            )}
 
+            {showDistrict && (
+            <div className={fieldClass}>
+              <label htmlFor="search-district" className={labelClass}>
+                {tabLabel(data, "district", "District")}
+              </label>
+              <select
+                id="search-district"
+                value={districtId}
+                onChange={(e) => {
+                  setDistrictId(e.target.value);
+                  setCityId("");
+                }}
+                className={inputClass}
+                disabled={!stateId && states.length > 0}
+              >
+                <option value="">ALL</option>
+                {districts.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            )}
+
+            {showCity && (
+            <div className={fieldClass}>
+              <label htmlFor="search-city" className={labelClass}>
+                {tabLabel(data, "city", "City")}
+              </label>
+              <select
+                id="search-city"
+                value={cityId}
+                onChange={(e) => setCityId(e.target.value)}
+                className={inputClass}
+                disabled={!districtId || cities.length === 0}
+              >
+                <option value="">ALL</option>
+                {cities.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            )}
+
+            {showParent && (
             <div className={fieldClass}>
               <label htmlFor="search-parent" className={labelClass}>
-                {t("parentCategory")}
+                {tabLabel(data, "parent", t("parentCategory"))}
               </label>
               <select
                 id="search-parent"
@@ -389,11 +442,12 @@ export function SearchFilterBar({
                 ))}
               </select>
             </div>
+            )}
 
             {showCategory && (
               <div className={fieldClass}>
                 <label htmlFor="search-category" className={labelClass}>
-                  {t("category")}
+                  {tabLabel(data, "category", t("category"))}
                 </label>
                 <select
                   id="search-category"
@@ -417,7 +471,7 @@ export function SearchFilterBar({
             {showSubcategory && (
               <div className={fieldClass}>
                 <label htmlFor="search-subcategory" className={labelClass}>
-                  {t("subcategory")}
+                  {tabLabel(data, "subcategory", t("subcategory"))}
                 </label>
                 <select
                   id="search-subcategory"
@@ -436,53 +490,49 @@ export function SearchFilterBar({
               </div>
             )}
 
-            <div className={fieldClass}>
+            <div className={cn(fieldClass, "sm:col-span-2 lg:col-auto lg:max-w-[11rem]")}>
               <DateRangePicker
                 checkIn={checkIn}
                 checkOut={checkOut}
                 minDate={minDate}
                 onCheckInChange={setCheckIn}
                 onCheckOutChange={setCheckOut}
-                compact={isHero}
+                compact={compactFields}
               />
             </div>
 
-            <div className={cn("flex items-end", isHero ? "shrink-0" : "")}>
+            <div className="flex items-end shrink-0 sm:col-span-2 lg:col-auto">
               <button
                 type="button"
                 onClick={handleSearch}
                 aria-label={t("button")}
-                className={cn(
-                  "flex items-center justify-center bg-green-700 hover:bg-green-800 text-white font-semibold transition-colors",
-                  isHero
-                    ? "gap-1.5 px-3 py-2 rounded-lg text-xs shrink-0"
-                    : "gap-2 px-5 py-2.5 rounded-xl text-sm w-full"
-                )}
+                className="flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-2 rounded-lg text-xs bg-green-700 hover:bg-green-800 text-white font-semibold transition-colors shrink-0 w-full lg:w-auto min-h-[40px]"
               >
-                <Search className={cn(isHero ? "w-3.5 h-3.5" : "w-4 h-4")} />
+                <Search className="w-3.5 h-3.5" />
                 {isHero ? t("buttonShort") : t("button")}
               </button>
             </div>
           </div>
 
           {!isHero && (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 mt-4 pt-4 border-t border-gray-100">
-            <div className="relative w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-end gap-2 mt-2.5 pt-2.5 border-t border-gray-100">
+            <div className="relative min-w-0 w-full sm:w-[9.5rem]">
               <button
                 type="button"
                 onClick={toggleAdvancedFilters}
                 aria-expanded={popoverOpen}
                 className={cn(
-                  "inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-semibold transition-colors w-full sm:w-auto",
+                  inputClass,
+                  "inline-flex items-center justify-center gap-1.5 font-semibold",
                   popoverOpen
                     ? "border-gray-900 bg-gray-50 text-gray-900"
-                    : "border-gray-300 bg-white text-gray-900 hover:border-gray-400"
+                    : "hover:border-gray-400"
                 )}
               >
-                <SlidersHorizontal className="w-4 h-4" />
-                {t("advancedFilters")}
+                <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">{t("advancedFilters")}</span>
                 {filterCount > 0 && (
-                  <span className="bg-gray-900 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
+                  <span className="bg-gray-900 text-white text-[10px] font-bold px-1 py-0.5 rounded-full min-w-[1.1rem] text-center shrink-0">
                     {filterCount}
                   </span>
                 )}
@@ -505,19 +555,53 @@ export function SearchFilterBar({
               </AdvancedFilterPopover>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full sm:w-auto">
-              <select
+            <div className="relative min-w-0 w-full sm:w-[9.5rem]">
+              <button
                 id="search-sort"
-                value={sort}
-                onChange={(e) => setSort(e.target.value as SortOption)}
-                className={cn(selectClass, "sm:min-w-[200px]")}
+                type="button"
+                aria-label={t("sort")}
+                aria-expanded={sortOpen}
+                onClick={() => setSortOpen((open) => !open)}
+                className={cn(inputClass, "flex items-center justify-between gap-1 text-start")}
               >
-                {SORT_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {t(`sortOptions.${option}`)}
-                  </option>
-                ))}
-              </select>
+                <span className="truncate font-bold">{t("sort")}</span>
+                <ChevronDown
+                  className={cn(
+                    "w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform",
+                    sortOpen && "rotate-180"
+                  )}
+                />
+              </button>
+              {sortOpen && (
+                <>
+                  <button
+                    type="button"
+                    className="fixed inset-0 z-40 cursor-default"
+                    aria-label="Close sort"
+                    onClick={() => setSortOpen(false)}
+                  />
+                  <div className="absolute end-0 top-full mt-1 z-50 w-[min(16rem,calc(100vw-2rem))] rounded-lg border border-gray-200 bg-white shadow-lg overflow-hidden py-1">
+                    {SORT_OPTIONS.map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => {
+                          setSort(option);
+                          setSortOpen(false);
+                        }}
+                        className={cn(
+                          "w-full text-start px-3 py-2 text-xs transition-colors",
+                          option === sort
+                            ? "bg-green-50 text-green-800 font-semibold"
+                            : "text-gray-700 hover:bg-gray-50"
+                        )}
+                      >
+                        {t(`sortOptions.${option}`)}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           </div>
           )}

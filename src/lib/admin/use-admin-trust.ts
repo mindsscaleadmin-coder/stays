@@ -69,7 +69,7 @@ export function useAdminTrust() {
     };
   }, [refresh]);
 
-  async function persistSettings(next: TrustAdminSettings) {
+  const persistSettings = useCallback(async (next: TrustAdminSettings) => {
     if (shared) {
       try {
         const saved = await saveTrustAdminSettingsToApi(next);
@@ -85,7 +85,7 @@ export function useAdminTrust() {
     saveTrustAdminSettings(next);
     setSettings(next);
     return next;
-  }
+  }, [shared]);
 
   const patch = useCallback(
     (updater: (prev: TrustAdminSettings) => TrustAdminSettings) => {
@@ -95,7 +95,7 @@ export function useAdminTrust() {
         return next;
       });
     },
-    [shared]
+    [persistSettings]
   );
 
   const reviewsFlat = reviews;

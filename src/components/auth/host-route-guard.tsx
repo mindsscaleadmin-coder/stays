@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { usePathname, useRouter } from "@/i18n/routing";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -19,39 +19,37 @@ function HostAuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { user, loading, isHostAccountRestricted, impersonating, stopImpersonating } =
     useAuth();
+  const allowedRef = useRef(false);
+  if (user && canManageListings(user.roles)) {
+    allowedRef.current = true;
+  }
 
   useEffect(() => {
     if (loading) return;
-    if (!user || !canManageListings(user.roles)) {
-      const next = encodeURIComponent(pathname);
-      router.push(`/host/login?next=${next}`);
+    if (user && canManageListings(user.roles)) {
+      allowedRef.current = true;
+      if (isHostAccountRestricted && !impersonating) {
+        router.push("/host/login?restricted=1");
+      }
       return;
     }
-    if (isHostAccountRestricted && !impersonating) {
-      router.push("/host/login?restricted=1");
-    }
+    // Don't tear down the host shell on a brief auth flicker — that ate sidebar clicks.
+    if (allowedRef.current) return;
+    const next = encodeURIComponent(pathname);
+    router.push(`/host/login?next=${next}`);
   }, [loading, user, router, pathname, isHostAccountRestricted, impersonating]);
 
   // Only block the first paint — don't replace the whole host shell with a
   // spinner on later auth flickers (that made sidebar clicks feel broken).
-  if (loading && !user) {
-    return (
-      <div className="min-h-[50vh] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-green-700" />
-      </div>
-    );
-  }
-
-  if (!loading && (!user || !canManageListings(user.roles))) {
-    return (
-      <div className="min-h-[50vh] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-green-700" />
-      </div>
-    );
-  }
-
   if (!user || !canManageListings(user.roles)) {
-    return null;
+    if (allowedRef.current) {
+      return <>{children}</>;
+    }
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-green-700" />
+      </div>
+    );
   }
 
   if (isHostAccountRestricted && !impersonating) {

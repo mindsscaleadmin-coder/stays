@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { confirmBooking, BookingError } from "@/lib/booking/confirm-booking";
-import { computeBookingQuoteFromListing } from "@/lib/booking/compute-booking-quote-from-listing";
-import { ensureListingForBooking } from "@/lib/booking/ensure-listing";
-import { resolveListingHostForBooking } from "@/lib/server/resolve-listing-host";
+import { BookingError } from "@/lib/booking/confirm-booking";
+import { createQuotedBooking } from "@/lib/booking/create-quoted-booking";
 import { markBookingPaid } from "@/lib/booking/mark-paid";
 import {
   queryBookings,
@@ -18,6 +16,9 @@ import { authErrorResponse } from "@/lib/auth/session";
 import { getRequestId } from "@/lib/observability/logger";
 import { enqueueBookingConfirmedJob } from "@/lib/queue/enqueue";
 import { expirePendingBookings } from "@/lib/booking/lifecycle";
+import { prisma } from "@/lib/prisma";
+import { resolveSessionActor } from "@/lib/auth/resolve-actor";
+import { canAccessAdmin } from "@/lib/auth/roles";
 
 function supabaseConfigured() {
   return isSupabaseConfigured();
@@ -44,11 +45,14 @@ export async function GET(request: Request) {
 
     if (supabaseConfigured()) {
       const user = await requireSessionUser();
+      const actor = await resolveSessionActor(user);
 
       if (role === "guest") {
         guestId = user.id;
+      } else if (canAccessAdmin(actor.roles)) {
+        hostId = searchParams.get("hostId") || undefined;
       } else {
-        hostId = user.id;
+        hostId = actor.staffHostId || user.id;
       }
     }
 
@@ -95,7 +99,7 @@ const bodySchema = z.object({
   checkOut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   guestCount: z.number().int().min(1).max(50),
   nightlyRate: z.number().min(0).optional(),
-  accommodation: z.number().min(0),
+  accommodation: z.number().min(0).optional(),
   experiencesTotal: z.number().min(0).optional().default(0),
   extrasTotal: z.number().min(0).optional().default(0),
   taxAmount: z.number().min(0).optional().default(0),
@@ -158,68 +162,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Sign in required to book" }, { status: 401 });
     }
 
-    const quote = await computeBookingQuoteFromListing({
+    const { booking, quote } = await createQuotedBooking({
       listingId: body.listingId,
       checkIn: body.checkIn,
       checkOut: body.checkOut,
       guestCount: body.guestCount,
+      guestId,
+      guestName,
+      guestEmail,
       roomIds: body.roomIds,
       experienceIds: body.experienceIds,
       extraIds: body.extraIds,
-      fallbackNightlyRate:
-        body.nightlyRate ||
-        body.listing.pricePerNight ||
-        undefined,
-      fallbackAccommodation: body.accommodation,
       currency: body.currency,
-    });
-
-    const resolvedHost = await resolveListingHostForBooking(body.listingId, body.listing);
-
-    await ensureListingForBooking({
-      ...body.listing,
-      id: body.listingId,
-      hostId: resolvedHost?.hostId ?? body.listing.hostId,
-      hostName: resolvedHost?.hostName ?? body.listing.hostName,
-      pricePerNight:
-        body.nightlyRate ||
-        body.listing.pricePerNight ||
-        (quote.nights > 0 ? quote.accommodation / quote.nights : 0),
-    });
-
-    // Ensure guest display fields on user row
-    const { prisma } = await import("@/lib/prisma");
-    const existingGuest = await prisma.user.findUnique({ where: { id: guestId } });
-    if (!existingGuest) {
-      await prisma.user.create({
-        data: {
-          id: guestId,
-          fullName: guestName || "Guest",
-          email: guestEmail || `${guestId}@guests.local`,
-          roles: JSON.stringify(["guest"]),
-        },
-      });
-    } else if (guestName || guestEmail) {
-      await prisma.user.update({
-        where: { id: guestId },
-        data: {
-          ...(guestName ? { fullName: guestName } : {}),
-          ...(guestEmail ? { email: guestEmail } : {}),
-        },
-      });
-    }
-
-    const booking = await confirmBooking({
-      listingId: body.listingId,
-      guestId,
-      checkIn: new Date(`${body.checkIn}T12:00:00`),
-      checkOut: new Date(`${body.checkOut}T12:00:00`),
-      guestCount: body.guestCount,
-      totalPrice: quote.total,
+      listing: body.listing,
     });
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const successUrl = `${appUrl}/booking/${body.listingId}/success?bookingId=${booking.id}`;
+    const successUrl = `${appUrl}/booking/${body.listingId}/success?bookingId=${booking.id}&session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${appUrl}/booking/${body.listingId}/checkout?checkIn=${body.checkIn}&checkOut=${body.checkOut}&guests=${body.guestCount}`;
 
     if (isStripeConfigured()) {
@@ -229,6 +188,7 @@ export async function POST(request: Request) {
         success_url: successUrl,
         cancel_url: cancelUrl,
         customer_email: guestEmail,
+        expires_at: Math.floor(Date.now() / 1000) + 23 * 60 * 60,
         line_items: [
           {
             quantity: 1,
@@ -244,14 +204,17 @@ export async function POST(request: Request) {
         ],
         metadata: {
           bookingId: booking.id,
+          bookingIds: booking.id,
           listingId: body.listingId,
         },
       });
 
-      const { prisma } = await import("@/lib/prisma");
       const withSession = await prisma.booking.update({
         where: { id: booking.id },
-        data: { stripeSessionId: session.id },
+        data: {
+          stripeSessionId: session.id,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
       });
 
       return NextResponse.json({

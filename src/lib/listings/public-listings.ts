@@ -1,21 +1,27 @@
-import { STAYS, type Stay } from "@/lib/mock/data";
+import type { Stay } from "@/lib/mock/data";
 import { loadActiveSubmissions } from "./submission-data";
 import { submissionToStay } from "./submission-to-stay";
 import type { SubmittedListing } from "./submission-types";
-import { loadPricingSettings } from "@/lib/host/host-pricing-data";
-import { isFlashDealActive } from "@/lib/host/flash-deal-utils";
+import { hasStoredPricing, loadPricingSettings } from "@/lib/host/host-pricing-data";
+import { getActiveFlashDeal, stayHasLiveFlashDeal } from "@/lib/host/flash-deal-utils";
 import { getActivePromotedListingIds } from "@/lib/host/host-promotions-data";
 import { locationMatchesCountry } from "@/lib/currency";
+import { loadTaxonomy } from "@/lib/admin/taxonomy-data";
+import type { TaxonomyData } from "@/lib/admin/taxonomy-types";
 import { applyGuestReviewRatings } from "@/lib/booking/stay-reviews-data";
+import { submittedListingMatches } from "./match-listing";
 
 export interface SearchCriteria {
   country?: string;
   state?: string;
+  district?: string;
+  city?: string;
   parentCategory?: string;
   category?: string;
   subcategory?: string;
   checkIn?: string;
   checkOut?: string;
+  guests?: number;
   advancedIds?: string[];
 }
 
@@ -62,16 +68,68 @@ function featuredSortScore(stay: Stay, featuredIds: Set<string>): number {
   return 0;
 }
 
+/** Overlay the host Pricing base rate / live flash deal onto a catalog card. */
+export function applyHostPublishedRates(stay: Stay): Stay {
+  if (typeof window === "undefined") return stay;
+  if (!hasStoredPricing(stay.id)) {
+    if (stayHasLiveFlashDeal(stay)) return stay;
+    if (!stay.flashDealEndsAt) return stay;
+    return {
+      ...stay,
+      flashDealEndsAt: undefined,
+      flashDealDiscountPct: undefined,
+      flashDealCurrency: undefined,
+      price: stay.originalPrice && stay.originalPrice > stay.price ? stay.originalPrice : stay.price,
+      originalPrice: undefined,
+      priceNote: stay.priceNote?.startsWith("Flash ") ? undefined : stay.priceNote,
+    };
+  }
+
+  const settings = loadPricingSettings(stay.id);
+  const base = settings.basePrice > 0 ? settings.basePrice : stay.price;
+  const deal = getActiveFlashDeal(settings);
+
+  if (deal) {
+    return {
+      ...stay,
+      price: deal.dealPrice,
+      originalPrice: base > deal.dealPrice ? base : stay.originalPrice,
+      priceNote: `Flash −${deal.discountPct}%`,
+      flashDealEndsAt: deal.endsAt,
+      flashDealDiscountPct: deal.discountPct,
+      flashDealCurrency: deal.currency,
+    };
+  }
+
+  const notes: string[] = [];
+  if (settings.discountsEnabled) {
+    if (settings.weeklyDiscountPct > 0) {
+      notes.push(`${settings.weeklyDiscountPct}% weekly`);
+    }
+    if (settings.monthlyDiscountPct > 0) {
+      notes.push(`${settings.monthlyDiscountPct}% monthly`);
+    }
+  }
+
+  return {
+    ...stay,
+    price: base,
+    originalPrice: undefined,
+    flashDealEndsAt: undefined,
+    flashDealDiscountPct: undefined,
+    flashDealCurrency: undefined,
+    priceNote: notes.length > 0 ? notes.join(" · ") : undefined,
+  };
+}
+
 export function isFeaturedStay(stay: Stay, featuredIds?: Set<string>): boolean {
   if (featuredIds?.has(stay.id)) return true;
   return /featured|premium/i.test(stay.badge ?? "");
 }
 
 export function getPublicListings(): Stay[] {
-  const mockIds = new Set(STAYS.map((s) => s.id));
-
   if (typeof window === "undefined") {
-    return [...STAYS];
+    return [];
   }
 
   const submissions = loadActiveSubmissions();
@@ -81,17 +139,11 @@ export function getPublicListings(): Stay[] {
   ]);
 
   const hostApproved = submissions
-    .filter((l) => !mockIds.has(l.id))
     .map(submissionToStay)
     .map((stay) => applyPaidFeaturedBadge(stay));
 
-  const mocks = STAYS.map((stay) => applyPaidFeaturedBadge(stay)).map((stay) =>
-    featuredIds.has(stay.id)
-      ? { ...stay, badge: "Featured", badgeColor: "bg-purple-600" }
-      : stay
-  );
-
-  return [...hostApproved, ...mocks]
+  return hostApproved
+    .map(applyHostPublishedRates)
     .map(applyGuestReviewRatings)
     .sort(
       (a, b) => featuredSortScore(b, featuredIds) - featuredSortScore(a, featuredIds)
@@ -115,33 +167,46 @@ function normalize(value: string): string {
 }
 
 function submissionMatches(sub: SubmittedListing, criteria: SearchCriteria): boolean {
-  if (criteria.country) {
-    const countryHaystack = `${sub.country} ${sub.state} ${sub.district}`;
-    if (!locationMatchesCountry(countryHaystack, criteria.country)) return false;
+  return submittedListingMatches(sub, {
+    country: criteria.country,
+    state: criteria.state,
+    district: criteria.district,
+    city: criteria.city,
+    parentCategory: criteria.parentCategory,
+    category: criteria.category,
+    subcategory: criteria.subcategory,
+  });
+}
+
+function liveTaxonomy(): TaxonomyData | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return loadTaxonomy();
+  } catch {
+    return null;
   }
-  if (criteria.state && normalize(sub.state) !== normalize(criteria.state)) return false;
-  if (
-    criteria.parentCategory &&
-    normalize(sub.parentCategory) !== normalize(criteria.parentCategory)
-  ) {
-    return false;
-  }
-  if (criteria.category && normalize(sub.category ?? "") !== normalize(criteria.category)) {
-    return false;
-  }
-  if (
-    criteria.subcategory &&
-    normalize(sub.subcategory) !== normalize(criteria.subcategory)
-  ) {
-    return false;
-  }
-  return true;
 }
 
 export function stayMatchesParentCategory(stay: Stay, parentName: string): boolean {
   const parent = normalize(parentName);
   if (!parent) return true;
   if (normalize(stay.parentCategory ?? "") === parent) return true;
+
+  const tax = liveTaxonomy();
+  const row = tax?.parents.find((p) => normalize(p.name) === parent);
+  if (row) {
+    if (row.id === "p1") {
+      return (
+        stay.type === "farmstay" ||
+        stay.type === "homestay" ||
+        (!isVenueStay(stay) && stay.type !== "experience")
+      );
+    }
+    if (row.id === "p3") {
+      return stay.type === "experience" || stayHaystack(stay).includes("experience");
+    }
+    if (row.id === "p4") return isVenueStay(stay);
+  }
 
   const isStayListing =
     stay.type === "farmstay" ||
@@ -185,6 +250,8 @@ function mockStayMatches(stay: Stay, criteria: SearchCriteria): boolean {
     return false;
   }
   if (criteria.state && !haystack.includes(normalize(criteria.state))) return false;
+  if (criteria.district && !haystack.includes(normalize(criteria.district))) return false;
+  if (criteria.city && !haystack.includes(normalize(criteria.city))) return false;
   if (criteria.parentCategory && !stayMatchesParentCategory(stay, criteria.parentCategory)) {
     return false;
   }
@@ -250,9 +317,9 @@ function applyAdvancedFilters(
 }
 
 function applyCriteria(listings: Stay[], criteria?: SearchCriteria): Stay[] {
-  // Browse/search always requires a country — never return the full catalog.
-  if (!criteria?.country) {
-    return [];
+  if (!criteria) return listings;
+  if (!criteria.country && !criteria.parentCategory && !criteria.category && !criteria.subcategory && !criteria.state && !criteria.district && !criteria.city) {
+    return listings;
   }
 
   const approved = typeof window !== "undefined" ? loadActiveSubmissions() : [];
@@ -276,13 +343,7 @@ export function filterPublicListings(
   let result = listings;
 
   if (filter === "deals") {
-    result = result.filter((s) => {
-      if (typeof window !== "undefined" && isFlashDealActive(loadPricingSettings(s.id))) {
-        return true;
-      }
-      // Catalog/demo fallback when no live host flash deal is set
-      return s.badge === "Deal";
-    });
+    result = result.filter((s) => stayHasLiveFlashDeal(s) || getActiveFlashDeal(loadPricingSettings(s.id)) != null);
   }
 
   if (filter === "trending") {
@@ -299,6 +360,10 @@ export function filterPublicListings(
   }
 
   result = applyCriteria(result, criteria);
+
+  if (criteria?.guests && criteria.guests > 0) {
+    result = result.filter((stay) => stay.guests >= criteria.guests!);
+  }
 
   if (criteria?.advancedIds?.length && filterNameById) {
     result = applyAdvancedFilters(result, criteria.advancedIds, filterNameById);

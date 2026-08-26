@@ -1,12 +1,12 @@
 import { setRequestLocale } from "next-intl/server";
-import { AdminPromotionsSettingsContent } from "@/components/dashboard/admin-promotions-settings-content";
+import { redirect } from "@/i18n/routing";
 
-export default async function AdminPromotionsSettingsPage({
+export default async function AdminPromoteSettingsRedirect({
   params,
 }: {
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  return <AdminPromotionsSettingsContent />;
+  redirect({ href: "/admin/advertisements", locale });
 }

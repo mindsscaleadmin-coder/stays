@@ -10,6 +10,7 @@ import { HOST_PRICING_SYNC_EVENT, loadPricingSettings } from "@/lib/host/host-pr
 import { loadAllSubmissions, LISTINGS_SYNC_EVENT } from "@/lib/listings/submission-data";
 import {
   submissionGalleryPhotos,
+  nightlyFromListing,
   submissionToStay,
 } from "@/lib/listings/submission-to-stay";
 import type { SubmittedListing } from "@/lib/listings/submission-types";
@@ -69,7 +70,7 @@ export function SubmissionListingLoader({ id }: { id: string }) {
   void pricingTick;
   const stay = {
     ...submissionToStay(listing),
-    price: pricing.basePrice,
+    price: pricing.basePrice > 0 ? pricing.basePrice : nightlyFromListing(listing),
   };
   const isPreview = listing.status !== "approved";
   const rooms = (listing.rooms ?? []).map((room) => {

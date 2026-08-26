@@ -1,94 +1,58 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useMemo, useState, useRef, useEffect, useCallback } from "react";
+import Image from "next/image";
 import { Link } from "@/i18n/routing";
-import { ChevronDown } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
+import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
+import {
+  buildHeaderNav,
+  type HeaderNavItem,
+  type NavGroup,
+} from "@/lib/admin/taxonomy-nav";
+import { cn } from "@/lib/utils";
 
-/** Link columns for all mega-menu items (same layout as Properties). */
-export const MEGA_DATA: Record<
-  string,
-  Record<string, { label: string;}[]>
-> = {
-  Stays: {
-    "Farm Stay": [
-      { label: "Farm House", to: "/listings?parent=Stays&q=farm" },
-      { label: "Cottage", to: "/listings?parent=Stays&q=cottage" },
-      { label: "Luxury Farm", to: "/listings?parent=Stays&q=luxury" },
-      { label: "Glamping", to: "/listings?parent=Stays&q=glamping" },
-      { label: "Desert Farm", to: "/listings?parent=Stays&q=desert" },
-      { label: "Mountain Farm", to: "/listings?parent=Stays&q=mountain" },
-    ],
-    "Home Stay": [
-      { label: "Heritage Home Stay", to: "/listings?parent=Stays&q=heritage" },
-      { label: "Village Home Stay", to: "/listings?parent=Stays&q=village" },
-      { label: "Beachside Home Stay", to: "/listings?parent=Stays&q=beach" },
-    ],
-    "Quick Links": [
-      { label: "All Stays", to: "/listings?parent=Stays" },
-      { label: "Trending", to: "/listings?filter=trending" },
-      { label: "Best Rated", to: "/listings?filter=top" },
-    ],
-  },
-  Destinations: {
-    UAE: [
-      { label: "Al Ain", to: "/listings?q=Al+Ain" },
-      { label: "Dubai", to: "/listings?q=Dubai" },
-      { label: "Abu Dhabi", to: "/listings?q=Abu+Dhabi" },
-      { label: "Fujairah", to: "/listings?q=Fujairah" },
-      { label: "Ras Al Khaimah", to: "/listings?q=Ras+Al+Khaimah" },
-      { label: "Hatta", to: "/listings?q=Hatta" },
-    ],
-  },
-  Venues: {
-    "Event Venues": [
-      { label: "Wedding Venues", to: "/listings?parent=Venues&q=wedding" },
-      { label: "Party Lawns", to: "/listings?parent=Venues&q=party" },
-      { label: "Corporate Retreats", to: "/listings?parent=Venues&q=corporate" },
-      { label: "Private Events", to: "/listings?parent=Venues&q=private" },
-    ],
-    Outdoor: [
-      { label: "Farmhouse Gatherings", to: "/listings?parent=Venues&q=farmhouse" },
-      { label: "Outdoor Lawns", to: "/listings?parent=Venues&q=lawn" },
-      { label: "Desert Venues", to: "/listings?parent=Venues&q=desert" },
-      { label: "Banquet Halls", to: "/listings?parent=Venues&q=banquet" },
-    ],
-    "Quick Links": [
-      { label: "All Venues", to: "/listings?parent=Venues" },
-      { label: "Featured Venues", to: "/listings?parent=Venues&filter=trending" },
-    ],
-  },
-  Experiences: {
-    "Farm & Nature": [
-      { label: "Farm Tour", to: "/listings?parent=Experiences&q=farm+tour" },
-      { label: "Fruit Picking", to: "/listings?parent=Experiences&q=fruit" },
-      { label: "Camel Riding", to: "/listings?parent=Experiences&q=camel" },
-      { label: "BBQ Experience", to: "/listings?parent=Experiences&q=bbq" },
-    ],
-  },
-};
+export function useHeaderNav(): HeaderNavItem[] {
+  const { data } = useAdminTaxonomy();
+  return useMemo(() => buildHeaderNav(data), [data]);
+}
 
-const NAV_ORDER = ["Stays", "Destinations", "Venues", "Experiences"] as const;
+function usableGroups(groups: NavGroup[]) {
+  return groups.filter((group) => group.title !== "Quick Links");
+}
 
 export function MegaMenu() {
-  const t = useTranslations("nav");
-  const [active, setActive] = useState<string | null>(null);
+  const items = useHeaderNav();
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [groupTitle, setGroupTitle] = useState<string | null>(null);
+  const [panelTop, setPanelTop] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navRef = useRef<HTMLElement>(null);
 
-  const navKeys: Record<string, string> = {
-    Stays: t("properties"),
-    Destinations: t("destinations"),
-    Venues: t("venues"),
-    Experiences: t("experiences"),
-  };
+  const active = items.find((item) => item.id === activeId) ?? null;
+  const groups = active ? usableGroups(active.groups) : [];
+  const selected =
+    groups.find((group) => group.title === groupTitle) ?? groups[0] ?? null;
 
-  const open = (k: string) => {
+  const open = (id: string) => {
     if (timer.current) clearTimeout(timer.current);
-    setActive(k);
+    if (id !== activeId) {
+      const next = items.find((item) => item.id === id);
+      setGroupTitle(usableGroups(next?.groups ?? [])[0]?.title ?? null);
+    }
+    setActiveId(id);
   };
   const close = () => {
-    timer.current = setTimeout(() => setActive(null), 150);
+    timer.current = setTimeout(() => setActiveId(null), 160);
   };
+  const dismiss = useCallback(() => setActiveId(null), []);
+
+  const syncPanelTop = useCallback(() => {
+    const header = navRef.current?.closest("header");
+    const el = header ?? navRef.current;
+    if (!el) return;
+    setPanelTop(el.getBoundingClientRect().bottom);
+  }, []);
 
   useEffect(
     () => () => {
@@ -97,93 +61,214 @@ export function MegaMenu() {
     []
   );
 
-  const linkMenu = active ? MEGA_DATA[active] : null;
-  const groupCount = linkMenu ? Object.keys(linkMenu).length : 0;
-  const viewAllHref =
-    active === "Venues"
-      ? "/listings?parent=Venues"
-      : active === "Destinations"
-        ? "/destinations"
-        : active === "Experiences"
-          ? "/listings?parent=Experiences"
-          : "/listings?parent=Stays";
-  const viewAllLabel = `View all ${navKeys[active ?? ""]?.toLowerCase() ?? ""} →`;
+  useEffect(() => {
+    if (activeId && !items.some((item) => item.id === activeId)) {
+      setActiveId(null);
+    }
+  }, [items, activeId]);
 
-  const columnsClass =
-    groupCount <= 1
-      ? "grid-cols-1 max-w-xs"
-      : groupCount === 2
-        ? "grid-cols-2"
-        : groupCount === 3
-          ? "grid-cols-3"
-          : "grid-cols-4";
+  useEffect(() => {
+    if (!activeId) return;
+    syncPanelTop();
+    window.addEventListener("resize", syncPanelTop);
+    window.addEventListener("scroll", syncPanelTop, true);
+    return () => {
+      window.removeEventListener("resize", syncPanelTop);
+      window.removeEventListener("scroll", syncPanelTop, true);
+    };
+  }, [activeId, syncPanelTop]);
+
+  useEffect(() => {
+    if (!activeId) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") dismiss();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [activeId, dismiss]);
+
+  if (items.length === 0) return null;
+
+  const featuredImg = selected?.img || active?.img;
+  const categoryHref = selected?.href || active?.href || "/listings";
 
   return (
     <div className="relative" onMouseLeave={close}>
-      <nav className="hidden lg:flex items-center">
-        {NAV_ORDER.map((key) => (
-          <button
-            key={key}
-            type="button"
-            onMouseEnter={() => open(key)}
-            className={`flex items-center gap-0.5 px-2.5 py-2 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
-              active === key
-                ? "text-green-700 bg-green-50"
-                : "text-gray-600 hover:text-green-700"
-            }`}
-          >
-            {navKeys[key] ?? key}
-            <ChevronDown
-              className={`w-3 h-3 transition-transform ${active === key ? "rotate-180" : ""}`}
-            />
-          </button>
-        ))}
+      <nav ref={navRef} className="hidden lg:flex items-center" aria-label="Explore">
+        {items.map((item) => {
+          const isOpen = activeId === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onMouseEnter={() => open(item.id)}
+              onFocus={() => open(item.id)}
+              aria-expanded={isOpen}
+              aria-haspopup="true"
+              className={cn(
+                "relative flex items-center gap-1 px-3.5 h-10 text-[13px] font-medium tracking-tight transition-colors",
+                isOpen ? "text-green-800" : "text-gray-600 hover:text-green-800"
+              )}
+            >
+              {item.label}
+              <ChevronDown
+                className={cn(
+                  "w-3.5 h-3.5 opacity-60 transition-transform duration-200",
+                  isOpen && "rotate-180"
+                )}
+              />
+              <span
+                className={cn(
+                  "absolute inset-x-3 bottom-1 h-[2px] rounded-full bg-green-700 transition-opacity",
+                  isOpen ? "opacity-100" : "opacity-0"
+                )}
+              />
+            </button>
+          );
+        })}
       </nav>
 
-      {active && linkMenu ? (
+      {active && selected ? (
         <div
-          onMouseEnter={() => open(active)}
-          className="absolute top-full left-1/2 -translate-x-1/2 pt-1 z-[80]"
-          style={{ width: "min(720px, 92vw)" }}
+          onMouseEnter={() => open(active.id)}
+          className="fixed inset-x-0 z-[80]"
+          style={{ top: panelTop }}
         >
-          <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
-            <div className="flex">
-              <div className="w-1.5 bg-green-700 shrink-0" />
-              <div className="flex-1 p-5 sm:p-6">
-                <div className="flex items-center justify-between gap-4 mb-4 pb-3 border-b border-gray-100">
-                  <span className="font-bold text-gray-900 font-display text-sm">
-                    {navKeys[active] ?? active}
-                  </span>
-                  <Link
-                    href={viewAllHref}
-                    onClick={() => setActive(null)}
-                    className="text-xs text-green-600 font-semibold hover:underline shrink-0"
-                  >
-                    {viewAllLabel}
-                  </Link>
+          <div className="border-t border-gray-100 bg-white shadow-[0_28px_60px_-24px_rgba(27,67,50,0.28)]">
+            <div className="max-w-7xl mx-auto px-4">
+              <div className="grid grid-cols-12 min-h-[360px]">
+                <div className="col-span-4 xl:col-span-3 border-e border-gray-100 bg-[#f6f4ef] -mx-4 ps-4 pe-0 xl:mx-0 xl:ps-0">
+                  <div className="px-4 xl:px-5 pt-5 pb-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+                      {active.label}
+                    </p>
+                  </div>
+                  <div className="max-h-[320px] overflow-y-auto px-2 xl:px-3 pb-4">
+                    {groups.map((group) => {
+                      const isSelected = group.title === selected.title;
+                      return (
+                        <button
+                          key={group.title}
+                          type="button"
+                          onMouseEnter={() => setGroupTitle(group.title)}
+                          onFocus={() => setGroupTitle(group.title)}
+                          className={cn(
+                            "w-full flex items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors",
+                            isSelected
+                              ? "bg-white text-green-900 shadow-sm"
+                              : "text-gray-600 hover:bg-white/70 hover:text-gray-900"
+                          )}
+                        >
+                          <span className="relative w-11 h-11 rounded-lg overflow-hidden shrink-0 bg-gray-200">
+                            {group.img ? (
+                              <Image
+                                src={group.img}
+                                alt=""
+                                fill
+                                className="object-cover"
+                                sizes="44px"
+                              />
+                            ) : null}
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-[13px] font-semibold truncate">
+                              {group.title}
+                            </span>
+                            <span className="block text-[11px] text-gray-400 truncate">
+                              {group.links.length}{" "}
+                              {group.links.length === 1 ? "type" : "types"}
+                            </span>
+                          </span>
+                          <ChevronRight
+                            className={cn(
+                              "w-3.5 h-3.5 shrink-0",
+                              isSelected ? "text-green-700" : "text-gray-300"
+                            )}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className={`grid ${columnsClass} gap-x-10 gap-y-6 items-start`}>
-                  {Object.entries(linkMenu).map(([group, items]) => (
-                    <div key={group} className="min-w-0">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2.5 leading-none">
-                        {group}
+                <div className="col-span-5 xl:col-span-6 px-7 py-6 flex flex-col">
+                  <div className="flex items-end justify-between gap-4 mb-5">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-400">
+                        Browse
                       </p>
-                      <ul className="space-y-1">
-                        {items.map(({ label, to }) => (
-                          <li key={label}>
-                            <Link
-                              href={to}
-                              onClick={() => setActive(null)}
-                              className="text-sm text-gray-600 hover:text-green-700 transition-colors block py-0.5 leading-snug"
-                            >
-                              {label}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
+                      <h3 className="font-display text-xl font-semibold text-gray-900 mt-1 leading-tight">
+                        {selected.title}
+                      </h3>
                     </div>
-                  ))}
+                    <Link
+                      href={categoryHref}
+                      onClick={dismiss}
+                      className="text-[12px] font-semibold text-green-800 hover:text-green-950 inline-flex items-center gap-1 shrink-0"
+                    >
+                      View all
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+
+                  <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
+                    {selected.links.map((link) => (
+                      <li key={`${link.href}-${link.label}`}>
+                        <Link
+                          href={link.href}
+                          onClick={dismiss}
+                          className="group flex items-center justify-between gap-2 min-h-10 px-2.5 -mx-2.5 rounded-lg text-[13.5px] text-gray-600 hover:text-green-900 hover:bg-[#f3f7f4] transition-colors"
+                        >
+                          <span className="truncate">{link.label}</span>
+                          <ArrowRight className="w-3.5 h-3.5 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-green-700 shrink-0" />
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="mt-auto pt-6">
+                    <Link
+                      href={active.href}
+                      onClick={dismiss}
+                      className="inline-flex items-center gap-2 text-[13px] font-semibold text-gray-800 hover:text-green-800"
+                    >
+                      All {active.label.toLowerCase()}
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                </div>
+
+                <div className="col-span-3 py-6 pe-0">
+                  <Link
+                    href={categoryHref}
+                    onClick={dismiss}
+                    className="relative block h-full min-h-[300px] rounded-2xl overflow-hidden group"
+                  >
+                    {featuredImg ? (
+                      <Image
+                        src={featuredImg}
+                        alt={selected.title}
+                        fill
+                        className="object-cover transition-transform duration-500 group-hover:scale-105"
+                        sizes="280px"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 bg-green-800" />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+                    <div className="absolute inset-x-0 bottom-0 p-5 text-white">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">
+                        Featured
+                      </p>
+                      <p className="font-display text-lg font-semibold leading-snug mt-1">
+                        {selected.title}
+                      </p>
+                      <span className="mt-3 inline-flex items-center gap-1.5 text-[12px] font-semibold">
+                        Explore
+                        <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+                      </span>
+                    </div>
+                  </Link>
                 </div>
               </div>
             </div>

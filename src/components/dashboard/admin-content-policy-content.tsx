@@ -18,8 +18,16 @@ import {
   Trash2,
 } from "lucide-react";
 import { AdminDashboardShell } from "./admin-dashboard-shell";
+import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { useAdminContentPolicy } from "@/lib/admin/use-admin-content-policy";
 import { newContentPolicyId } from "@/lib/admin/content-policy-data";
+import {
+  formatAudienceLabel,
+  isAllHostsAudience,
+  type AnnouncementAudience,
+} from "@/lib/admin/announcement-audience";
+import { filterActiveCountries } from "@/lib/admin/country-utils";
+import { isFilterEnabled } from "@/lib/admin/taxonomy-types";
 import type {
   CancellationPolicyOption,
   HouseRuleTemplate,
@@ -38,6 +46,51 @@ const TABS: { id: TabId; label: string }[] = [
 
 const inputClass =
   "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500";
+
+function toggleListValue(list: string[], value: string): string[] {
+  return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
+}
+
+function AudienceCheckList({
+  label,
+  options,
+  selected,
+  onToggle,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: string[];
+  onToggle: (value: string) => void;
+}) {
+  return (
+    <div>
+      <p className="text-xs font-medium text-gray-600 mb-1.5">{label}</p>
+      <div className="max-h-36 overflow-y-auto border border-gray-200 rounded-lg p-2 space-y-0.5 bg-white">
+        {options.length === 0 ? (
+          <p className="text-xs text-gray-400 px-1 py-1">None configured</p>
+        ) : (
+          options.map((opt) => (
+            <label
+              key={opt.value}
+              className="flex items-center gap-2 text-sm text-gray-700 px-1 py-1 rounded hover:bg-gray-50"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(opt.value)}
+                onChange={() => onToggle(opt.value)}
+                className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              {opt.label}
+            </label>
+          ))
+        )}
+      </div>
+      <p className="text-[11px] text-gray-400 mt-1">
+        {selected.length === 0 ? "All" : `${selected.length} selected`}
+      </p>
+    </div>
+  );
+}
 
 export function AdminContentPolicyContent() {
   const router = useRouter();
@@ -66,9 +119,13 @@ export function AdminContentPolicyContent() {
     toggleCmsSection,
   } = useAdminContentPolicy();
 
+  const { data: taxonomy } = useAdminTaxonomy();
   const [message, setMessage] = useState("");
   const [annTitle, setAnnTitle] = useState("");
   const [annMessage, setAnnMessage] = useState("");
+  const [annCountries, setAnnCountries] = useState<string[]>([]);
+  const [annParents, setAnnParents] = useState<string[]>([]);
+  const [annCategories, setAnnCategories] = useState<string[]>([]);
 
   const setTab = useCallback(
     (tab: TabId) => router.replace(`/admin/content?tab=${tab}`),
@@ -84,6 +141,55 @@ export function AdminContentPolicyContent() {
     () => settings.cms.blogPosts.filter((p) => p.published).length,
     [settings.cms.blogPosts]
   );
+
+  const countryOptions = useMemo(
+    () =>
+      filterActiveCountries(taxonomy.countries).map((country) => ({
+        value: country.name,
+        label: country.name,
+      })),
+    [taxonomy.countries]
+  );
+
+  const parentOptions = useMemo(
+    () =>
+      taxonomy.parents
+        .filter((parent) => isFilterEnabled(parent))
+        .map((parent) => ({ value: parent.name, label: parent.name })),
+    [taxonomy.parents]
+  );
+
+  const categoryOptions = useMemo(() => {
+    const selectedParentIds = new Set(
+      taxonomy.parents
+        .filter((parent) => isFilterEnabled(parent) && annParents.includes(parent.name))
+        .map((parent) => parent.id)
+    );
+    return taxonomy.categories
+      .filter((category) => {
+        if (!isFilterEnabled(category)) return false;
+        if (selectedParentIds.size === 0) return true;
+        return selectedParentIds.has(category.parentId);
+      })
+      .map((category) => ({ value: category.name, label: category.name }));
+  }, [taxonomy.categories, taxonomy.parents, annParents]);
+
+  const announcementAudience = useMemo<AnnouncementAudience>(
+    () => ({
+      countries: annCountries,
+      parentCategories: annParents,
+      categories: annCategories,
+    }),
+    [annCountries, annParents, annCategories]
+  );
+
+  function resetAnnouncementForm() {
+    setAnnTitle("");
+    setAnnMessage("");
+    setAnnCountries([]);
+    setAnnParents([]);
+    setAnnCategories([]);
+  }
 
   if (!ready) {
     return (
@@ -357,10 +463,11 @@ export function AdminContentPolicyContent() {
           <div className="space-y-4">
             <section className="bg-white rounded-2xl border p-5 space-y-4">
               <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                <Megaphone className="w-4 h-4 text-green-700" /> Push to all hosts
+                <Megaphone className="w-4 h-4 text-green-700" /> Host announcement
               </h3>
               <p className="text-xs text-gray-500">
-                Creates a policy alert in every host notification inbox — synced with host dashboards.
+                Shows on matching host overviews and notification inboxes. Leave a group unchecked
+                to include all in that group.
               </p>
               <input
                 value={annTitle}
@@ -375,6 +482,49 @@ export function AdminContentPolicyContent() {
                 placeholder="Message body…"
                 className={cn(inputClass, "resize-none")}
               />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <AudienceCheckList
+                  label="Countries"
+                  options={countryOptions}
+                  selected={annCountries}
+                  onToggle={(value) => setAnnCountries((prev) => toggleListValue(prev, value))}
+                />
+                <AudienceCheckList
+                  label="Parent categories"
+                  options={parentOptions}
+                  selected={annParents}
+                  onToggle={(value) => {
+                    const nextParents = toggleListValue(annParents, value);
+                    setAnnParents(nextParents);
+                    const allowedParentIds = new Set(
+                      taxonomy.parents
+                        .filter(
+                          (parent) =>
+                            isFilterEnabled(parent) && nextParents.includes(parent.name)
+                        )
+                        .map((parent) => parent.id)
+                    );
+                    setAnnCategories((prev) =>
+                      prev.filter((name) => {
+                        if (allowedParentIds.size === 0) return true;
+                        return taxonomy.categories.some(
+                          (category) =>
+                            category.name === name && allowedParentIds.has(category.parentId)
+                        );
+                      })
+                    );
+                  }}
+                />
+                <AudienceCheckList
+                  label="Categories"
+                  options={categoryOptions}
+                  selected={annCategories}
+                  onToggle={(value) => setAnnCategories((prev) => toggleListValue(prev, value))}
+                />
+              </div>
+              <p className="text-xs text-gray-500">
+                Audience: {formatAudienceLabel(announcementAudience)}
+              </p>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -384,9 +534,9 @@ export function AdminContentPolicyContent() {
                       title: annTitle.trim(),
                       message: annMessage.trim(),
                       priority: "high",
+                      ...announcementAudience,
                     });
-                    setAnnTitle("");
-                    setAnnMessage("");
+                    resetAnnouncementForm();
                     flash("Draft saved — push when ready.");
                   }}
                   className="text-xs font-semibold border border-gray-200 hover:border-green-400 px-4 py-2 rounded-lg disabled:opacity-50"
@@ -401,10 +551,14 @@ export function AdminContentPolicyContent() {
                       title: annTitle.trim(),
                       message: annMessage.trim(),
                       priority: "high",
+                      ...announcementAudience,
                     });
-                    setAnnTitle("");
-                    setAnnMessage("");
-                    flash("Announcement pushed to all hosts.");
+                    resetAnnouncementForm();
+                    flash(
+                      isAllHostsAudience(announcementAudience)
+                        ? "Announcement shown on host overviews."
+                        : `Announcement shown for ${formatAudienceLabel(announcementAudience)}.`
+                    );
                   }}
                   className="text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded-lg inline-flex items-center gap-1 disabled:opacity-50"
                 >
@@ -437,6 +591,9 @@ export function AdminContentPolicyContent() {
                         )}
                       </div>
                       <p className="text-sm text-gray-700 mt-2">{ann.message}</p>
+                      <p className="text-xs text-gray-500 mt-2">
+                        {formatAudienceLabel(ann)}
+                      </p>
                       <p className="text-xs text-gray-400 mt-1">
                         Created {new Date(ann.createdAt).toLocaleString("en-GB")}
                         {ann.pushedAt && ` · Pushed ${new Date(ann.pushedAt).toLocaleString("en-GB")}`}
@@ -448,7 +605,9 @@ export function AdminContentPolicyContent() {
                           type="button"
                           onClick={() => {
                             pushAnnouncement(ann.id);
-                            flash("Pushed to all host inboxes.");
+                            flash(
+                              `Pushed to ${formatAudienceLabel(ann).toLowerCase()}.`
+                            );
                           }}
                           className="text-xs font-semibold text-green-700 border border-green-200 hover:bg-green-50 px-3 py-1.5 rounded-lg inline-flex items-center gap-1"
                         >

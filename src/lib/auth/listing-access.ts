@@ -1,60 +1,55 @@
 import { prisma } from "@/lib/prisma";
-import { AuthError, getSessionUser, requireSessionUser } from "@/lib/auth/session";
-import { BookingAccessError } from "@/lib/auth/booking-access";
+import { AuthError, requireSessionUser } from "@/lib/auth/session";
+import { BookingAccessError, isDemoApiMode } from "@/lib/auth/booking-access";
 import { canAccessAdmin } from "@/lib/auth/roles";
-import { getUserRoles } from "@/lib/auth/booking-access";
+import { requireActor } from "@/lib/auth/guards";
+import { resolveSessionActor, type SessionActor } from "@/lib/auth/resolve-actor";
 
-export async function assertListingHostOrAdmin(listingId: string, userId: string) {
+function actorManagesHost(actor: SessionActor, hostId: string) {
+  return actor.id === hostId || actor.staffHostId === hostId || canAccessAdmin(actor.roles);
+}
+
+export async function assertListingHostOrAdmin(listingId: string, actor: SessionActor) {
   const listing = await prisma.listing.findUnique({
     where: { id: listingId },
     select: { hostId: true },
   });
   if (!listing) throw new BookingAccessError("Listing not found", 404);
-
-  if (listing.hostId === userId) return listing;
-
-  const user = await getSessionUser();
-  const roles = user ? getUserRoles(user) : [];
-  if (canAccessAdmin(roles)) return listing;
-
-  throw new BookingAccessError("Host access denied");
+  if (!actorManagesHost(actor, listing.hostId)) {
+    throw new BookingAccessError("Host access denied");
+  }
+  return listing;
 }
 
 export async function requireListingHostOrAdmin(listingId: string) {
-  const user = await requireSessionUser();
-  await assertListingHostOrAdmin(listingId, user.id);
-  return user;
+  if (isDemoApiMode()) return null;
+  const actor = await requireActor();
+  await assertListingHostOrAdmin(listingId, actor);
+  return actor;
 }
 
-export async function assertHostSelfOrAdmin(hostId: string, userId: string) {
-  if (hostId === userId) return;
-
-  const user = await getSessionUser();
-  const roles = user ? getUserRoles(user) : [];
-  if (canAccessAdmin(roles)) return;
-
-  throw new BookingAccessError("Host access denied");
+export async function assertHostSelfOrAdmin(hostId: string, actor: SessionActor) {
+  if (!actorManagesHost(actor, hostId)) {
+    throw new BookingAccessError("Host access denied");
+  }
 }
 
 export async function requireHostSelfOrAdmin(hostId: string) {
-  const user = await requireSessionUser();
-  await assertHostSelfOrAdmin(hostId, user.id);
-  return user;
+  if (isDemoApiMode()) return null;
+  const actor = await requireActor();
+  await assertHostSelfOrAdmin(hostId, actor);
+  return actor;
 }
 
-export async function assertGuestSelfOrAdmin(guestId: string, userId: string) {
-  if (guestId === userId) return;
-
-  const user = await getSessionUser();
-  const roles = user ? getUserRoles(user) : [];
-  if (canAccessAdmin(roles)) return;
-
+export async function assertGuestSelfOrAdmin(guestId: string, actor: SessionActor) {
+  if (guestId === actor.id || canAccessAdmin(actor.roles)) return;
   throw new BookingAccessError("Guest access denied");
 }
 
 export async function requireGuestSelfOrAdmin(guestId: string) {
   const user = await requireSessionUser();
-  await assertGuestSelfOrAdmin(guestId, user.id);
+  const actor = await resolveSessionActor(user);
+  await assertGuestSelfOrAdmin(guestId, actor);
   return user;
 }
 

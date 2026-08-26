@@ -21,9 +21,9 @@ function toDto(row: {
   };
 }
 
-export async function listBookingMessages(bookingId: string): Promise<BookingMessage[]> {
+export async function listBookingMessages(bookingId: string): Promise<BookingMessage[] | null> {
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
-  if (!booking) return [];
+  if (!booking) return null;
 
   const rows = await prisma.bookingMessage.findMany({
     where: { bookingId },

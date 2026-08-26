@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Star } from "lucide-react";
 import {
   getReviewEligibility,
   getReviewForBooking,
+  mergeStayReviews,
   submitStayReview,
 } from "@/lib/booking/stay-reviews-data";
-import { loadHostReviews, saveHostReviews } from "@/lib/host/host-reviews-data";
-import { isSharedDbEnabled } from "@/lib/shared-db";
+import type { ReviewEligibility, StayReview } from "@/lib/booking/stay-reviews-types";
+import { looksLikeServerBookingId } from "@/lib/guest/guest-bookings-data";
 import { cn } from "@/lib/utils";
 
 export function StayReviewForm({
@@ -17,7 +18,6 @@ export function StayReviewForm({
   property,
   authorId,
   authorName,
-  hostId,
   bookingHint,
   onSubmitted,
 }: {
@@ -35,14 +35,73 @@ export function StayReviewForm({
   };
   onSubmitted?: () => void;
 }) {
-  const existing = getReviewForBooking(bookingId);
-  const eligibility = getReviewEligibility(bookingId, bookingHint);
+  const [existing, setExisting] = useState<StayReview | undefined>(() =>
+    getReviewForBooking(bookingId)
+  );
+  const [eligibility, setEligibility] = useState<ReviewEligibility | null>(() =>
+    looksLikeServerBookingId(bookingId)
+      ? null
+      : getReviewEligibility(bookingId, bookingHint)
+  );
+  const [ready, setReady] = useState(!looksLikeServerBookingId(bookingId));
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(Boolean(existing));
+  const [done, setDone] = useState(Boolean(getReviewForBooking(bookingId)));
   const [open, setOpen] = useState(false);
+
+  const hintStatus = bookingHint?.status;
+  const hintListingId = bookingHint?.listingId;
+  const hintProperty = bookingHint?.property;
+  const hintCheckOut = bookingHint?.checkOut;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!looksLikeServerBookingId(bookingId)) {
+      setReady(true);
+      return;
+    }
+
+    void fetch(`/api/reviews?bookingId=${encodeURIComponent(bookingId)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { review?: StayReview | null; eligibility?: ReviewEligibility | null } | null) => {
+        if (cancelled) return;
+        if (data?.review) {
+          mergeStayReviews([data.review]);
+          setExisting(data.review);
+          setDone(true);
+        }
+        if (data?.eligibility) setEligibility(data.eligibility);
+        setReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEligibility(
+            getReviewEligibility(bookingId, {
+              status: hintStatus,
+              listingId: hintListingId,
+              property: hintProperty,
+              checkOut: hintCheckOut,
+            })
+          );
+          setReady(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bookingId, hintStatus, hintListingId, hintProperty, hintCheckOut]);
+
+  if (!ready) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-gray-500 py-2">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        Checking if this stay can be reviewed…
+      </div>
+    );
+  }
 
   if (done || existing) {
     return (
@@ -70,22 +129,32 @@ export function StayReviewForm({
     setBusy(true);
     setError(null);
     try {
-      if (isSharedDbEnabled()) {
-        const res = await fetch("/api/reviews", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            bookingId,
-            listingId: listingId || eligibility!.listingId,
-            authorId,
-            authorName,
-            rating,
-            comment,
-          }),
-        });
-        const payload = (await res.json()) as { error?: string };
-        if (!res.ok) throw new Error(payload.error || "Could not submit review");
-      } else {
+      const res = await fetch("/api/reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingId,
+          listingId: listingId || eligibility!.listingId,
+          authorId,
+          authorName,
+          rating,
+          comment,
+        }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        review?: StayReview;
+      };
+
+      if (res.ok && payload.review) {
+        mergeStayReviews([payload.review]);
+        setExisting(payload.review);
+        setDone(true);
+        onSubmitted?.();
+        return;
+      }
+
+      if (!looksLikeServerBookingId(bookingId)) {
         const review = submitStayReview({
           bookingId,
           listingId: listingId || eligibility!.listingId,
@@ -96,49 +165,13 @@ export function StayReviewForm({
           comment,
           hint: bookingHint,
         });
-
-        const hid = hostId || "demo-host";
-        const hostData = loadHostReviews(hid);
-        saveHostReviews({
-          ...hostData,
-          reviewCount: hostData.reviewCount + 1,
-          overallRating: Number(
-            (
-              (hostData.overallRating * hostData.reviewCount + rating) /
-              (hostData.reviewCount + 1)
-            ).toFixed(1)
-          ),
-          reviews: [
-            {
-              id: review.id,
-              guestName: authorName,
-              property: review.property,
-              rating: review.rating,
-              date: review.createdAt.slice(0, 10),
-              text: review.comment,
-              categories: [],
-              moderationStatus: "visible",
-            },
-            ...hostData.reviews,
-          ],
-        });
-
-        void fetch("/api/reviews", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            bookingId,
-            listingId: review.listingId,
-            authorId,
-            authorName,
-            rating,
-            comment,
-          }),
-        }).catch(() => null);
+        setExisting(review);
+        setDone(true);
+        onSubmitted?.();
+        return;
       }
 
-      setDone(true);
-      onSubmitted?.();
+      throw new Error(payload.error || "Could not submit review");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not submit review");
     } finally {

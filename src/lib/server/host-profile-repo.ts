@@ -24,6 +24,39 @@ function mergeProfile(
   };
 }
 
+async function ensureHostUser(hostId: string, fallbackName = "Host") {
+  const existing = await prisma.user.findUnique({ where: { id: hostId } });
+  if (existing) return existing;
+  return prisma.user.create({
+    data: {
+      id: hostId,
+      fullName: fallbackName || "Host",
+      email: `${hostId.replace(/[^a-zA-Z0-9]/g, "")}@hosts.local`,
+      roles: JSON.stringify(["host"]),
+      isVerified: true,
+    },
+  });
+}
+
+async function syncListingInstantBook(hostId: string, enabled: boolean) {
+  const listings = await prisma.listing.findMany({
+    where: { hostId },
+    select: { id: true, payload: true },
+  });
+  for (const listing of listings) {
+    try {
+      const payload = JSON.parse(listing.payload) as Record<string, unknown>;
+      if (payload.instantBook === enabled) continue;
+      await prisma.listing.update({
+        where: { id: listing.id },
+        data: { payload: JSON.stringify({ ...payload, instantBook: enabled }) },
+      });
+    } catch {
+      // keep listing payload if it is not JSON
+    }
+  }
+}
+
 export async function getHostProfile(
   hostId: string,
   fallbackName = ""
@@ -40,12 +73,11 @@ export async function saveHostProfile(
   hostId: string,
   input: HostPublicProfileInput
 ): Promise<HostPublicProfile> {
-  const user = await prisma.user.findUnique({ where: { id: hostId } });
-  if (!user) throw new Error("Host not found");
+  const user = await ensureHostUser(hostId, input.displayName);
 
   const next: HostPublicProfile = {
     hostId,
-    displayName: input.displayName.trim(),
+    displayName: input.displayName.trim() || user.fullName,
     companyName: (input.companyName ?? "").trim(),
     bio: input.bio.trim(),
     city: input.city.trim(),
@@ -66,6 +98,7 @@ export async function saveHostProfile(
     update: { payload: JSON.stringify(payload) },
   });
 
+  await syncListingInstantBook(hostId, Boolean(next.instantBookEnabled));
   return next;
 }
 

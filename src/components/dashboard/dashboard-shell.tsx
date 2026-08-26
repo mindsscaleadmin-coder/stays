@@ -23,6 +23,8 @@ export interface DashboardNavItem {
 interface DashboardShellProps {
   title: string;
   subtitle?: string;
+  /** Host / company brand mark for the sidebar header */
+  brandLogo?: string | null;
   navItems: DashboardNavItem[];
   sidebarExtra?: ReactNode;
   /** Exact-match roots so /admin doesn't stay active on every admin page */
@@ -87,6 +89,31 @@ function useNavActive(navItems: DashboardNavItem[], exactHrefs: string[]) {
   return { isActive, isSectionActive };
 }
 
+function toIntlHref(href: string) {
+  const { path, query } = splitHref(href);
+  const entries = Array.from(query.entries());
+  if (entries.length === 0) return path;
+  return { pathname: path, query: Object.fromEntries(entries) };
+}
+
+function NavLink({
+  href,
+  onNavigate,
+  className,
+  children,
+}: {
+  href: string;
+  onNavigate?: () => void;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Link href={toIntlHref(href)} className={className} onClick={() => onNavigate?.()}>
+      {children}
+    </Link>
+  );
+}
+
 function SidebarNav({
   navItems,
   exactHrefs,
@@ -109,7 +136,7 @@ function SidebarNav({
 
         if (hasChildren) {
           return (
-            <div key={item.href} className="flex flex-col">
+            <div key={`${item.href}-${item.label}`} className="flex flex-col">
               <button
                 type="button"
                 onClick={() =>
@@ -155,9 +182,9 @@ function SidebarNav({
               </button>
               {isOpen && (
                 <div className="ms-4 mt-0.5 mb-1 flex flex-col gap-0.5 border-s border-gray-100 ps-2">
-                  <Link
+                  <NavLink
                     href={item.href}
-                    onClick={onNavigate}
+                    onNavigate={onNavigate}
                     className={cn(
                       "relative px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                       isActive(item.href) &&
@@ -167,15 +194,15 @@ function SidebarNav({
                     )}
                   >
                     {item.overviewLabel ?? "Overview"}
-                  </Link>
+                  </NavLink>
                   {item.children!.map((child) => {
                     const ChildIcon = child.icon;
                     const childActive = isActive(child.href);
                     return (
-                      <Link
+                      <NavLink
                         key={child.href}
                         href={child.href}
-                        onClick={onNavigate}
+                        onNavigate={onNavigate}
                         className={cn(
                           "relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                           childActive
@@ -198,7 +225,7 @@ function SidebarNav({
                             {child.badge}
                           </span>
                         )}
-                      </Link>
+                      </NavLink>
                     );
                   })}
                 </div>
@@ -209,13 +236,13 @@ function SidebarNav({
 
         const active = isActive(item.href);
         const Trailing = item.Trailing;
-        const showNotice = Boolean(Trailing || item.trailing || item.badge);
+        const showNotice = Boolean(item.trailing || item.badge);
 
         return (
-          <Link
-            key={item.href}
+          <NavLink
+            key={`${item.href}-${item.label}`}
             href={item.href}
-            onClick={onNavigate}
+            onNavigate={onNavigate}
             className={cn(
               "relative flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition-colors cursor-pointer",
               active ? "bg-gray-100 text-gray-900" : "text-gray-700 hover:bg-gray-50"
@@ -255,7 +282,7 @@ function SidebarNav({
                 </span>
               ) : null)
             )}
-          </Link>
+          </NavLink>
         );
       })}
     </nav>
@@ -265,25 +292,36 @@ function SidebarNav({
 function SidebarChrome({
   title,
   subtitle,
+  brandLogo,
   onClose,
   showClose,
 }: {
   title: string;
   subtitle?: string;
+  brandLogo?: string | null;
   onClose?: () => void;
   showClose?: boolean;
 }) {
   return (
     <div className="p-5 border-b border-gray-100 flex items-center justify-between shrink-0">
-      <div className="flex items-center gap-2.5">
-        <div className="w-9 h-9 bg-green-700 rounded-xl flex items-center justify-center shadow-sm">
-          <Leaf className="w-4 h-4 text-white" />
+      <Link href="/" onClick={onClose} className="flex items-center gap-2.5 min-w-0">
+        {brandLogo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={brandLogo}
+            alt=""
+            className="w-9 h-9 rounded-xl object-contain bg-white border border-gray-200 shadow-sm shrink-0"
+          />
+        ) : (
+          <div className="w-9 h-9 bg-green-700 rounded-xl flex items-center justify-center shadow-sm shrink-0">
+            <Leaf className="w-4 h-4 text-white" />
+          </div>
+        )}
+        <div className="min-w-0">
+          <div className="font-semibold text-sm text-gray-900 tracking-tight truncate">{title}</div>
+          {subtitle && <div className="text-[11px] text-gray-400 mt-0.5 truncate">{subtitle}</div>}
         </div>
-        <div>
-          <div className="font-semibold text-sm text-gray-900 tracking-tight">{title}</div>
-          {subtitle && <div className="text-[11px] text-gray-400 mt-0.5">{subtitle}</div>}
-        </div>
-      </div>
+      </Link>
       {showClose && (
         <button
           type="button"
@@ -301,6 +339,7 @@ function SidebarChrome({
 function DashboardShellInner({
   title,
   subtitle,
+  brandLogo,
   navItems,
   sidebarExtra,
   exactHrefs = ["/admin", "/host", "/account"],
@@ -315,15 +354,16 @@ function DashboardShellInner({
   }, [pathname]);
 
   return (
-    <div className="min-h-[calc(100vh-120px)] bg-gray-100">
+    <div className="min-h-[calc(100vh-120px)] bg-gray-100 lg:flex lg:items-start">
       <aside
-        className={cn(
-          "hidden lg:flex flex-col shrink-0 bg-white border-e border-gray-100",
-          "fixed start-0 top-0 z-[80] h-dvh overflow-y-auto"
-        )}
-        style={{ width: DASHBOARD_SIDEBAR_WIDTH_PX }}
+        className="hidden lg:flex flex-col shrink-0 bg-white border-e border-gray-100 sticky z-0 overflow-y-auto pointer-events-auto"
+        style={{
+          width: DASHBOARD_SIDEBAR_WIDTH_PX,
+          top: "4.5rem",
+          height: "calc(100dvh - 4.5rem)",
+        }}
       >
-        <SidebarChrome title={title} subtitle={subtitle} />
+        <SidebarChrome title={title} subtitle={subtitle} brandLogo={brandLogo} />
         <SidebarNav navItems={navItems} exactHrefs={exactHrefs} />
         {sidebarExtra}
       </aside>
@@ -337,12 +377,13 @@ function DashboardShellInner({
             aria-label="Close overlay"
           />
           <aside
-            className="lg:hidden fixed inset-y-0 start-0 z-[80] bg-white shadow-[0_8px_30px_rgb(0,0,0,0.08)] flex flex-col overflow-y-auto"
+            className="lg:hidden fixed inset-y-0 start-0 z-[100] isolate pointer-events-auto bg-white shadow-[0_8px_30px_rgb(0,0,0,0.08)] flex flex-col overflow-y-auto pt-[env(safe-area-inset-top)]"
             style={{ width: DASHBOARD_SIDEBAR_WIDTH_PX }}
           >
             <SidebarChrome
               title={title}
               subtitle={subtitle}
+              brandLogo={brandLogo}
               showClose
               onClose={closeSidebar}
             />
@@ -356,11 +397,8 @@ function DashboardShellInner({
         </>
       ) : null}
 
-      <div
-        id="dashboard-main-column"
-        className="min-w-0 lg:ps-[272px]"
-      >
-        <div className="max-w-7xl mx-auto px-4 py-6">
+      <div id="dashboard-main-column" className="min-w-0 flex-1">
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:py-6">
           <button
             type="button"
             className="lg:hidden mb-4 flex items-center gap-2 text-sm font-medium text-gray-600"

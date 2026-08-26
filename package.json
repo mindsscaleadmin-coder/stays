@@ -16,10 +16,14 @@
     "load-test": "k6 run scripts/load-test.js",
     "load-test:auth": "k6 run scripts/load-test-auth.js",
     "worker": "tsx scripts/worker.ts",
+    "locations:migrate": "tsx scripts/migrate-locations.ts",
+    "locations:india-lgd": "tsx scripts/prepare-india-lgd.ts",
+    "locations:verify-india": "tsx scripts/verify-india-locations.ts",
     "docker:up": "docker compose up --build",
     "docker:scale": "docker compose up --scale app=3 -d"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
     "@prisma/client": "^5.22.0",
     "@radix-ui/react-slot": "^1.1.2",
     "@supabase/ssr": "^0.5.2",

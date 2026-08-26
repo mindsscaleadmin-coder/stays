@@ -1,5 +1,15 @@
-import type { HostNotificationsData, HostNotificationPrefs } from "./host-notifications-types";
+import type {
+  HostNotificationAlert,
+  HostNotificationsData,
+  HostNotificationPrefs,
+} from "./host-notifications-types";
 import { emitSyncEvent } from "@/lib/emit-sync-event";
+import {
+  isAllHostsAudience,
+  listingMatchesAudience,
+  type AnnouncementAudience,
+} from "@/lib/admin/announcement-audience";
+import { loadAllSubmissions } from "@/lib/listings/submission-data";
 
 const STORAGE_KEY = "farm-stays-host-notifications";
 export const HOST_NOTIFICATIONS_SYNC_EVENT = "farm-stays-host-notifications-updated";
@@ -21,6 +31,7 @@ export function defaultHostNotifications(hostId: string): HostNotificationsData 
         message: "Sarah Ahmed requested 3 nights at Green Valley Farmhouse.",
         date: "2026-07-20T09:15:00",
         read: false,
+        href: "/host/bookings",
       },
       {
         id: "n-2",
@@ -29,6 +40,7 @@ export function defaultHostNotifications(hostId: string): HostNotificationsData 
         message: "AED 6,118 payout for booking GF-M9O2T4 is processing.",
         date: "2026-07-19T14:30:00",
         read: false,
+        href: "/host/accounts",
       },
       {
         id: "n-3",
@@ -37,6 +49,7 @@ export function defaultHostNotifications(hostId: string): HostNotificationsData 
         message: "Mehul Joshi left a 5-star review for Green Valley Farmhouse.",
         date: "2026-07-15T11:00:00",
         read: true,
+        href: "/host/reviews",
       },
       {
         id: "n-4",
@@ -121,9 +134,47 @@ export function collectNotificationHostIds(): string[] {
   return Array.from(ids);
 }
 
-/** Push a platform-wide policy announcement to every known host inbox. */
-export function pushPolicyAlertToAllHosts(title: string, message: string): number {
-  const hostIds = collectNotificationHostIds();
+export function pushHostAlert(
+  hostId: string,
+  alert: Omit<HostNotificationAlert, "id" | "date" | "read"> &
+    Partial<Pick<HostNotificationAlert, "id" | "date" | "read">>
+): HostNotificationAlert {
+  const data = loadHostNotifications(hostId);
+  const nextAlert: HostNotificationAlert = {
+    id: alert.id ?? `n-${alert.type}-${Date.now()}`,
+    type: alert.type,
+    title: alert.title,
+    message: alert.message,
+    date: alert.date ?? new Date().toISOString(),
+    read: alert.read ?? false,
+    href: alert.href,
+  };
+  writeAll({
+    ...readAll(),
+    [hostId]: { ...data, alerts: [nextAlert, ...data.alerts] },
+  });
+  return nextAlert;
+}
+
+function collectHostIdsForAudience(audience?: AnnouncementAudience): string[] {
+  if (isAllHostsAudience(audience)) return collectNotificationHostIds();
+
+  const ids = new Set<string>();
+  for (const listing of loadAllSubmissions()) {
+    if (listing.status === "rejected") continue;
+    if (!listing.hostId) continue;
+    if (listingMatchesAudience(listing, audience)) ids.add(listing.hostId);
+  }
+  return Array.from(ids);
+}
+
+/** Push a policy announcement to matching host inboxes (all hosts if no filters). */
+export function pushPolicyAlertToAllHosts(
+  title: string,
+  message: string,
+  audience?: AnnouncementAudience
+): number {
+  const hostIds = collectHostIdsForAudience(audience);
   const map = readAll();
   const alertId = `n-policy-${Date.now()}`;
   const date = new Date().toISOString();

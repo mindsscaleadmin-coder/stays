@@ -47,8 +47,6 @@ export type MirrorGuestBookingInput = {
 };
 
 import { upsertGuestBooking } from "@/lib/guest/guest-bookings-data";
-import { appendBookingMessage } from "@/lib/booking/booking-messages-data";
-import { loadBookingMessages } from "@/lib/booking/booking-messages-data";
 
 /** Push a guest booking into the host local bookings + block calendar dates when confirmed. */
 export function mirrorGuestBookingToHost(input: MirrorGuestBookingInput): void {
@@ -135,15 +133,4 @@ export function mirrorGuestBookingToHost(input: MirrorGuestBookingInput): void {
     bookedAt: new Date().toISOString().slice(0, 10),
     guestId: input.guestId,
   });
-
-  // Seed a system-style first message so the thread is discoverable
-  if (loadBookingMessages(input.id).length === 0) {
-    appendBookingMessage({
-      bookingId: input.id,
-      senderRole: "host",
-      senderId: input.hostId || "system-host",
-      senderName: "Host",
-      body: `Thanks for booking ${input.property}. Message us here about check-in, directions, or anything you need for your stay.`,
-    });
-  }
 }

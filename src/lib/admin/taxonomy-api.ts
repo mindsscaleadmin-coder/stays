@@ -16,10 +16,14 @@ export async function fetchTaxonomyFromApi(): Promise<TaxonomyData> {
 export async function saveTaxonomyToApi(data: TaxonomyData): Promise<TaxonomyData> {
   const res = await fetch("/api/platform/taxonomy", {
     method: "PATCH",
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ data }),
   });
-  if (!res.ok) throw new Error("Failed to save taxonomy");
+  if (!res.ok) {
+    const json = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(json?.error || `Could not save country (${res.status})`);
+  }
   const json = (await res.json()) as { data: TaxonomyData };
   return json.data;
 }

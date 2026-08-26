@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { ImagePlus, Loader2, User } from "lucide-react";
+import { ImagePlus, Loader2 } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
 import { HostVerificationTrustSection } from "@/components/dashboard/host-get-verified-content";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
@@ -11,9 +11,6 @@ import { filterActiveCountries, resolveCountryId } from "@/lib/admin/country-uti
 import { ensureAdminHostUser, findAdminUser } from "@/lib/admin/user-data";
 import { resolveHostId } from "@/lib/listings/use-listing-submissions";
 import { useHostPublicProfile } from "@/lib/host/use-host-public-profile";
-import { useHostVerification } from "@/lib/host/use-host-verification";
-import { getInitials } from "@/lib/auth/types";
-import { VerifiedBadge } from "@/components/ui/verified-badge";
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2 MB
 const RECOMMENDED_LOGO = "Square PNG/JPG · recommended 512×512 · max 2 MB";
@@ -24,6 +21,8 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+const LOGO_MAX_EDGE = 512;
+
 function readImageMeta(
   file: File
 ): Promise<{ dataUrl: string; width: number; height: number }> {
@@ -33,8 +32,30 @@ function readImageMeta(
     reader.onload = () => {
       const dataUrl = String(reader.result ?? "");
       const img = new window.Image();
-      img.onload = () =>
-        resolve({ dataUrl, width: img.naturalWidth, height: img.naturalHeight });
+      img.onload = () => {
+        const width = img.naturalWidth;
+        const height = img.naturalHeight;
+        const scale = Math.min(1, LOGO_MAX_EDGE / Math.max(width, height, 1));
+        if (scale >= 1 && file.size < 400_000) {
+          resolve({ dataUrl, width, height });
+          return;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(width * scale));
+        canvas.height = Math.max(1, Math.round(height * scale));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve({ dataUrl, width, height });
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const mime = file.type === "image/png" ? "image/png" : "image/jpeg";
+        resolve({
+          dataUrl: canvas.toDataURL(mime, 0.86),
+          width: canvas.width,
+          height: canvas.height,
+        });
+      };
       img.onerror = () => reject(new Error("Invalid image"));
       img.src = dataUrl;
     };
@@ -46,7 +67,6 @@ export function HostProfileContent() {
   const { user, loading, updateProfile } = useAuth();
   const { data: taxonomy } = useAdminTaxonomy();
   const hostId = resolveHostId(user);
-  const { request, ready: verifyReady } = useHostVerification(user?.id);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   const countries = useMemo(
@@ -97,7 +117,7 @@ export function HostProfileContent() {
   useEffect(() => {
     if (!publicProfile) return;
     setCompanyName(publicProfile.companyName ?? "");
-  }, [publicProfile?.hostId, publicProfile?.companyName]);
+  }, [publicProfile]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -176,8 +196,8 @@ export function HostProfileContent() {
     if (!publicProfile) return;
     setLogoError("");
     patchPublic({
-      logoUrl: undefined,
-      logoFileName: undefined,
+      logoUrl: "",
+      logoFileName: "",
       logoBytes: undefined,
       logoWidth: undefined,
       logoHeight: undefined,
@@ -194,7 +214,6 @@ export function HostProfileContent() {
     );
   }
 
-  const verifyStatus = verifyReady ? request?.status : undefined;
   const logoUrl = publicProfile?.logoUrl;
   const logoSizeLabel =
     logoUrl && publicProfile?.logoWidth && publicProfile?.logoHeight
@@ -213,95 +232,6 @@ export function HostProfileContent() {
         </div>
 
         <section className="bg-white rounded-2xl border p-5 sm:p-6">
-          <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-5">
-            <div className="flex items-start gap-4 min-w-0">
-              <div className="shrink-0 space-y-2">
-                <input
-                  ref={logoInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="hidden"
-                  onChange={(e) => void handleLogoFile(e.target.files?.[0])}
-                />
-                <button
-                  type="button"
-                  disabled={logoBusy || !publicProfile}
-                  onClick={() => logoInputRef.current?.click()}
-                  className="relative w-14 h-14 rounded-2xl overflow-hidden bg-green-700 text-white flex items-center justify-center text-lg font-bold border border-green-800/10 group disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-green-500/40"
-                  aria-label={logoUrl ? "Change logo" : "Upload logo"}
-                  title={logoUrl ? "Change logo" : "Upload logo"}
-                >
-                  {logoUrl ? (
-                    <Image
-                      src={logoUrl}
-                      alt="Host logo"
-                      fill
-                      className="object-cover"
-                      unoptimized
-                    />
-                  ) : (
-                    getInitials(fullName || user.fullName)
-                  )}
-                  <span className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity flex items-center justify-center">
-                    {logoBusy ? (
-                      <Loader2 className="w-5 h-5 animate-spin text-white" />
-                    ) : (
-                      <ImagePlus className="w-5 h-5 text-white" />
-                    )}
-                  </span>
-                </button>
-                <div className="flex flex-col gap-1">
-                  <button
-                    type="button"
-                    disabled={logoBusy || !publicProfile}
-                    onClick={() => logoInputRef.current?.click()}
-                    className="text-[11px] font-semibold text-green-700 hover:text-green-800 disabled:opacity-50 text-start"
-                  >
-                    {logoUrl ? "Change logo" : "Upload logo"}
-                  </button>
-                  {logoUrl && (
-                    <button
-                      type="button"
-                      onClick={removeLogo}
-                      className="text-[11px] font-semibold text-red-600 hover:text-red-700 text-start"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="min-w-0">
-                <p className="font-semibold text-gray-900 truncate">
-                  {fullName || user.fullName}
-                </p>
-                <p className="text-sm text-gray-500 truncate">{user.email}</p>
-                <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-green-800 bg-green-50 border border-green-100 px-2 py-0.5 rounded-full">
-                    <User className="w-3 h-3" /> Host
-                  </span>
-                  {verifyStatus === "verified" && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-white bg-blue-500 border border-blue-500 px-2 py-0.5 rounded-full">
-                      <VerifiedBadge size="sm" /> Verified
-                    </span>
-                  )}
-                  {verifyStatus === "pending" && (
-                    <span className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">
-                      Verification pending
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-gray-400 mt-2">{RECOMMENDED_LOGO}</p>
-                {logoSizeLabel && (
-                  <p className="text-[11px] font-medium text-gray-600 mt-1">
-                    Current logo: {logoSizeLabel}
-                    {publicProfile?.logoFileName ? ` · ${publicProfile.logoFileName}` : ""}
-                  </p>
-                )}
-                {logoError && <p className="text-[11px] text-red-600 mt-1">{logoError}</p>}
-              </div>
-            </div>
-          </div>
-
           <h3 className="text-sm font-semibold text-gray-900 mb-3">Account details</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             <label className="block sm:col-span-2">
@@ -321,6 +251,73 @@ export function HostProfileContent() {
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               />
             </label>
+            <div className="sm:col-span-2">
+              <span className="block text-xs font-medium text-gray-600 mb-1.5">Company logo</span>
+              <p className="text-[11px] text-gray-400 mb-2">
+                Shown in the host sidebar. {RECOMMENDED_LOGO}
+              </p>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(e) => void handleLogoFile(e.target.files?.[0])}
+              />
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={logoBusy || !publicProfile}
+                  onClick={() => logoInputRef.current?.click()}
+                  className="relative w-16 h-16 rounded-xl overflow-hidden border border-gray-200 bg-gray-50 flex items-center justify-center shrink-0 disabled:opacity-50"
+                  aria-label={logoUrl ? "Change company logo" : "Upload company logo"}
+                >
+                  {logoUrl ? (
+                    <Image
+                      src={logoUrl}
+                      alt="Company logo"
+                      fill
+                      className="object-contain p-1"
+                      unoptimized
+                    />
+                  ) : (
+                    <ImagePlus className="w-5 h-5 text-gray-400" />
+                  )}
+                  {logoBusy ? (
+                    <span className="absolute inset-0 bg-white/70 flex items-center justify-center">
+                      <Loader2 className="w-5 h-5 animate-spin text-green-700" />
+                    </span>
+                  ) : null}
+                </button>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={logoBusy || !publicProfile}
+                      onClick={() => logoInputRef.current?.click()}
+                      className="text-xs font-semibold text-green-700 hover:text-green-800 disabled:opacity-50"
+                    >
+                      {logoUrl ? "Change logo" : "Upload logo"}
+                    </button>
+                    {logoUrl ? (
+                      <button
+                        type="button"
+                        onClick={removeLogo}
+                        className="text-xs font-semibold text-red-600 hover:text-red-700"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                  {logoSizeLabel ? (
+                    <p className="text-[11px] text-gray-500 mt-1 truncate">
+                      {logoSizeLabel}
+                      {publicProfile?.logoFileName ? ` · ${publicProfile.logoFileName}` : ""}
+                    </p>
+                  ) : null}
+                  {logoError ? <p className="text-[11px] text-red-600 mt-1">{logoError}</p> : null}
+                </div>
+              </div>
+            </div>
             <label className="block sm:col-span-2">
               <span className="block text-xs font-medium text-gray-600 mb-1.5">Email</span>
               <input

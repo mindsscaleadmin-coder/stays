@@ -1,14 +1,11 @@
 import { NextResponse } from "next/server";
-import {
-  AuthError,
-  getSessionUser,
-  requireSessionUser,
-} from "@/lib/auth/session";
+import { AuthError, getSessionUser, requireSessionUser } from "@/lib/auth/session";
 import {
   BookingAccessError,
   bookingAccessResponse,
   isDemoApiMode,
 } from "@/lib/auth/booking-access";
+import { DEMO_ACTOR, resolveSessionActor, type SessionActor } from "@/lib/auth/resolve-actor";
 import { getRequestId, logger } from "@/lib/observability/logger";
 import { recordRequest } from "@/lib/observability/metrics";
 
@@ -17,24 +14,20 @@ type RouteContext = { params: Promise<{ id: string }> };
 type BookingRouteHandler = (
   request: Request,
   context: RouteContext,
-  userId: string
+  actor: SessionActor
 ) => Promise<Response>;
 
-/** Enforces Supabase session on booking mutations when auth is configured. */
+/** Enforces a real session on booking mutations when not in local demo mode. */
 export function withBookingAuth(handler: BookingRouteHandler) {
   return async (request: Request, context: RouteContext) => {
     const requestId = getRequestId(request);
     const start = performance.now();
 
     try {
-      if (isDemoApiMode()) {
-        const res = await handler(request, context, "demo");
-        recordRequest(res.status, Math.round(performance.now() - start));
-        return res;
-      }
-
-      const user = await requireSessionUser();
-      const res = await handler(request, context, user.id);
+      const actor = isDemoApiMode()
+        ? DEMO_ACTOR
+        : await resolveSessionActor(await requireSessionUser());
+      const res = await handler(request, context, actor);
       recordRequest(res.status, Math.round(performance.now() - start));
       return res;
     } catch (error) {

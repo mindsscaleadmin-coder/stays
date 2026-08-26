@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   CheckCircle,
@@ -16,7 +17,6 @@ import {
   resolveHostName,
   useHostSubmissions,
 } from "@/lib/listings/use-listing-submissions";
-import { HOST_LISTINGS } from "@/lib/mock/dashboard-data";
 import { useHostPromotions } from "@/lib/host/use-host-promotions";
 import {
   formatPromoEnds,
@@ -32,6 +32,7 @@ import { formatAmount, cn } from "@/lib/utils";
 
 export function HostPromoteContent() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const hostId = resolveHostId(user);
   const hostName = resolveHostName(user);
   const submissions = useHostSubmissions(hostId, hostName);
@@ -42,13 +43,7 @@ export function HostPromoteContent() {
     if (approved.length > 0) {
       return approved.map((l) => ({ id: l.id, title: l.title }));
     }
-    if (submissions.length > 0) {
-      return submissions.map((l) => ({ id: l.id, title: l.title }));
-    }
-    return HOST_LISTINGS.filter((l) => l.status === "approved").map((l) => ({
-      id: l.id,
-      title: l.title,
-    }));
+    return submissions.map((l) => ({ id: l.id, title: l.title }));
   }, [submissions]);
 
   const [listingId, setListingId] = useState(listingOptions[0]?.id ?? "");
@@ -56,6 +51,7 @@ export function HostPromoteContent() {
   const [duration, setDuration] = useState<ListingPromotionDurationDays>(7);
   const [paying, setPaying] = useState(false);
   const [message, setMessage] = useState("");
+  const confirmedKey = useRef("");
 
   useEffect(() => {
     if (!listingOptions.some((l) => l.id === listingId) && listingOptions[0]) {
@@ -69,7 +65,35 @@ export function HostPromoteContent() {
     activeTrending,
     activeFeatured,
     purchase,
+    confirmPayment,
   } = useHostPromotions(listingId || undefined);
+
+  function flash(text: string) {
+    setMessage(text);
+    setTimeout(() => setMessage(""), 4000);
+  }
+
+  useEffect(() => {
+    if (searchParams.get("canceled") === "1") {
+      if (confirmedKey.current === "canceled") return;
+      confirmedKey.current = "canceled";
+      flash("Payment canceled. Your listing was not promoted.");
+      return;
+    }
+    const promoId = searchParams.get("promoId");
+    const sessionId = searchParams.get("session_id");
+    if (!promoId || !sessionId) return;
+    const key = `${promoId}:${sessionId}`;
+    if (confirmedKey.current === key) return;
+    confirmedKey.current = key;
+    void confirmPayment(promoId, sessionId).then((promo) => {
+      if (promo) {
+        flash(
+          `${promo.kind === "trending" ? "Trending" : "Featured"} is live until ${formatPromoEnds(promo.endsAt)}.`
+        );
+      }
+    });
+  }, [searchParams, confirmPayment]);
 
   const packages = useMemo(() => {
     if (!promoSettings?.promotionsEnabled) return [];
@@ -85,30 +109,30 @@ export function HostPromoteContent() {
     }
   }, [packages, duration]);
 
-  function flash(text: string) {
-    setMessage(text);
-    setTimeout(() => setMessage(""), 4000);
-  }
-
   async function handlePay() {
     if (!listingId || !hostId || !selectedPkg) return;
     setPaying(true);
-    await new Promise((r) => setTimeout(r, 900));
     const saved = await purchase({
       listingId,
       hostId,
       kind: selectedPkg.kind,
       durationDays: selectedPkg.durationDays,
+      listingTitle: listingOptions.find((l) => l.id === listingId)?.title,
     });
     setPaying(false);
     if (!saved) {
       flash("Payment failed. Please try again.");
       return;
     }
+    if (saved.checkoutUrl) {
+      window.location.href = saved.checkoutUrl;
+      return;
+    }
+    const promo = saved.promotion;
     flash(
-      `Paid AED ${formatAmount(saved.priceAed)} — ${
-        saved.kind === "trending" ? "Trending" : "Featured"
-      } is live until ${formatPromoEnds(saved.endsAt)}.`
+      `Paid AED ${formatAmount(promo.priceAed)} — ${
+        promo.kind === "trending" ? "Trending" : "Featured"
+      } is live until ${formatPromoEnds(promo.endsAt)}.`
     );
   }
 

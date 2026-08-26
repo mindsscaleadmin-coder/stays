@@ -1,6 +1,10 @@
 import { bulkUpdateListings, loadActiveSubmissions } from "@/lib/listings/submission-data";
 import { pushPolicyAlertToAllHosts } from "@/lib/host/host-notifications-data";
 import { cancellationPolicyAllowed } from "@/lib/admin/platform-config-data";
+import {
+  ALL_HOSTS_AUDIENCE,
+  normalizeAnnouncementAudience,
+} from "@/lib/admin/announcement-audience";
 import type {
   BlogPost,
   CancellationPolicyOption,
@@ -271,6 +275,7 @@ export const DEFAULT_CONTENT_POLICY: ContentPolicySettings = {
       status: "sent",
       createdAt: "2026-07-10T08:00:00",
       pushedAt: "2026-07-10T08:05:00",
+      ...ALL_HOSTS_AUDIENCE,
     },
   ],
   messageTemplates: DEFAULT_MESSAGE_TEMPLATES,
@@ -317,7 +322,10 @@ export function loadContentPolicy(): ContentPolicySettings {
       platformAnnouncements: mergeList(
         parsed.platformAnnouncements,
         DEFAULT_CONTENT_POLICY.platformAnnouncements
-      ),
+      ).map((announcement) => ({
+        ...announcement,
+        ...normalizeAnnouncementAudience(announcement),
+      })),
       messageTemplates: mergeList(parsed.messageTemplates, DEFAULT_MESSAGE_TEMPLATES),
       cms: mergeCms(parsed.cms),
     };
@@ -426,7 +434,11 @@ export function pushPlatformAnnouncement(announcementId: string): PlatformAnnoun
   const announcement = settings.platformAnnouncements.find((a) => a.id === announcementId);
   if (!announcement || announcement.status === "sent") return null;
 
-  pushPolicyAlertToAllHosts(announcement.title, announcement.message);
+  pushPolicyAlertToAllHosts(
+    announcement.title,
+    announcement.message,
+    normalizeAnnouncementAudience(announcement)
+  );
 
   const pushedAt = new Date().toISOString();
   const next = settings.platformAnnouncements.map((a) =>
@@ -442,9 +454,11 @@ export function createAndPushAnnouncement(
   const id = newContentPolicyId("pa");
   const createdAt = new Date().toISOString();
   const pushedAt = new Date().toISOString();
-  pushPolicyAlertToAllHosts(input.title, input.message);
+  const audience = normalizeAnnouncementAudience(input);
+  pushPolicyAlertToAllHosts(input.title, input.message, audience);
   const item: PlatformAnnouncement = {
     ...input,
+    ...audience,
     id,
     createdAt,
     status: "sent",

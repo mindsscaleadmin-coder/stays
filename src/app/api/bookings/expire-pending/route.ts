@@ -10,7 +10,7 @@ async function handleExpire(request: Request) {
   const requestId = getRequestId(request);
   try {
     assertCronAuthorized(request);
-    const result = await expirePendingBookings();
+    const result = await expirePendingBookings(new Date(), { force: true });
     return NextResponse.json(result, { headers: { "x-request-id": requestId } });
   } catch (error) {
     if (error instanceof AuthError) {

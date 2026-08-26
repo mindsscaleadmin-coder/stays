@@ -28,6 +28,7 @@ import type {
   PlatformAnnouncement,
   CancellationPolicyOption,
 } from "./content-policy-types";
+import { normalizeAnnouncementAudience } from "./announcement-audience";
 
 export function useAdminContentPolicy() {
   const [settings, setSettings] = useState<ContentPolicySettings>(() => loadContentPolicy());
@@ -66,7 +67,7 @@ export function useAdminContentPolicy() {
       typeof window !== "undefined"
         ? loadActiveSubmissions().filter((l) => l.status === "approved")
         : [],
-    [settings]
+    []
   );
 
   const draftAnnouncementCount = useMemo(
@@ -95,6 +96,7 @@ export function useAdminContentPolicy() {
     addAnnouncement: (input: Omit<PlatformAnnouncement, "id" | "createdAt" | "status" | "pushedAt">) => {
       const item: PlatformAnnouncement = {
         ...input,
+        ...normalizeAnnouncementAudience(input),
         id: newContentPolicyId("pa"),
         createdAt: new Date().toISOString(),
         status: "draft",
@@ -122,7 +124,11 @@ export function useAdminContentPolicy() {
       const next = pushPlatformAnnouncement(id);
       if (next && shouldUseSharedHostNotifications()) {
         try {
-          await broadcastPolicyAlertViaApi(next.title, next.message);
+          await broadcastPolicyAlertViaApi(
+            next.title,
+            next.message,
+            normalizeAnnouncementAudience(next)
+          );
         } catch {
           // localStorage inbox already updated
         }
@@ -135,7 +141,11 @@ export function useAdminContentPolicy() {
       const next = createAndPushAnnouncement(input);
       if (shouldUseSharedHostNotifications()) {
         try {
-          await broadcastPolicyAlertViaApi(next.title, next.message);
+          await broadcastPolicyAlertViaApi(
+            next.title,
+            next.message,
+            normalizeAnnouncementAudience(next)
+          );
         } catch {
           // localStorage inbox already updated
         }

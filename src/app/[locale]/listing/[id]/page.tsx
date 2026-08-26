@@ -1,7 +1,7 @@
 import { setRequestLocale } from "next-intl/server";
 import { ListingDetailContent } from "@/components/listing/listing-detail-content";
 import { SubmissionListingLoader } from "@/components/listing/submission-listing-loader";
-import { getStayById } from "@/lib/mock/data";
+import { getPublicStayById } from "@/lib/listings/public-listings-server";
 
 export const revalidate = 60;
 
@@ -13,7 +13,7 @@ export default async function ListingPage({
   const { locale, id } = await params;
   setRequestLocale(locale);
 
-  const stay = getStayById(id);
+  const stay = await getPublicStayById(id);
   if (stay) return <ListingDetailContent stay={stay} />;
 
   return <SubmissionListingLoader id={id} />;

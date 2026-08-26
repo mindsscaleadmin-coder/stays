@@ -7,10 +7,6 @@ import {
   Mail,
   MapPin,
   ArrowRight,
-  Facebook,
-  Instagram,
-  Twitter,
-  Youtube,
   Star,
   Shield,
   CheckCircle,
@@ -18,12 +14,19 @@ import {
   Tag,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { usePathname } from "@/i18n/routing";
 import { StarRating } from "@/components/ui/star-rating";
+import { isDashboardChromePath } from "@/lib/layout/dashboard-chrome";
 
 export function Footer() {
   const t = useTranslations("footer");
   const tc = useTranslations("common");
+  const pathname = usePathname();
   const year = new Date().getFullYear();
+
+  if (isDashboardChromePath(pathname)) {
+    return null;
+  }
 
   return (
     <>
@@ -82,18 +85,13 @@ export function Footer() {
               </div>
             </div>
             <p className="text-sm leading-relaxed mb-4">{t("description")}</p>
-            <div className="flex gap-3">
-              {[Facebook, Instagram, Twitter, Youtube].map((Icon, i) => (
-                <a
-                  key={i}
-                  href="#"
-                  className="w-8 h-8 bg-gray-700 hover:bg-green-600 rounded-lg flex items-center justify-center transition-colors"
-                  aria-label="Social link"
-                >
-                  <Icon className="w-4 h-4 text-white" />
-                </a>
-              ))}
-            </div>
+            <Link
+              href="/contact"
+              className="inline-flex items-center gap-2 text-sm text-green-400 hover:text-green-300 transition-colors"
+            >
+              {t("contact")}
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
           </div>
           <div>
             <h4 className="text-white font-semibold text-sm mb-4">{t("explore")}</h4>
@@ -136,8 +134,9 @@ export function Footer() {
               <div className="flex items-center gap-2">
                 <Phone className="w-4 h-4 text-green-400" /> +971 4 123 4567
               </div>
-              <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-green-400" /> hello@greenfieldfarmstays.com
+              <div className="flex items-start gap-2 min-w-0">
+                <Mail className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />
+                <span className="break-all">hello@greenfieldfarmstays.com</span>
               </div>
               <div className="flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-green-400" /> Dubai, UAE

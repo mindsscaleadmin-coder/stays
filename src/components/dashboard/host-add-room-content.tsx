@@ -24,6 +24,8 @@ import {
   useListingSubmissions,
 } from "@/lib/listings/use-listing-submissions";
 
+const CUSTOM_CATEGORY = "__custom__";
+
 type RoomPhoto =
   | { id: string; kind: "upload"; file: File; preview: string }
   | { id: string; kind: "listing"; listingIndex: number; preview: string };
@@ -51,6 +53,8 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [successNote, setSuccessNote] = useState("");
   const [roomTypeId, setRoomTypeId] = useState("");
+  const [customCategory, setCustomCategory] = useState("");
+  const [roomName, setRoomName] = useState("");
   const [tagSavingIndex, setTagSavingIndex] = useState<number | null>(null);
   const submitModeRef = useRef<"pricing" | "another">("pricing");
 
@@ -159,8 +163,15 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
     });
     setPhotos([]);
     setRoomTypeId("");
+    setCustomCategory("");
+    setRoomName("");
     setError("");
     if (inputRef.current) inputRef.current.value = "";
+  }
+
+  function selectedCategoryName(): string {
+    if (roomTypeId === CUSTOM_CATEGORY) return customCategory.trim();
+    return roomTypeOptions.find((o) => o.id === roomTypeId)?.name.trim() ?? "";
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -174,7 +185,16 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
     }
     if (!formRef.current?.reportValidity()) return;
     if (!roomTypeId) {
-      setError("Please select a room type.");
+      setError("Please select a room category.");
+      return;
+    }
+    const typeName = selectedCategoryName();
+    if (!typeName) {
+      setError(
+        roomTypeId === CUSTOM_CATEGORY
+          ? "Enter a custom room category."
+          : "Please select a room category."
+      );
       return;
     }
     if (photos.length === 0) {
@@ -183,15 +203,15 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
     }
 
     const form = new FormData(formRef.current);
-    const name = roomTypeOptions.find((o) => o.id === roomTypeId)?.name ?? "";
+    const name = roomName.trim() || typeName;
     const price = Number(form.get("price"));
     const capacity = Number(form.get("capacity"));
     const beds = Number(form.get("beds"));
     const baths = Number(form.get("baths"));
     const mode = submitModeRef.current;
 
-    if (!name || !Number.isFinite(price) || price <= 0) {
-      setError("Please select a room type and enter a valid price.");
+    if (!Number.isFinite(price) || price <= 0) {
+      setError("Enter a nightly rate for this room.");
       return;
     }
 
@@ -212,6 +232,8 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
         beds: beds || 1,
         baths: baths || 1,
         img,
+        typeId: roomTypeId === CUSTOM_CATEGORY ? "custom" : roomTypeId,
+        typeName,
       });
 
       if (!roomId) {
@@ -225,7 +247,7 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
 
       if (mode === "another") {
         resetForm();
-        setSuccessNote(`“${name}” added. Add another room type below, or continue to Pricing.`);
+        setSuccessNote(`“${name}” added. Pick another category below, or continue to Pricing.`);
         setSubmitting(false);
         return;
       }
@@ -266,7 +288,8 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
           </p>
           <h2 className="text-xl font-bold text-gray-900 font-display">Add Room</h2>
           <p className="text-gray-500 text-sm mt-1">
-            Add one or more room types to this property. Each gets its own rates on Pricing.
+            Add as many rooms as you need. Each can be a different category with its own
+            nightly rate.
           </p>
         </div>
 
@@ -289,7 +312,12 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
                   key={room.id}
                   className="flex items-center justify-between gap-3 text-sm border border-gray-100 rounded-xl px-3 py-2 bg-gray-50/60"
                 >
-                  <span className="font-medium text-gray-900 truncate">{room.name}</span>
+                  <span className="font-medium text-gray-900 truncate">
+                    {room.name}
+                    {room.typeName && room.typeName !== room.name ? (
+                      <span className="font-normal text-gray-500"> · {room.typeName}</span>
+                    ) : null}
+                  </span>
                   <span className="text-xs text-gray-500 shrink-0">
                     {room.price}/night · {room.capacity} guests
                   </span>
@@ -315,32 +343,74 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
               htmlFor="listing-roomType"
               className="block text-sm font-medium text-gray-700 mb-1.5"
             >
-              {roomTypeTab.label} <span className="text-red-500">*</span>
+              Room category <span className="text-red-500">*</span>
             </label>
             <select
               id="listing-roomType"
               value={roomTypeId}
-              onChange={(e) => setRoomTypeId(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setRoomTypeId(next);
+                if (next && next !== CUSTOM_CATEGORY && !roomName.trim()) {
+                  const label = roomTypeOptions.find((o) => o.id === next)?.name ?? "";
+                  setRoomName(label);
+                }
+              }}
               required
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             >
-              <option value="">
-                {roomTypeOptions.length === 0
-                  ? "No room types configured"
-                  : "Select room type"}
-              </option>
+              <option value="">Select a category</option>
               {roomTypeOptions.map((opt) => (
                 <option key={opt.id} value={opt.id}>
                   {opt.name}
                 </option>
               ))}
+              <option value={CUSTOM_CATEGORY}>Other / custom category</option>
             </select>
+            <p className="text-xs text-gray-400 mt-1.5">
+              Cottage, deluxe, dorm — each room can be a different category.
+            </p>
+          </div>
+
+          {roomTypeId === CUSTOM_CATEGORY && (
+            <div>
+              <label
+                htmlFor="custom-category"
+                className="block text-sm font-medium text-gray-700 mb-1.5"
+              >
+                Custom category <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="custom-category"
+                value={customCategory}
+                onChange={(e) => {
+                  setCustomCategory(e.target.value);
+                  if (!roomName.trim()) setRoomName(e.target.value);
+                }}
+                required
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="e.g. Garden cottage"
+              />
+            </div>
+          )}
+
+          <div>
+            <label htmlFor="room-name" className="block text-sm font-medium text-gray-700 mb-1.5">
+              Room name
+            </label>
+            <input
+              id="room-name"
+              value={roomName}
+              onChange={(e) => setRoomName(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              placeholder="Defaults to the category name"
+            />
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div>
               <label htmlFor="price" className="block text-sm font-medium text-gray-700 mb-1.5">
-                Price / night <span className="text-red-500">*</span>
+                Nightly rate <span className="text-red-500">*</span>
               </label>
               <input
                 id="price"
@@ -349,7 +419,7 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
                 min={1}
                 required
                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="950"
+                placeholder="This room’s rate"
               />
             </div>
             <div>

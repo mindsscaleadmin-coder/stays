@@ -1,8 +1,12 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import type { HostBookingRecord } from "@/lib/host/host-booking-types";
+import { catalogListingsForHost } from "@/lib/listings/catalog-listing-hosts";
+import type { CheckInOutStatus, HostBookingRecord } from "@/lib/host/host-booking-types";
 import type { GuestBookingSummary } from "@/lib/guest/guest-bookings-data";
 import { formatAmount } from "@/lib/utils";
 import type { HostBookingStatus } from "@/lib/mock/dashboard-data";
+import { parseAuditLog } from "@/lib/booking/booking-audit";
+import { mapDisputeStatus, mapRefundStatusFromRow } from "@/lib/booking/booking-ops";
 
 function ymd(d: Date): string {
   const y = d.getFullYear();
@@ -56,6 +60,11 @@ function mapStatus(status: string): HostBookingStatus {
     : "pending") as HostBookingStatus;
 }
 
+function mapCheckInStatus(status: string): CheckInOutStatus {
+  if (status === "checked_in" || status === "checked_out") return status;
+  return "pending";
+}
+
 function paymentLabel(paymentStatus: string): string {
   const s = paymentStatus.toLowerCase();
   if (s === "paid") return "Paid";
@@ -81,6 +90,18 @@ type BookingRow = {
   refundPercent: number | null;
   refundAmount: number | null;
   createdAt: Date;
+  checkInStatus: string;
+  checkedInAt: Date | null;
+  checkedOutAt: Date | null;
+  disputeStatus: string;
+  disputeSummary: string | null;
+  disputeGuestClaim: string | null;
+  disputeHostResponse: string | null;
+  disputeResolution: string | null;
+  disputeOpenedAt: Date | null;
+  disputeResolvedAt: Date | null;
+  noShow: boolean;
+  auditLog: string;
   guest: {
     fullName: string;
     email: string | null;
@@ -100,12 +121,34 @@ const bookingInclude = {
   listing: true,
 } as const;
 
+export async function listingIdsOwnedByHost(hostId: string): Promise<string[]> {
+  const rows = await prisma.listing.findMany({
+    where: { hostId },
+    select: { id: true },
+  });
+  return Array.from(
+    new Set([
+      ...rows.map((row) => row.id),
+      ...catalogListingsForHost(hostId).map((item) => item.listingId),
+    ])
+  );
+}
+
 export async function queryBookings(opts: {
   role: "host" | "guest";
   hostId?: string;
   guestId?: string;
   listingId?: string;
 }): Promise<BookingRow[]> {
+  let hostListingFilter: Prisma.BookingWhereInput = {};
+  if (opts.role === "host" && opts.hostId) {
+    const owned = await listingIdsOwnedByHost(opts.hostId);
+    hostListingFilter =
+      owned.length > 0
+        ? { listingId: { in: owned } }
+        : { listing: { hostId: opts.hostId } };
+  }
+
   const where =
     opts.role === "guest"
       ? {
@@ -114,7 +157,7 @@ export async function queryBookings(opts: {
         }
       : {
           ...(opts.listingId ? { listingId: opts.listingId } : {}),
-          ...(opts.hostId ? { listing: { hostId: opts.hostId } } : {}),
+          ...hostListingFilter,
         };
 
   return prisma.booking.findMany({
@@ -165,30 +208,37 @@ export function toHostBookingRecord(row: BookingRow): HostBookingRecord {
     policyId: row.policyId || "flexible",
     specialRequests: "",
     dietaryNeeds: "",
-    checkInStatus: "pending",
-    refundStatus:
-      row.refundPercent != null && row.refundPercent >= 100
-        ? "full"
-        : row.refundPercent != null && row.refundPercent > 0
-          ? "partial"
-          : "none",
+    checkInStatus: mapCheckInStatus(row.checkInStatus),
+    checkedInAt: row.checkedInAt?.toISOString(),
+    checkedOutAt: row.checkedOutAt?.toISOString(),
+    refundStatus: mapRefundStatusFromRow(row),
     refundAmount:
       row.refundAmount != null
         ? `${currency} ${formatAmount(row.refundAmount)}`
         : undefined,
     cancellationReason: row.cancelReason || undefined,
     cancelledAt: row.cancelledAt?.toISOString(),
-    disputeStatus: "none",
-    noShow: false,
-    auditLog: [
-      {
-        id: `audit-${row.id}-server`,
-        at: row.createdAt.toISOString(),
-        actor: "System",
-        action: "Loaded from server",
-        detail: `${row.status} · ${row.paymentStatus}`,
-      },
-    ],
+    disputeStatus: mapDisputeStatus(row.disputeStatus),
+    disputeSummary: row.disputeSummary || undefined,
+    disputeGuestClaim: row.disputeGuestClaim || undefined,
+    disputeHostResponse: row.disputeHostResponse || undefined,
+    disputeResolution: row.disputeResolution || undefined,
+    disputeOpenedAt: row.disputeOpenedAt?.toISOString(),
+    disputeResolvedAt: row.disputeResolvedAt?.toISOString(),
+    noShow: Boolean(row.noShow),
+    auditLog: (() => {
+      const log = parseAuditLog(row.auditLog);
+      if (log.length > 0) return log;
+      return [
+        {
+          id: `audit-${row.id}-created`,
+          at: row.createdAt.toISOString(),
+          actor: "System",
+          action: "Booking created",
+          detail: `${row.status} · ${row.paymentStatus}`,
+        },
+      ];
+    })(),
   };
 }
 

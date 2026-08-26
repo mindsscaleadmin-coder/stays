@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { resolveHostName } from "@/lib/admin/trust-data";
+import { hashPassword, isHashedPassword, verifyPassword } from "@/lib/auth/password";
 import {
   DEFAULT_HOST_STAFF_PERMISSIONS,
   normalizeHostStaffPermissions,
@@ -127,7 +128,8 @@ export async function saveHostStaffMember(
 
   let password = existingById?.password ?? null;
   if (input.password !== undefined) {
-    password = input.password.trim() || null;
+    const next = input.password.trim();
+    password = next ? await hashPassword(next) : null;
   }
 
   const data = {
@@ -204,10 +206,18 @@ export async function findHostStaffLogin(
       email: normalized,
       active: true,
       role: { not: "owner" },
-      password: pass,
     },
   });
-  return row ? toMember(row, false) : undefined;
+  if (!row?.password) return undefined;
+  const matches = await verifyPassword(pass, row.password);
+  if (!matches) return undefined;
+  if (!isHashedPassword(row.password)) {
+    await prisma.hostStaff.update({
+      where: { id: row.id },
+      data: { password: await hashPassword(pass) },
+    });
+  }
+  return toMember(row, false);
 }
 
 export async function findActiveHostStaffByEmail(

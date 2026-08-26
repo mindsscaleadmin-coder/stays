@@ -22,14 +22,23 @@ import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider
 import { filterActiveCountries } from "@/lib/admin/country-utils";
 import type { SubmittedListing } from "@/lib/listings/submission-types";
 
+type StatusFilter = "" | "approved" | "pending" | "unpublished" | "rejected" | "flagged";
+
 const selectClass =
-  "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500";
+  "w-full border border-gray-200 rounded-lg px-2.5 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-50 disabled:text-gray-400";
+
+const STATUS_OPTIONS: { id: StatusFilter; label: string }[] = [
+  { id: "", label: "All" },
+  { id: "approved", label: "Live" },
+  { id: "pending", label: "Pending" },
+  { id: "unpublished", label: "Unpublished" },
+  { id: "rejected", label: "Rejected" },
+  { id: "flagged", label: "Flagged" },
+];
 
 function normalize(value: string): string {
   return value.trim().toLowerCase();
 }
-
-type StatusFilter = "" | "approved" | "pending" | "unpublished" | "rejected" | "flagged";
 
 function statusStyle(status: SubmittedListing["status"]) {
   if (status === "approved") return "bg-green-100 text-green-700";
@@ -218,7 +227,7 @@ export function ActiveListingPanel({
   const [parentCategory, setParentCategory] = useState("");
   const [category, setCategory] = useState("");
   const [subcategory, setSubcategory] = useState("");
-  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const hosts = useMemo(
     () => Array.from(new Set(listings.map((l) => l.hostName).filter(Boolean))).sort(),
@@ -343,8 +352,39 @@ export function ActiveListingPanel({
     setState("");
     setHost("");
     setParentCategory("");
+    setCategory("");
     setSubcategory("");
   }
+
+  const filterChips = [
+    statusFilter && {
+      key: "status",
+      label: STATUS_OPTIONS.find((o) => o.id === statusFilter)?.label ?? statusFilter,
+      clear: () => setStatusFilter(""),
+    },
+    country && { key: "country", label: country, clear: () => { setCountry(""); setState(""); } },
+    state && { key: "state", label: state, clear: () => setState("") },
+    host && { key: "host", label: host, clear: () => setHost("") },
+    parentCategory && {
+      key: "parent",
+      label: parentCategory,
+      clear: () => {
+        setParentCategory("");
+        setCategory("");
+        setSubcategory("");
+      },
+    },
+    category && {
+      key: "category",
+      label: category,
+      clear: () => {
+        setCategory("");
+        setSubcategory("");
+      },
+    },
+    subcategory && { key: "sub", label: subcategory, clear: () => setSubcategory("") },
+    query && { key: "q", label: `“${query}”`, clear: () => setQuery("") },
+  ].filter(Boolean) as { key: string; label: string; clear: () => void }[];
 
   function handleDeactivate(id: string) {
     if (!confirm("Deactivate this listing? It will be removed from the live platform.")) return;
@@ -354,72 +394,56 @@ export function ActiveListingPanel({
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 border-b bg-gray-50/80">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="w-4 h-4 text-green-700 shrink-0" />
-              <h3 className="text-sm font-semibold text-gray-900">All listings</h3>
-              {activeFilterCount > 0 && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
-                  {activeFilterCount} filter{activeFilterCount === 1 ? "" : "s"}
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Search, filter, and manage live and offline properties.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {activeFilterCount > 0 && (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800"
-              >
-                <X className="w-3.5 h-3.5" /> Clear
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setFiltersOpen((v) => !v)}
-              className="text-xs font-medium text-green-700 hover:text-green-800"
-            >
-              {filtersOpen ? "Hide filters" : "Show filters"}
-            </button>
-          </div>
-        </div>
-
-        {filtersOpen && (
-          <div className="p-4 space-y-4 border-b">
-            <div className="relative">
+        <div className="px-4 py-3 border-b space-y-3">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+            <div className="relative flex-1 min-w-0">
               <Search className="w-4 h-4 text-gray-400 absolute start-3 top-1/2 -translate-y-1/2" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search title, host, location, category…"
+                placeholder="Search title, host, location…"
                 className={cn(selectClass, "ps-9")}
               />
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-              <label className="block">
-                <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                  Status
-                </span>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                  className={selectClass}
+            <div className="flex items-center gap-1.5 overflow-x-auto shrink-0">
+              {STATUS_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id || "all"}
+                  type="button"
+                  onClick={() => setStatusFilter(opt.id)}
+                  className={cn(
+                    "text-xs font-semibold px-2.5 py-1.5 rounded-full border whitespace-nowrap transition-colors",
+                    statusFilter === opt.id
+                      ? "bg-green-700 border-green-700 text-white"
+                      : "bg-white border-gray-200 text-gray-600 hover:border-green-400"
+                  )}
                 >
-                  <option value="">All statuses</option>
-                  <option value="approved">Live</option>
-                  <option value="pending">Pending</option>
-                  <option value="unpublished">Unpublished</option>
-                  <option value="rejected">Rejected</option>
-                  <option value="flagged">Flagged</option>
-                </select>
-              </label>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((v) => !v)}
+              className={cn(
+                "inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg border shrink-0",
+                filtersOpen || country || state || host || parentCategory || category || subcategory
+                  ? "border-green-700 text-green-800 bg-green-50"
+                  : "border-gray-200 text-gray-600 hover:border-green-400"
+              )}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              More
+              {activeFilterCount > 0 && (
+                <span className="min-w-4 h-4 px-1 rounded-full bg-green-700 text-white text-[10px] leading-4 text-center">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+          </div>
 
+          {filtersOpen && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
               <label className="block">
                 <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
                   Country
@@ -448,9 +472,10 @@ export function ActiveListingPanel({
                 <select
                   value={state}
                   onChange={(e) => setState(e.target.value)}
+                  disabled={!country}
                   className={selectClass}
                 >
-                  <option value="">All states</option>
+                  <option value="">{country ? "All states" : "Select country first"}</option>
                   {states.map((s) => (
                     <option key={s} value={s}>
                       {s}
@@ -479,7 +504,7 @@ export function ActiveListingPanel({
 
               <label className="block">
                 <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
-                  Parent category
+                  Parent
                 </span>
                 <select
                   value={parentCategory}
@@ -490,7 +515,7 @@ export function ActiveListingPanel({
                   }}
                   className={selectClass}
                 >
-                  <option value="">All parent categories</option>
+                  <option value="">All parents</option>
                   {parents.map((p) => (
                     <option key={p} value={p}>
                       {p}
@@ -509,9 +534,12 @@ export function ActiveListingPanel({
                     setCategory(e.target.value);
                     setSubcategory("");
                   }}
+                  disabled={!parentCategory}
                   className={selectClass}
                 >
-                  <option value="">All categories</option>
+                  <option value="">
+                    {parentCategory ? "All categories" : "Select parent first"}
+                  </option>
                   {categories.map((c) => (
                     <option key={c} value={c}>
                       {c}
@@ -527,9 +555,10 @@ export function ActiveListingPanel({
                 <select
                   value={subcategory}
                   onChange={(e) => setSubcategory(e.target.value)}
+                  disabled={!category}
                   className={selectClass}
                 >
-                  <option value="">All sub categories</option>
+                  <option value="">{category ? "All sub categories" : "Select category first"}</option>
                   {subcategories.map((sc) => (
                     <option key={sc} value={sc}>
                       {sc}
@@ -538,8 +567,31 @@ export function ActiveListingPanel({
                 </select>
               </label>
             </div>
-          </div>
-        )}
+          )}
+
+          {filterChips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {filterChips.map((chip) => (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={chip.clear}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded-full"
+                >
+                  {chip.label}
+                  <X className="w-3 h-3" />
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-[11px] font-semibold text-green-700 hover:text-green-800 px-1"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
 
         <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white">
           <p className="text-xs text-gray-500">

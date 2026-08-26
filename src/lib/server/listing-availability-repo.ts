@@ -1,6 +1,11 @@
+import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
-import type { ListingAvailabilitySettings } from "@/lib/host/host-availability-types";
+import type {
+  ListingAvailabilitySettings,
+  ListingIcalFeed,
+} from "@/lib/host/host-availability-types";
 import { isDateUnavailable } from "@/lib/host/host-availability-utils";
+import { fetchExternalIcalDates } from "@/lib/server/ical-fetch";
 
 const DEFAULT_SEASONAL = [
   {
@@ -23,7 +28,22 @@ function defaultForListing(listingId: string): ListingAvailabilitySettings {
         : [],
     minStayNights: listingId === "9" ? 1 : 2,
     advanceNoticeDays: 1,
+    icalImportedDates: [],
+    icalFeeds: [],
   };
+}
+
+export function newIcalToken() {
+  return randomBytes(18).toString("base64url");
+}
+
+export async function ensureListingIcalToken(
+  listingId: string
+): Promise<ListingAvailabilitySettings | null> {
+  const settings = await getListingAvailability(listingId);
+  if (!settings) return null;
+  if (settings.icalToken) return settings;
+  return saveListingAvailability({ ...settings, icalToken: newIcalToken() });
 }
 
 function parsePayload(raw: string): Omit<ListingAvailabilitySettings, "listingId"> {
@@ -43,6 +63,9 @@ function mergeStored(
     seasonalPeriods: (
       stored.seasonalPeriods?.length > 0 ? stored.seasonalPeriods : defaults.seasonalPeriods
     ).filter((p) => p.id !== "season-monsoon"),
+    icalImportedDates: stored.icalImportedDates ?? [],
+    icalFeeds: stored.icalFeeds ?? [],
+    icalToken: stored.icalToken,
   };
 }
 
@@ -60,9 +83,28 @@ export async function getListingAvailability(
 export async function saveListingAvailability(
   settings: ListingAvailabilitySettings
 ): Promise<ListingAvailabilitySettings> {
-  const { listingId, ...rest } = settings;
+  const { listingId } = settings;
   const listing = await prisma.listing.findUnique({ where: { id: listingId } });
   if (!listing) throw new Error("Listing not found");
+
+  const existing = await prisma.listingAvailabilityMeta.findUnique({ where: { listingId } });
+  let existingToken: string | undefined;
+  try {
+    existingToken = existing
+      ? (JSON.parse(existing.payload) as { icalToken?: string }).icalToken
+      : undefined;
+  } catch {
+    existingToken = undefined;
+  }
+
+  const next: ListingAvailabilitySettings = {
+    ...settings,
+    listingId,
+    icalToken: existingToken || settings.icalToken || newIcalToken(),
+    icalFeeds: settings.icalFeeds ?? [],
+    icalImportedDates: settings.icalImportedDates ?? [],
+  };
+  const { listingId: _id, ...rest } = next;
 
   await prisma.listingAvailabilityMeta.upsert({
     where: { listingId },
@@ -70,8 +112,8 @@ export async function saveListingAvailability(
     update: { payload: JSON.stringify(rest) },
   });
 
-  await syncHostBlockedDates(listingId, settings.blockedDates);
-  return settings;
+  await syncHostBlockedDates(listingId, next.blockedDates);
+  return next;
 }
 
 /** Sync host manual blocks to Availability rows (booking blocks managed separately). */
@@ -107,6 +149,39 @@ async function syncHostBlockedDates(listingId: string, blockedDates: string[]) {
       }
     }
   }
+}
+
+export async function syncListingIcalFeeds(
+  listingId: string
+): Promise<ListingAvailabilitySettings> {
+  const current = await ensureListingIcalToken(listingId);
+  if (!current) throw new Error("Listing not found");
+
+  const feeds: ListingIcalFeed[] = [];
+  const imported = new Set<string>();
+  for (const feed of current.icalFeeds ?? []) {
+    try {
+      const dates = await fetchExternalIcalDates(feed.url);
+      for (const date of dates) imported.add(date);
+      feeds.push({
+        ...feed,
+        lastSyncedAt: new Date().toISOString(),
+        lastError: undefined,
+      });
+    } catch (error) {
+      feeds.push({
+        ...feed,
+        lastError: error instanceof Error ? error.message : "Sync failed",
+      });
+    }
+  }
+
+  return saveListingAvailability({
+    ...current,
+    icalFeeds: feeds,
+    icalImportedDates: Array.from(imported).sort(),
+    lastIcalImportAt: new Date().toISOString(),
+  });
 }
 
 /** Used by confirmBooking to reject unavailable dates from shared store. */

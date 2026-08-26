@@ -14,12 +14,17 @@ export interface ListingRoom {
   beds: number;
   baths: number;
   img: string;
+  /** Taxonomy room-type id, or "custom". */
+  typeId?: string;
+  /** Category label (Entire place, Cottage, …). */
+  typeName?: string;
 }
 
 export interface ListingFilterValues {
   countryId: string;
   stateId: string;
   districtId: string;
+  cityId: string;
   parentId: string;
   categoryId: string;
   subcategoryId: string;
@@ -33,6 +38,7 @@ export const EMPTY_LISTING_FILTERS: ListingFilterValues = {
   countryId: "",
   stateId: "",
   districtId: "",
+  cityId: "",
   parentId: "",
   categoryId: "",
   subcategoryId: "",
@@ -81,6 +87,17 @@ export interface SubmittedListing {
   /** Platform cancellation policy option selected by host */
   cancellationPolicyId?: string;
   rooms?: ListingRoom[];
+  /** Nightly rate from Listing.pricePerNight / host Pricing (base). */
+  pricePerNight?: number | null;
+  /** Published guest reviews — attached from Prisma Review rows. */
+  guestRating?: number;
+  guestReviewCount?: number;
+  /** Active paid Trending promotion. */
+  trending?: boolean;
+  /** Live flash deal attached from ListingPricing (cleared when off or expired). */
+  flashDealEndsAt?: string | null;
+  flashDealDiscountPct?: number;
+  flashDealCurrency?: string;
   /** Google Maps / OSM embed URL for the listing location section */
   mapEmbedUrl?: string;
 }

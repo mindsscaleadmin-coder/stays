@@ -1,5 +1,4 @@
 import { HOST_LISTINGS } from "@/lib/mock/dashboard-data";
-import { getStayById } from "@/lib/mock/data";
 import type { CountryPricingConfig } from "@/lib/admin/country-utils";
 import type {
   ExtraCharge,
@@ -14,28 +13,17 @@ export const HOST_PRICING_SYNC_EVENT = "farm-stays-host-pricing-updated";
 
 export function defaultForListing(
   listingId: string,
-  country?: CountryPricingConfig
+  country?: CountryPricingConfig,
+  seed?: { basePrice?: number | null }
 ): ListingPricingSettings {
-  const stay = getStayById(listingId);
-  const isMain = listingId === "1";
   return {
     listingId,
-    basePrice: stay?.price ?? (isMain ? 950 : 850),
+    basePrice: Math.max(0, seed?.basePrice ?? 0),
     currency: country?.currency ?? "AED",
-    weekendPrice: isMain ? 1200 : null,
+    weekendPrice: null,
     monthlyPrice: null,
     roomPrices: [],
-    seasonalPricing: isMain
-      ? [
-          {
-            id: "sp-peak",
-            name: "Peak winter season",
-            startDate: "2026-12-15",
-            endDate: "2027-01-15",
-            price: 1400,
-          },
-        ]
-      : [],
+    seasonalPricing: [],
     weeklyDiscountPct: 0,
     monthlyDiscountPct: 0,
     earlyBirdDiscountPct: 0,
@@ -45,32 +33,8 @@ export function defaultForListing(
     flashDealEnabled: false,
     flashDealDiscountPct: 0,
     flashDealEndsAt: null,
-    extraCharges: isMain
-      ? [
-          {
-            id: "ec-meal",
-            label: "Breakfast (per person)",
-            amount: 45,
-            billing: "per_night" as const,
-            catalogId: "ec-cat-breakfast",
-          },
-          {
-            id: "ec-bbq",
-            label: "BBQ setup",
-            amount: 120,
-            billing: "per_stay" as const,
-            catalogId: "ec-cat-bbq",
-          },
-          {
-            id: "ec-transport",
-            label: "Airport transfer",
-            amount: 200,
-            billing: "per_stay" as const,
-            catalogId: "ec-cat-airport",
-          },
-        ]
-      : [],
-    extraGuestCharge: 100,
+    extraCharges: [],
+    extraGuestCharge: 0,
     guestsIncludedInBase: 2,
     seasonalEnabled: true,
     discountsEnabled: true,
@@ -113,6 +77,31 @@ function writeAll(map: Record<string, ListingPricingSettings>) {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
   notify();
+}
+
+/** Keep a typed local rate when the shared store still has an empty default. */
+export function preferStoredRateIfPublishedEmpty(
+  published: ListingPricingSettings | null,
+  stored: ListingPricingSettings
+): { settings: ListingPricingSettings; shouldPersist: boolean } {
+  if (!published) {
+    return { settings: stored, shouldPersist: stored.basePrice > 0 };
+  }
+  if (published.basePrice > 0) {
+    return { settings: published, shouldPersist: false };
+  }
+  if (stored.basePrice > 0) {
+    return {
+      settings: { ...published, ...stored, listingId: published.listingId },
+      shouldPersist: true,
+    };
+  }
+  return { settings: published, shouldPersist: false };
+}
+
+/** True when this browser has saved pricing for the listing (not just defaults). */
+export function hasStoredPricing(listingId: string): boolean {
+  return Boolean(readAll()[listingId]);
 }
 
 export function loadPricingSettings(

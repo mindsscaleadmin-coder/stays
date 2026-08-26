@@ -7,6 +7,10 @@ import type {
 } from "./submission-types";
 import { ALL_SEEDS, SEED_IDS } from "./listing-seeds";
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
+import {
+  relabelListing,
+  type ListingRelabelChanges,
+} from "./relabel-listings";
 
 const STORAGE_KEY = "farm-stays-listing-submissions";
 const DELETED_IDS_KEY = "farm-stays-deleted-listing-ids";
@@ -76,6 +80,19 @@ function saveStored(listings: SubmittedListing[]) {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(listings));
   dispatchSync();
+}
+
+/** Keep listing labels in sync when Filter taxonomy names change. */
+export function relabelSubmittedListings(changes: ListingRelabelChanges): void {
+  const listings = loadStored();
+  if (listings.length === 0) return;
+  let changed = false;
+  const next = listings.map((listing) => {
+    const row = relabelListing(listing, changes);
+    if (row !== listing) changed = true;
+    return row;
+  });
+  if (changed) saveStored(next);
 }
 
 /** Replace local mirror after a shared-DB fetch so sync readers stay correct. */

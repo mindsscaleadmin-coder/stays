@@ -4,18 +4,73 @@ import { Link } from "@/i18n/routing";
 import { Building2, Calendar, CreditCard, Plus, Star } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { HostDashboardShell } from "./host-dashboard-shell";
-import { HOST_NAV } from "@/lib/host/host-nav";
-import { HOST_STATS } from "@/lib/mock/dashboard-data";
 import { useHostVerification } from "@/lib/host/use-host-verification";
+import { useHostAnalytics } from "@/lib/host/use-host-analytics";
+import { resolveHostId } from "@/lib/listings/host-listings-utils";
 import { VerifiedBadge } from "@/components/ui/verified-badge";
-import { cn } from "@/lib/utils";
+import { HostAnalyticsPanel } from "./host-analytics-content";
+import { HostDailyOpsPanel } from "./host-daily-ops-panel";
+import { HostOverviewAnnouncements } from "./host-overview-announcements";
+import { cn, formatPrice } from "@/lib/utils";
+import { emptyOverview } from "@/lib/host/compute-host-analytics";
+import type { HostOverviewStats } from "@/lib/host/host-analytics-types";
 
-const STAT_ICONS = [Building2, Calendar, CreditCard, Star];
+function overviewCards(stats: HostOverviewStats) {
+  return [
+    {
+      label: "Active Listings",
+      value: String(stats.activeListings),
+      change:
+        stats.pendingListings > 0
+          ? `${stats.pendingListings} pending approval`
+          : "No listings waiting",
+      color: "bg-blue-50 text-blue-600",
+      href: "/host/listings",
+      icon: Building2,
+    },
+    {
+      label: "Bookings",
+      value: String(stats.bookings),
+      change:
+        stats.bookingsThisWeek > 0
+          ? `+${stats.bookingsThisWeek} this week`
+          : "No new bookings this week",
+      color: "bg-green-50 text-green-600",
+      href: "/host/bookings",
+      icon: Calendar,
+    },
+    {
+      label: "Earnings",
+      value: formatPrice(stats.earnings, "AED"),
+      change:
+        stats.earningsThisMonth > 0
+          ? `+${formatPrice(stats.earningsThisMonth, "AED")} this month`
+          : "No paid stays this month",
+      color: "bg-purple-50 text-purple-600",
+      href: "/host/accounts",
+      icon: CreditCard,
+    },
+    {
+      label: "Avg. Rating",
+      value: stats.reviewCount > 0 ? stats.avgRating.toFixed(1) : "—",
+      change:
+        stats.reviewCount > 0
+          ? `${stats.reviewCount} review${stats.reviewCount === 1 ? "" : "s"}`
+          : "No reviews yet",
+      color: "bg-amber-50 text-amber-600",
+      href: "/host/reviews",
+      icon: Star,
+    },
+  ];
+}
 
 export function HostDashboardContent() {
   const { user } = useAuth();
+  const hostId = resolveHostId(user);
   const { request, ready } = useHostVerification(user?.id);
-  const quickLinks = HOST_NAV.filter((item) => item.href !== "/host");
+  const { data, ready: analyticsReady } = useHostAnalytics(hostId);
+  const stats = data?.overview ?? emptyOverview();
+  const cards = overviewCards(stats);
 
   return (
     <HostDashboardShell>
@@ -23,7 +78,9 @@ export function HostDashboardContent() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">Host Dashboard</h2>
-            <p className="text-gray-500 text-sm mt-1">Manage listings, bookings, and earnings.</p>
+            <p className="text-gray-500 text-sm mt-1">
+              Today’s guests and what still needs a listing to go live.
+            </p>
           </div>
           <Link
             href="/host/listings/new"
@@ -32,6 +89,8 @@ export function HostDashboardContent() {
             <Plus className="w-4 h-4" /> Add New Listing
           </Link>
         </div>
+
+        <HostOverviewAnnouncements hostId={hostId} hostName={user?.fullName} />
 
         {ready && request?.status === "pending" && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
@@ -93,48 +152,32 @@ export function HostDashboardContent() {
         )}
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {HOST_STATS.map(({ label, value, change, color }, i) => {
-            const Icon = STAT_ICONS[i];
+          {cards.map((card) => {
+            const Icon = card.icon;
             return (
-              <div key={label} className="bg-white rounded-2xl border p-4">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${color}`}>
+              <Link
+                key={card.label}
+                href={card.href}
+                className="bg-white rounded-2xl border p-4 hover:border-green-300 hover:shadow-sm transition-colors"
+              >
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${card.color}`}>
                   <Icon className="w-4 h-4" />
                 </div>
-                <div className="text-xl font-bold text-gray-900 leading-tight">{value}</div>
-                <div className="text-xs font-medium text-gray-600 mt-0.5">{label}</div>
-                <div className="text-[10px] text-gray-400 mt-1">{change}</div>
-              </div>
+                <div className="text-xl font-bold text-gray-900 leading-tight">
+                  {analyticsReady ? card.value : "—"}
+                </div>
+                <div className="text-xs font-medium text-gray-600 mt-0.5">{card.label}</div>
+                <div className="text-[10px] text-gray-400 mt-1">
+                  {analyticsReady ? card.change : "Loading…"}
+                </div>
+              </Link>
             );
           })}
         </div>
 
-        <section className="bg-white rounded-2xl border p-5 space-y-4">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900">Host sections</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Same destinations as the sidebar — open any section below.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {quickLinks.map((item) => {
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="flex items-center gap-3 rounded-xl border border-gray-100 hover:border-green-300 hover:bg-green-50/40 px-3.5 py-3 transition-colors"
-                >
-                  {Icon && (
-                    <span className="w-9 h-9 rounded-lg bg-gray-50 text-green-700 flex items-center justify-center shrink-0">
-                      <Icon className="w-4 h-4" strokeWidth={1.75} />
-                    </span>
-                  )}
-                  <span className="text-sm font-medium text-gray-800">{item.label}</span>
-                </Link>
-              );
-            })}
-          </div>
-        </section>
+        <HostDailyOpsPanel />
+
+        <HostAnalyticsPanel data={data} ready={analyticsReady} />
       </div>
     </HostDashboardShell>
   );

@@ -8,23 +8,17 @@ import { requireSessionUser, AuthError } from "@/lib/auth/session";
 import { getUserRoles, isDemoApiMode, BookingAccessError } from "@/lib/auth/booking-access";
 import { canAccessAdmin } from "@/lib/auth/roles";
 import { hostDataErrorResponse } from "@/lib/auth/listing-access";
+import { requireAdmin } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
 import type { AdminAlertSettings, AdminAlertsState } from "@/lib/admin/admin-alerts-types";
 
 export const dynamic = "force-dynamic";
 
-async function requireAdminWhenConfigured() {
-  if (isDemoApiMode()) return;
-  const user = await requireSessionUser();
-  if (!canAccessAdmin(getUserRoles(user))) {
-    throw new BookingAccessError("Admin access required");
-  }
-}
 
 export async function GET(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdminWhenConfigured();
+    await requireAdmin();
     const state = await getAdminAlertsStateFromDb();
     return NextResponse.json({ state }, { headers: { "x-request-id": requestId } });
   } catch (error) {
@@ -39,7 +33,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdminWhenConfigured();
+    await requireAdmin();
     const body = await request.json();
     const current = await getAdminAlertsStateFromDb();
     let next: AdminAlertsState = current;

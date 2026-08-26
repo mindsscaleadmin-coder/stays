@@ -80,6 +80,7 @@ export function ListingFilterFields({
     countryId,
     stateId,
     districtId,
+    cityId,
     parentId,
     categoryId,
     subcategoryId,
@@ -96,6 +97,7 @@ export function ListingFilterFields({
   const showCountry = isTabEnabled(data.mainTabs, "country");
   const showState = isTabEnabled(data.mainTabs, "state");
   const showDistrict = isTabEnabled(data.mainTabs, "district");
+  const showCity = isTabEnabled(data.mainTabs, "city");
   const showParent = isTabEnabled(data.mainTabs, "parent");
   const showCategory = isTabEnabled(data.mainTabs, "category");
   const showSubcategory = isTabEnabled(data.mainTabs, "subcategory");
@@ -125,6 +127,14 @@ export function ListingFilterFields({
         (d) => d.enabled !== false && (!stateId || d.stateId === stateId)
       ),
     [data.districts, stateId]
+  );
+
+  const cities = useMemo(
+    () =>
+      (data.cities ?? []).filter(
+        (c) => c.enabled !== false && districtId && c.districtId === districtId
+      ),
+    [data.cities, districtId]
   );
 
   const parents = useMemo(
@@ -173,7 +183,7 @@ export function ListingFilterFields({
     let changed = false;
 
     if (countryId && !data.countries.some((c) => c.id === countryId && c.enabled !== false)) {
-      next = { ...next, countryId: "", stateId: "", districtId: "" };
+      next = { ...next, countryId: "", stateId: "", districtId: "", cityId: "" };
       changed = true;
     }
     if (
@@ -185,7 +195,7 @@ export function ListingFilterFields({
           (!next.countryId || s.countryId === next.countryId)
       )
     ) {
-      next = { ...next, stateId: "", districtId: "" };
+      next = { ...next, stateId: "", districtId: "", cityId: "" };
       changed = true;
     }
     if (
@@ -197,7 +207,19 @@ export function ListingFilterFields({
           (!next.stateId || d.stateId === next.stateId)
       )
     ) {
-      next = { ...next, districtId: "" };
+      next = { ...next, districtId: "", cityId: "" };
+      changed = true;
+    }
+    if (
+      cityId &&
+      !(data.cities ?? []).some(
+        (c) =>
+          c.id === cityId &&
+          c.enabled !== false &&
+          (!next.districtId || c.districtId === next.districtId)
+      )
+    ) {
+      next = { ...next, cityId: "" };
       changed = true;
     }
     if (parentId && !data.parents.some((p) => p.id === parentId && p.enabled !== false)) {
@@ -236,8 +258,16 @@ export function ListingFilterFields({
       changed = true;
     }
 
+    const extraTabOn = (type: string) =>
+      data.extraTabs.some((t) => t.id === type && t.enabled !== false);
     const filteredAdvanced = advancedIds.filter((id) => {
-      if (data.extraFilters.some((ef) => ef.id === id && ef.enabled !== false)) return true;
+      if (
+        data.extraFilters.some(
+          (ef) => ef.id === id && ef.enabled !== false && extraTabOn(ef.type)
+        )
+      ) {
+        return true;
+      }
       const feature = data.featureFilters.find((ff) => ff.id === id);
       if (!feature || feature.enabled === false) return false;
       return !activeParentId || feature.parentId === activeParentId;
@@ -276,7 +306,7 @@ export function ListingFilterFields({
     }
     // Re-sync when taxonomy or cascade parents change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, countryId, stateId, districtId, parentId, categoryId, subcategoryId]);
+  }, [data, countryId, stateId, districtId, cityId, parentId, categoryId, subcategoryId]);
 
   function toggleAdvanced(id: string) {
     patch({
@@ -308,7 +338,7 @@ export function ListingFilterFields({
               label={tabLabel(data.mainTabs, "country", "Country")}
               id="listing-country"
               value={countryId}
-              onChange={(v) => patch({ countryId: v, stateId: "", districtId: "" })}
+              onChange={(v) => patch({ countryId: v, stateId: "", districtId: "", cityId: "" })}
               options={countries.map((c) => ({ value: c.id, label: c.name }))}
               placeholder="Select country"
             />
@@ -318,7 +348,7 @@ export function ListingFilterFields({
               label={tabLabel(data.mainTabs, "state", "State")}
               id="listing-state"
               value={stateId}
-              onChange={(v) => patch({ stateId: v, districtId: "" })}
+              onChange={(v) => patch({ stateId: v, districtId: "", cityId: "" })}
               options={states.map((s) => ({ value: s.id, label: s.name }))}
               placeholder="Select state"
               disabled={!countryId || states.length === 0}
@@ -329,10 +359,32 @@ export function ListingFilterFields({
               label={tabLabel(data.mainTabs, "district", "District")}
               id="listing-district"
               value={districtId}
-              onChange={(v) => patch({ districtId: v })}
+              onChange={(v) => patch({ districtId: v, cityId: "" })}
               options={districts.map((d) => ({ value: d.id, label: d.name }))}
               placeholder="Select district"
               disabled={!stateId || districts.length === 0}
+            />
+          )}
+          {showCity && (
+            <FilterSelect
+              label={tabLabel(data.mainTabs, "city", "City")}
+              id="listing-city"
+              value={cityId}
+              onChange={(v) => patch({ cityId: v })}
+              options={cities.map((c) => ({ value: c.id, label: c.name }))}
+              placeholder={
+                !districtId
+                  ? "Select district first"
+                  : cities.length === 0
+                    ? "No cities for this district yet"
+                    : "Select city"
+              }
+              disabled={!districtId || cities.length === 0}
+              hint={
+                districtId && cities.length === 0
+                  ? "Optional until cities are added under this district in Admin → Filter → City."
+                  : undefined
+              }
             />
           )}
           {showParent && (

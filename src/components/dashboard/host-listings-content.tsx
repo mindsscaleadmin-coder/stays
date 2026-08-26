@@ -6,8 +6,10 @@ import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/routing";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
+import { HostListingFlashDealBar } from "@/components/dashboard/host-listing-flash-deal-bar";
 import { STATUS_STYLES } from "@/lib/mock/dashboard-data";
 import { useAuth } from "@/components/providers/auth-provider";
+import { nightlyFromListing } from "@/lib/listings/submission-to-stay";
 import {
   filterHostListings,
   resolveHostId,
@@ -15,7 +17,7 @@ import {
   toHostListingRow,
   useListingSubmissions,
 } from "@/lib/listings/use-listing-submissions";
-import type { ListingReviewStatus } from "@/lib/listings/submission-types";
+import type { ListingReviewStatus, SubmittedListing } from "@/lib/listings/submission-types";
 
 export function HostListingsContent() {
   const { user } = useAuth();
@@ -41,8 +43,12 @@ export function HostListingsContent() {
     }
   }, [hostSubmissions]);
 
-  const submittedRows = hostSubmissions.map(toHostListingRow);
-  const listings = submittedRows;
+  const listings = hostSubmissions.map(toHostListingRow);
+  const pendingListings = listings.filter((l) => l.status === "pending");
+  const activeListings = listings.filter((l) => l.status === "approved");
+  const otherListings = listings.filter(
+    (l) => l.status !== "pending" && l.status !== "approved"
+  );
 
   async function handleDelete(id: string, title: string) {
     if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
@@ -122,78 +128,136 @@ export function HostListingsContent() {
               </Link>
             </div>
           ) : (
-            listings.map((l) => {
-              const roomCount =
-                hostSubmissions.find((s) => s.id === l.id)?.rooms?.length ?? 0;
-              return (
-              <div
-                key={l.id}
-                className="bg-white rounded-2xl border p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-              >
-                <div className="flex items-center gap-4 min-w-0">
-                  <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-gray-100 shrink-0 border">
-                    {l.coverUrl ? (
-                      <Image
-                        src={l.coverUrl}
-                        alt={l.title}
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center text-[10px] text-gray-400 text-center px-1">
-                        No photo
-                      </div>
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-gray-900 truncate">{l.title}</span>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize shrink-0 ${STATUS_STYLES[l.status]}`}
-                      >
-                        {l.statusLabel}
-                      </span>
-                    </div>
-                    <div className="text-sm text-gray-500 mt-1">
-                      {roomCount} room{roomCount === 1 ? "" : "s"} · {l.bookings} bookings · {l.revenue} ·{" "}
-                      {l.rating > 0 ? `${l.rating} ★` : "No reviews yet"}
-                    </div>
-                  </div>
+            <>
+              {pendingListings.map((l) => (
+                <ListingCard
+                  key={l.id}
+                  listing={l}
+                  submission={hostSubmissions.find((s) => s.id === l.id)}
+                  roomCount={hostSubmissions.find((s) => s.id === l.id)?.rooms?.length ?? 0}
+                  onDelete={handleDelete}
+                />
+              ))}
+              {pendingListings.length > 0 && activeListings.length > 0 && (
+                <div className="flex items-center gap-3 py-1" role="separator" aria-label="Active listings">
+                  <div className="h-px flex-1 bg-gray-200" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    Active
+                  </span>
+                  <div className="h-px flex-1 bg-gray-200" />
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Link
-                    href={`/host/listings/${l.id}/rooms/new`}
-                    className="inline-flex items-center gap-1.5 text-xs border border-gray-300 hover:border-green-400 text-gray-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Add room
-                  </Link>
-                  <Link
-                    href={`/listing/${l.id}`}
-                    className="text-xs border border-gray-300 px-3 py-1.5 rounded-lg font-medium text-gray-600 hover:border-green-400"
-                  >
-                    View
-                  </Link>
-                  <Link
-                    href={`/host/listings/${l.id}/edit`}
-                    className="inline-flex items-center gap-1.5 text-xs bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg font-medium transition-colors"
-                  >
-                    Edit
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(l.id, l.title)}
-                    className="inline-flex items-center gap-1 text-xs border border-red-200 hover:bg-red-50 text-red-600 px-3 py-1.5 rounded-lg font-medium"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" /> Delete
-                  </button>
-                </div>
-              </div>
-            );
-            })
+              )}
+              {activeListings.map((l) => (
+                <ListingCard
+                  key={l.id}
+                  listing={l}
+                  submission={hostSubmissions.find((s) => s.id === l.id)}
+                  roomCount={hostSubmissions.find((s) => s.id === l.id)?.rooms?.length ?? 0}
+                  onDelete={handleDelete}
+                />
+              ))}
+              {otherListings.length > 0 &&
+                (pendingListings.length > 0 || activeListings.length > 0) && (
+                  <div className="h-px bg-gray-200" role="separator" />
+                )}
+              {otherListings.map((l) => (
+                <ListingCard
+                  key={l.id}
+                  listing={l}
+                  submission={hostSubmissions.find((s) => s.id === l.id)}
+                  roomCount={hostSubmissions.find((s) => s.id === l.id)?.rooms?.length ?? 0}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </>
           )}
         </div>
       </div>
     </HostDashboardShell>
+  );
+}
+
+function ListingCard({
+  listing,
+  submission,
+  roomCount,
+  onDelete,
+}: {
+  listing: ReturnType<typeof toHostListingRow>;
+  submission?: SubmittedListing;
+  roomCount: number;
+  onDelete: (id: string, title: string) => void;
+}) {
+  const nightly = submission ? nightlyFromListing(submission) : 0;
+  const rateLabel =
+    nightly > 0
+      ? `AED ${Math.round(nightly).toLocaleString()}/night`
+      : "AED —";
+
+  return (
+    <div className="bg-white rounded-2xl border p-5 flex flex-col gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-gray-100 shrink-0 border">
+            {listing.coverUrl ? (
+              <Image
+                src={listing.coverUrl}
+                alt={listing.title}
+                fill
+                className="object-cover"
+                unoptimized
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center text-[10px] text-gray-400 text-center px-1">
+                No photo
+              </div>
+            )}
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-gray-900 truncate">{listing.title}</span>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize shrink-0 ${STATUS_STYLES[listing.status]}`}
+              >
+                {listing.statusLabel}
+              </span>
+            </div>
+            <div className="text-sm text-gray-500 mt-1">
+              {roomCount} room{roomCount === 1 ? "" : "s"} · {listing.bookings} bookings ·{" "}
+              {rateLabel} ·{" "}
+              {listing.rating > 0 ? `${listing.rating} ★` : "No reviews yet"}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            href={`/host/listings/${listing.id}/rooms/new`}
+            className="inline-flex items-center gap-1.5 text-xs border border-gray-300 hover:border-green-400 text-gray-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add room
+          </Link>
+          <Link
+            href={`/listing/${listing.id}`}
+            className="text-xs border border-gray-300 px-3 py-1.5 rounded-lg font-medium text-gray-600 hover:border-green-400"
+          >
+            View
+          </Link>
+          <Link
+            href={`/host/listings/${listing.id}/edit`}
+            className="inline-flex items-center gap-1.5 text-xs bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg font-medium transition-colors"
+          >
+            Edit
+          </Link>
+          <button
+            type="button"
+            onClick={() => onDelete(listing.id, listing.title)}
+            className="inline-flex items-center gap-1 text-xs border border-red-200 hover:bg-red-50 text-red-600 px-3 py-1.5 rounded-lg font-medium"
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Delete
+          </button>
+        </div>
+      </div>
+      {listing.status === "approved" && <HostListingFlashDealBar listingId={listing.id} />}
+    </div>
   );
 }

@@ -8,7 +8,7 @@ import {
 } from "@/lib/auth/booking-access";
 import { withBookingAuth } from "@/lib/auth/with-booking-auth";
 
-export const POST = withBookingAuth(async (request, context, userId) => {
+export const POST = withBookingAuth(async (request, context, actor) => {
   try {
     await expirePendingBookings();
     const { id } = await context.params;
@@ -18,7 +18,7 @@ export const POST = withBookingAuth(async (request, context, userId) => {
       if (!booking) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      assertHostOwnsListing(booking, userId);
+      assertHostOwnsListing(booking, actor);
     }
 
     let reason: string | undefined;

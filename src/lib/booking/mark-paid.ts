@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { BookingError } from "@/lib/booking/confirm-booking";
+import { computePendingExpiresAt } from "@/lib/booking/policies";
 
 function getDatesInRange(checkIn: Date, checkOut: Date): Date[] {
   const dates: Date[] = [];
@@ -16,18 +17,22 @@ function getDatesInRange(checkIn: Date, checkOut: Date): Date[] {
 
 /** Mark booking paid and block calendar dates when status is confirmed. */
 export async function markBookingPaid(bookingId: string) {
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const booking = await tx.booking.findUnique({ where: { id: bookingId } });
     if (!booking) {
       throw new BookingError("Booking not found", "NOT_FOUND");
     }
     if (booking.paymentStatus === "paid") {
-      return booking;
+      return { booking, justPaid: false };
     }
 
     const updated = await tx.booking.update({
       where: { id: bookingId },
-      data: { paymentStatus: "paid" },
+      data: {
+        paymentStatus: "paid",
+        expiresAt:
+          booking.status === "pending" ? computePendingExpiresAt(new Date()) : null,
+      },
     });
 
     if (updated.status === "confirmed" && updated.checkOut) {
@@ -43,8 +48,30 @@ export async function markBookingPaid(bookingId: string) {
       }
     }
 
-    return updated;
+    return { booking: updated, justPaid: true };
   });
+
+  if (result.justPaid) {
+    try {
+      const listing = await prisma.listing.findUnique({
+        where: { id: result.booking.listingId },
+        select: { hostId: true, title: true },
+      });
+      if (listing) {
+        const { pushHostAlert } = await import("@/lib/server/host-notifications-repo");
+        await pushHostAlert(listing.hostId, {
+          type: "payment",
+          title: "Payment received",
+          message: `Payment confirmed for ${listing.title}.`,
+          href: "/host/accounts",
+        });
+      }
+    } catch {
+      // inbox write should not block payment
+    }
+  }
+
+  return result.booking;
 }
 
 export { acceptBooking, declineBooking, cancelBooking, expirePendingBookings } from "./lifecycle";

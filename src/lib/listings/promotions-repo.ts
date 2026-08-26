@@ -22,7 +22,11 @@ function toDto(row: {
   const now = Date.now();
   const ends = row.endsAt.getTime();
   const status =
-    row.status === "expired" || ends <= now ? "expired" : "active";
+    row.status === "pending"
+      ? "pending"
+      : row.status === "expired" || ends <= now
+        ? "expired"
+        : "active";
   return {
     id: row.id,
     listingId: row.listingId,
@@ -93,8 +97,17 @@ async function refreshListingFeaturedFlag(listingId: string) {
   });
 }
 
+let lastPromoExpireAt = 0;
+const PROMO_EXPIRE_MIN_MS = 60_000;
+
 /** Expire due promotions and refresh featured flags. */
-export async function expireDuePromotions(now = new Date()) {
+export async function expireDuePromotions(now = new Date(), opts?: { force?: boolean }) {
+  const ts = now.getTime();
+  if (!opts?.force && ts - lastPromoExpireAt < PROMO_EXPIRE_MIN_MS) {
+    return 0;
+  }
+  lastPromoExpireAt = ts;
+
   const due = await prisma.listingPromotion.findMany({
     where: { status: "active", endsAt: { lte: now } },
   });
@@ -174,6 +187,9 @@ export async function purchasePromotionInDb(input: {
   kind: ListingPromotionKind;
   durationDays: ListingPromotionDurationDays;
   listingTitle?: string;
+  /** When true, activate immediately (local demo / no Stripe). */
+  activate?: boolean;
+  paymentRef?: string;
 }): Promise<ListingPromotion | null> {
   const pkg = await getEnabledPromotionPackageFromDb(input.kind, input.durationDays);
   if (!pkg) return null;
@@ -194,6 +210,7 @@ export async function purchasePromotionInDb(input: {
   const ends = new Date(start);
   ends.setDate(ends.getDate() + input.durationDays);
 
+  const activate = Boolean(input.activate);
   const promo: ListingPromotion = {
     id: `promo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     listingId: input.listingId,
@@ -205,11 +222,45 @@ export async function purchasePromotionInDb(input: {
     purchasedAt: now.toISOString(),
     startsAt: (active ? now : start).toISOString(),
     endsAt: ends.toISOString(),
-    status: "active",
-    paymentRef: `PAY-${Date.now().toString(36).toUpperCase()}`,
+    status: activate ? "active" : "pending",
+    paymentRef: input.paymentRef ?? (activate ? `DEMO-${Date.now().toString(36).toUpperCase()}` : ""),
   };
 
   return upsertPromotionToDb(promo, input.listingTitle);
+}
+
+export async function activatePromotionInDb(
+  promotionId: string,
+  paymentRef: string
+): Promise<ListingPromotion | null> {
+  const row = await prisma.listingPromotion.findUnique({ where: { id: promotionId } });
+  if (!row) return null;
+  if (row.status === "active") return toDto(row);
+
+  const now = new Date();
+  const updated = await prisma.listingPromotion.update({
+    where: { id: promotionId },
+    data: {
+      status: "active",
+      paymentRef,
+      purchasedAt: now,
+    },
+  });
+  if (updated.status === "active") {
+    await prisma.listingPromotion.updateMany({
+      where: {
+        listingId: updated.listingId,
+        kind: updated.kind,
+        status: "active",
+        id: { not: updated.id },
+      },
+      data: { status: "expired", endsAt: now },
+    });
+  }
+  if (updated.kind === "featured") {
+    await refreshListingFeaturedFlag(updated.listingId);
+  }
+  return toDto(updated);
 }
 
 export async function upsertPromotionToDb(
@@ -222,16 +273,17 @@ export async function upsertPromotionToDb(
     title: listingTitle,
   });
 
-  // Expire other active same-kind promos for this listing
-  await prisma.listingPromotion.updateMany({
-    where: {
-      listingId: promo.listingId,
-      kind: promo.kind,
-      status: "active",
-      id: { not: promo.id },
-    },
-    data: { status: "expired", endsAt: new Date() },
-  });
+  if (promo.status === "active") {
+    await prisma.listingPromotion.updateMany({
+      where: {
+        listingId: promo.listingId,
+        kind: promo.kind,
+        status: "active",
+        id: { not: promo.id },
+      },
+      data: { status: "expired", endsAt: new Date() },
+    });
+  }
 
   await prisma.listingPromotion.upsert({
     where: { id: promo.id },

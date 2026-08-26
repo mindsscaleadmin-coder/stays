@@ -80,7 +80,7 @@ export function HostAccountsContent() {
     setUpiId(acct.upiId ?? "");
   }, [data?.payoutAccount]);
 
-  function handleSaveAccount(e: React.FormEvent) {
+  async function handleSaveAccount(e: React.FormEvent) {
     e.preventDefault();
     if (!accountHolder.trim()) return;
     if (method === "bank" && !accountNumber.trim() && !iban.trim()) {
@@ -92,17 +92,22 @@ export function HostAccountsContent() {
       return;
     }
     setSaving(true);
-    saveAccount({
-      method,
-      accountHolder: accountHolder.trim(),
-      bankName: bankName.trim() || undefined,
-      accountNumber: accountNumber.trim() || undefined,
-      iban: iban.trim() || undefined,
-      swift: swift.trim() || undefined,
-      upiId: upiId.trim() || undefined,
-    });
-    setSaving(false);
-    flash("Payout details saved.");
+    try {
+      await saveAccount({
+        method,
+        accountHolder: accountHolder.trim(),
+        bankName: bankName.trim() || undefined,
+        accountNumber: accountNumber.trim() || undefined,
+        iban: iban.trim() || undefined,
+        swift: swift.trim() || undefined,
+        upiId: upiId.trim() || undefined,
+      });
+      flash("Payout details saved.");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Could not save payout details.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (!ready || !data) {

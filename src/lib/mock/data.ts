@@ -271,7 +271,7 @@ export const POPULAR_CATEGORIES = [
     name: "Desert Farms",
     stays: 23,
     href: "/listings?parent=Stays&q=desert",
-    img: "https://images.unsplash.com/photo-1509316785289-025f5ce84627?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=400",
+    img: "https://images.unsplash.com/photo-1657383543368-7d929944be6a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=400",
   },
   {
     name: "Experiences",
@@ -286,7 +286,7 @@ export const POPULAR_EXPERIENCES = [
     name: "Farm Tour",
     stays: 24,
     href: "/listings?parent=Experiences&q=farm+tour",
-    img: "https://images.unsplash.com/photo-1464226184884-fa280b87cbae?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=400",
+    img: "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=400",
   },
   {
     name: "Fruit Picking",
@@ -421,6 +421,16 @@ export type Stay = Omit<StayBase, "type"> & {
   photoCount?: number;
   /** ISO or display date for “posted” row */
   postedAt?: string;
+  /** Host discount hint shown on cards (weekly / flash) */
+  priceNote?: string;
+  /** Owning host — used so checkout writes the booking to their calendar */
+  hostId?: string;
+  /** Live flash deal — only set while the promo is on and not expired */
+  flashDealEndsAt?: string;
+  flashDealDiscountPct?: number;
+  flashDealCurrency?: string;
+  /** Currency the nightly price is stored in (listing country). */
+  currency?: string;
 };
 
 export function getStayById(id: string): Stay | undefined {

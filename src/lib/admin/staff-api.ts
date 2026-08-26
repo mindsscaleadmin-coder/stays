@@ -12,16 +12,51 @@ export async function fetchAdminStaffFromApi(): Promise<StaffMember[]> {
   return json.staff;
 }
 
+const STAFF_BY_EMAIL_TTL_MS = 15_000;
+const staffByEmailCache = new Map<
+  string,
+  { member: StaffMember | null; at: number; inflight?: Promise<StaffMember | null> }
+>();
+
 export async function fetchAdminStaffByEmailFromApi(
   email: string
 ): Promise<StaffMember | null> {
-  const res = await fetch(
-    `/api/admin/staff?email=${encodeURIComponent(email)}`,
-    { cache: "no-store" }
-  );
-  if (!res.ok) throw new Error("Failed to load staff member");
-  const json = (await res.json()) as { member: StaffMember | null };
-  return json.member;
+  const key = email.trim().toLowerCase();
+  const cached = staffByEmailCache.get(key);
+  if (cached?.inflight) return cached.inflight;
+  if (cached && Date.now() - cached.at < STAFF_BY_EMAIL_TTL_MS) {
+    return cached.member;
+  }
+
+  const inflight = (async () => {
+    const res = await fetch(
+      `/api/admin/staff?email=${encodeURIComponent(key)}`,
+      { cache: "no-store" }
+    );
+    if (!res.ok) throw new Error("Failed to load staff member");
+    const json = (await res.json()) as { member: StaffMember | null };
+    staffByEmailCache.set(key, { member: json.member ?? null, at: Date.now() });
+    return json.member ?? null;
+  })().finally(() => {
+    const next = staffByEmailCache.get(key);
+    if (next) delete next.inflight;
+  });
+
+  staffByEmailCache.set(key, {
+    member: cached?.member ?? null,
+    at: cached?.at ?? 0,
+    inflight,
+  });
+  return inflight;
+}
+
+export async function claimAdminViaApi(inviteCode: string): Promise<boolean> {
+  const res = await fetch("/api/auth/claim-admin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ inviteCode }),
+  });
+  return res.ok;
 }
 
 export async function saveAdminStaffViaApi(input: StaffMemberInput): Promise<StaffMember> {

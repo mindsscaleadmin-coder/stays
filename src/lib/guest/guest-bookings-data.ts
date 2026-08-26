@@ -58,27 +58,30 @@ export function updateGuestBookingStatus(id: string, status: string): void {
   notify();
 }
 
-/** Merge Prisma guest bookings into local trip list (server wins by id). */
+/** Merge Prisma guest bookings into local trip list (server rows win). */
 export function mergeServerGuestBookings(
   server: GuestBookingSummary[]
 ): GuestBookingSummary[] {
   if (typeof window === "undefined") return server;
   const local = loadGuestBookings();
-  const byId = new Map(local.map((b) => [b.id, b]));
-  for (const s of server) {
-    const existing = byId.get(s.id);
-    byId.set(s.id, {
+  const localById = new Map(local.map((b) => [b.id, b]));
+  const merged = server.map((s) => {
+    const existing = localById.get(s.id);
+    return {
       ...s,
       img: s.img || existing?.img || "",
       status:
         existing?.status === "completed" && s.status === "confirmed"
           ? "completed"
           : s.status,
-    });
+    };
+  });
+  for (const row of local) {
+    if (row.id.startsWith("GF-") && !merged.some((b) => b.id === row.id)) {
+      merged.push(row);
+    }
   }
-  const merged = Array.from(byId.values());
   localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-  // Caller updates React state; skip event to avoid duplicate work
   return merged;
 }
 

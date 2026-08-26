@@ -18,7 +18,7 @@ import { useTranslations, useLocale } from "next-intl";
 import { useAuth } from "@/components/providers/auth-provider";
 import { getInitials } from "@/lib/auth/types";
 import { GUEST_BOOKINGS, getFavoriteIds } from "@/lib/mock/guest-data";
-import { STAYS } from "@/lib/mock/data";
+import { usePublicListings } from "@/lib/listings/use-public-listings";
 import { formatAmount } from "@/lib/utils";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { GUEST_NAV } from "@/lib/guest/guest-nav";
@@ -66,6 +66,7 @@ export function AccountContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading, signOut, updateProfile, isDemo } = useAuth();
+  const { listings: publicListings } = usePublicListings();
 
   const tab = tabFromSearch(searchParams.get("tab"));
   const [fullName, setFullName] = useState("");
@@ -82,6 +83,11 @@ export function AccountContent() {
   const [openThreadId, setOpenThreadId] = useState<string | null>(
     () => searchParams.get("booking") || null
   );
+
+  useEffect(() => {
+    const fromUrl = searchParams.get("booking");
+    if (fromUrl) setOpenThreadId(fromUrl);
+  }, [searchParams]);
   const [cancelBookingId, setCancelBookingId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -193,7 +199,7 @@ export function AccountContent() {
   if (!user) return null;
 
   const userId = user.id;
-  const favorites = STAYS.filter((s) => favoriteIds.includes(s.id));
+  const favorites = publicListings.filter((s) => favoriteIds.includes(s.id));
 
   async function handleSignOut() {
     await signOut();
@@ -433,7 +439,10 @@ export function AccountContent() {
                         </button>
                       </div>
                     )}
-                  {(guestHasStayed(b) || getReviewForBooking(b.id)) && (
+                  {(b.status === "completed" ||
+                    b.status === "confirmed" ||
+                    guestHasStayed(b) ||
+                    getReviewForBooking(b.id)) && (
                     <StayReviewForm
                       bookingId={b.id}
                       listingId={b.listingId || "1"}

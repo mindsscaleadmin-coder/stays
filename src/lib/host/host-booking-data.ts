@@ -12,6 +12,7 @@ import {
 } from "./host-booking-utils";
 
 import { emitSyncEvent } from "@/lib/emit-sync-event";
+import { isSharedDbEnabled } from "@/lib/shared-db";
 import {
   computePendingExpiresAt,
   evaluateCancellationRefund,
@@ -285,6 +286,8 @@ export function mergeServerHostBookings(
     byId.set(s.id, {
       ...s,
       status: keepCompleted,
+      expiresAt: existing.expiresAt ?? s.expiresAt,
+      policyId: existing.policyId || s.policyId,
       checkInStatus: existing.checkInStatus,
       checkedInAt: existing.checkedInAt,
       checkedOutAt: existing.checkedOutAt,
@@ -314,19 +317,25 @@ export function mergeServerHostBookings(
 /** Auto-expire pending requests past host response deadline (client store). */
 function applyLocalPendingExpiry(rows: HostBookingRecord[]): HostBookingRecord[] {
   const now = new Date();
-  let changed = false;
+  let stamped = false;
+  let expired = false;
   const next = rows.map((b) => {
     if (b.status !== "pending") return b;
     const expiresAt =
       b.expiresAt ||
       computePendingExpiresAt(new Date(`${b.bookedAt}T12:00:00`)).toISOString();
     if (!b.expiresAt) {
-      changed = true;
+      stamped = true;
     }
     if (!isPendingExpired(expiresAt, now)) {
       return b.expiresAt ? b : { ...b, expiresAt, policyId: b.policyId || "flexible" };
     }
-    changed = true;
+    // Shared DB owns pending expiry. Locally flipping a server row back and forth
+    // against GET /api/bookings re-fetched the dashboard in a loop.
+    if (isSharedDbEnabled() && !b.id.startsWith("GF-")) {
+      return b.expiresAt ? b : { ...b, expiresAt, policyId: b.policyId || "flexible" };
+    }
+    expired = true;
     return {
       ...b,
       status: "expired" as const,
@@ -341,9 +350,12 @@ function applyLocalPendingExpiry(rows: HostBookingRecord[]): HostBookingRecord[]
       policyId: b.policyId || "flexible",
     };
   });
-  if (changed) {
-    localStorage.setItem(BOOKINGS_KEY, JSON.stringify(next));
-    notify();
+  if (stamped || expired) {
+    const serialized = JSON.stringify(next);
+    if (localStorage.getItem(BOOKINGS_KEY) !== serialized) {
+      localStorage.setItem(BOOKINGS_KEY, serialized);
+      if (expired) notify();
+    }
   }
   return next;
 }
@@ -369,7 +381,9 @@ export function saveHostBookings(
   opts?: { silent?: boolean }
 ): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(BOOKINGS_KEY, JSON.stringify(bookings));
+  const serialized = JSON.stringify(bookings);
+  if (localStorage.getItem(BOOKINGS_KEY) === serialized) return;
+  localStorage.setItem(BOOKINGS_KEY, serialized);
   if (!opts?.silent) notify();
 }
 
@@ -459,11 +473,16 @@ export function getHostInstantBookEnabled(): boolean {
   return localStorage.getItem(INSTANT_BOOK_KEY) === "true";
 }
 
-export function setHostInstantBookEnabled(enabled: boolean): void {
+export function setHostInstantBookEnabled(
+  enabled: boolean,
+  opts?: { silent?: boolean }
+): void {
   if (typeof window === "undefined") return;
   if (enabled && !isInstantBookingPlatformEnabled()) return;
-  localStorage.setItem(INSTANT_BOOK_KEY, enabled ? "true" : "false");
-  notify();
+  const next = enabled ? "true" : "false";
+  if (localStorage.getItem(INSTANT_BOOK_KEY) === next) return;
+  localStorage.setItem(INSTANT_BOOK_KEY, next);
+  if (!opts?.silent) notify();
 }
 
 function newAuditId(): string {

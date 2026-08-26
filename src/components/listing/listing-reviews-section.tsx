@@ -1,0 +1,180 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { BadgeCheck, MessageSquareText, Star } from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
+import { StarRating } from "@/components/ui/star-rating";
+import type { StayReview } from "@/lib/booking/stay-reviews-types";
+
+const PREVIEW_COUNT = 4;
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "G";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function formatReviewDate(iso: string, locale: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString(locale, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function starDistribution(reviews: StayReview[]) {
+  const counts = [0, 0, 0, 0, 0];
+  for (const review of reviews) {
+    const star = Math.min(5, Math.max(1, Math.round(review.rating)));
+    counts[star - 1] += 1;
+  }
+  return counts;
+}
+
+export function ListingReviewsSection({
+  reviews,
+  ready,
+  average,
+  count,
+}: {
+  reviews: StayReview[];
+  ready: boolean;
+  average: number;
+  count: number;
+}) {
+  const t = useTranslations("listing");
+  const locale = useLocale();
+  const [expanded, setExpanded] = useState(false);
+
+  const distribution = useMemo(() => starDistribution(reviews), [reviews]);
+  const visible = expanded ? reviews : reviews.slice(0, PREVIEW_COUNT);
+  const hiddenCount = Math.max(0, reviews.length - PREVIEW_COUNT);
+
+  return (
+    <section
+      id="section-reviews"
+      className="scroll-mt-28 bg-white rounded-2xl border border-gray-200/80 p-5 sm:p-7 mb-5 shadow-sm shadow-gray-100/70"
+    >
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-6">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-green-700/80 mb-1">
+            {t("tabs.reviews")}
+          </p>
+          <h2 className="font-bold text-gray-900 text-xl font-display tracking-tight">
+            {t("reviewsTitle")}
+          </h2>
+        </div>
+        {count > 0 && (
+          <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 border border-amber-100 px-3 py-1.5">
+            <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+            <span className="text-lg font-bold text-gray-900 leading-none">{average.toFixed(1)}</span>
+            <span className="text-xs text-gray-500">
+              · {count} {count === 1 ? t("reviewSingular") : t("tabs.reviews").toLowerCase()}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {!ready ? (
+        <div className="animate-pulse space-y-4">
+          <div className="h-24 rounded-2xl bg-gray-100" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="h-36 rounded-2xl bg-gray-100" />
+            <div className="h-36 rounded-2xl bg-gray-100" />
+          </div>
+        </div>
+      ) : count === 0 ? (
+        <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50/80 px-5 py-10 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white border border-gray-200 text-gray-400">
+            <MessageSquareText className="w-5 h-5" />
+          </div>
+          <p className="text-sm font-semibold text-gray-900">{t("reviewsEmptyTitle")}</p>
+          <p className="text-sm text-gray-500 mt-1 max-w-md mx-auto leading-relaxed">
+            {t("reviewsEmptyBody")}
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-6 sm:gap-10 mb-7 pb-6 border-b border-gray-100">
+            <div className="flex sm:flex-col items-center sm:items-start gap-3 sm:gap-1">
+              <div className="text-5xl font-bold text-gray-900 tracking-tight leading-none">
+                {average.toFixed(1)}
+              </div>
+              <div>
+                <StarRating rating={average} size="md" />
+                <p className="text-xs text-gray-500 mt-1.5">
+                  {t("reviewsFromGuests", { count })}
+                </p>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              {[5, 4, 3, 2, 1].map((star) => {
+                const n = distribution[star - 1];
+                const pct = count > 0 ? (n / count) * 100 : 0;
+                return (
+                  <div key={star} className="flex items-center gap-2.5">
+                    <span className="w-8 text-[11px] font-medium text-gray-500 tabular-nums">
+                      {star} ★
+                    </span>
+                    <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-amber-400"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <span className="w-6 text-[11px] text-gray-400 tabular-nums text-end">{n}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {visible.map((review) => (
+              <article
+                key={review.id}
+                className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 sm:p-5"
+              >
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-full bg-green-700 text-white text-xs font-bold flex items-center justify-center shrink-0">
+                    {initials(review.authorName)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-gray-900 text-sm truncate">
+                      {review.authorName}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-500 mt-0.5">
+                      <span className="inline-flex items-center gap-0.5 text-green-700 font-medium">
+                        <BadgeCheck className="w-3 h-3" />
+                        {t("reviewsVerifiedStay")}
+                      </span>
+                      <span aria-hidden>·</span>
+                      <time dateTime={review.createdAt}>
+                        {formatReviewDate(review.createdAt, locale)}
+                      </time>
+                    </div>
+                  </div>
+                </div>
+                <StarRating rating={review.rating} />
+                <p className="text-sm text-gray-600 leading-relaxed mt-2.5">{review.comment}</p>
+              </article>
+            ))}
+          </div>
+
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="mt-5 w-full border border-gray-200 hover:border-green-400 hover:bg-green-50/50 text-gray-700 hover:text-green-800 text-sm font-semibold py-2.5 rounded-xl transition-colors"
+            >
+              {expanded ? t("reviewsShowLess") : t("viewAllReviews", { count })}
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}

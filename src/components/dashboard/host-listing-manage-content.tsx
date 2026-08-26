@@ -25,7 +25,11 @@ import {
   resolveHostName,
   useListingSubmissions,
 } from "@/lib/listings/use-listing-submissions";
-import { validateListingQuality, buildQualityChecklist } from "@/lib/listings/listing-quality-validation";
+import {
+  validateListingQuality,
+  buildQualityChecklist,
+  qualityInputFromListing,
+} from "@/lib/listings/listing-quality-validation";
 import { ListingQualityChecklist } from "@/components/dashboard/listing-quality-checklist";
 import { STATUS_STYLES } from "@/lib/mock/dashboard-data";
 import { cn } from "@/lib/utils";
@@ -88,17 +92,17 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
   }
 
   const qualityInput = useMemo(
-    () => ({
-      title,
-      description,
-      photoCount: listing?.photoCount ?? listing?.photoUrls?.length ?? 0,
-      country: listing?.country,
-      state: listing?.state,
-      parentCategory: listing?.parentCategory,
-      farmType,
-      amenities,
-    }),
-    [title, description, listing, farmType, amenities]
+    () =>
+      qualityInputFromListing({
+        ...(listing ?? {}),
+        title,
+        description,
+        farmType,
+        amenities,
+        farmActivities,
+        livestockCrops,
+      }),
+    [title, description, listing, farmType, amenities, farmActivities, livestockCrops]
   );
 
   const qualityChecklist = useMemo(
@@ -112,16 +116,15 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
     setError("");
 
     const qualityError = validateListingQuality(
-      {
+      qualityInputFromListing({
+        ...listing,
         title,
         description,
-        photoCount: listing.photoCount,
-        country: listing.country,
-        state: listing.state,
-        parentCategory: listing.parentCategory,
         farmType,
         amenities,
-      },
+        farmActivities,
+        livestockCrops,
+      }),
       qualityRules
     );
     if (qualityError) {

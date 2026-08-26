@@ -1,4 +1,11 @@
-export type BuiltInMainTab = "country" | "state" | "district" | "parent" | "category" | "subcategory";
+export type BuiltInMainTab =
+  | "country"
+  | "state"
+  | "district"
+  | "city"
+  | "parent"
+  | "category"
+  | "subcategory";
 
 export interface FilterTab {
   id: string;
@@ -34,6 +41,10 @@ export interface State {
   name: string;
   countryId: string;
   enabled?: boolean;
+  /** Official admin code (India LGD state code). */
+  code?: string;
+  /** state | territory — used when mapping into Location.type */
+  type?: string;
 }
 
 export interface District {
@@ -41,6 +52,17 @@ export interface District {
   name: string;
   stateId: string;
   enabled?: boolean;
+  /** Official admin code (India LGD district code). */
+  code?: string;
+}
+
+/** City/town under a district. Not globally unique — identity is districtId + name. */
+export interface City {
+  id: string;
+  name: string;
+  districtId: string;
+  enabled?: boolean;
+  code?: string;
 }
 
 export interface ParentCategory {
@@ -95,6 +117,7 @@ export interface TaxonomyData {
   countries: Country[];
   states: State[];
   districts: District[];
+  cities: City[];
   parents: ParentCategory[];
   categories: Category[];
   subcategories: Subcategory[];
@@ -107,6 +130,7 @@ export const DEFAULT_MAIN_TABS: FilterTab[] = [
   { id: "country", label: "Country", builtIn: true },
   { id: "state", label: "State", builtIn: true },
   { id: "district", label: "District", builtIn: true },
+  { id: "city", label: "City", builtIn: true },
   { id: "parent", label: "Parent Category", builtIn: true },
   { id: "category", label: "Category", builtIn: true },
   { id: "subcategory", label: "Sub Category", builtIn: true },
@@ -168,6 +192,7 @@ export function resolveBuiltInMainTabId(
   if (/^countr(y|ies)$/.test(label)) return "country";
   if (/^states?(\s*\/\s*emirates)?$/.test(label) || /^emirates$/.test(label)) return "state";
   if (/^districts?$/.test(label)) return "district";
+  if (/^cit(y|ies)$/.test(label)) return "city";
   if (/^parent(\s*categor(y|ies))?$/.test(label)) return "parent";
   if (/^sub[\s-]*categor(y|ies)$/.test(label)) return "subcategory";
   if (/^categor(y|ies)$/.test(label)) return "category";
@@ -213,11 +238,25 @@ export function filterEnabledItems<T extends { enabled?: boolean }>(items: T[]):
 }
 
 export function isBuiltInMainTab(id: string): id is BuiltInMainTab {
-  return ["country", "state", "district", "parent", "category", "subcategory"].includes(id);
+  return ["country", "state", "district", "city", "parent", "category", "subcategory"].includes(
+    id
+  );
 }
 
 export function isDefaultPropertyTab(id: string): boolean {
   return DEFAULT_PROPERTY_TABS.some((t) => t.id === id);
+}
+
+/** Keep admin Active/label overrides when re-merging built-in tabs. */
+function mergeStoredTab(canonical: FilterTab, stored?: FilterTab): FilterTab {
+  if (!stored) return { ...canonical };
+  return {
+    ...canonical,
+    ...stored,
+    id: canonical.id,
+    builtIn: canonical.builtIn ?? stored.builtIn,
+    label: stored.label?.trim() || canonical.label,
+  };
 }
 
 export function dedupeTabsById(tabs: FilterTab[]): FilterTab[] {
@@ -234,11 +273,7 @@ export function mergeMainTabs(stored: FilterTab[] | undefined): FilterTab[] {
   const byId = new Map(deduped.map((tab) => [tab.id, tab]));
 
   for (const builtIn of DEFAULT_MAIN_TABS) {
-    if (!byId.has(builtIn.id)) {
-      byId.set(builtIn.id, builtIn);
-    } else {
-      byId.set(builtIn.id, { ...builtIn, label: byId.get(builtIn.id)!.label });
-    }
+    byId.set(builtIn.id, mergeStoredTab(builtIn, byId.get(builtIn.id)));
   }
 
   const builtInIds = new Set(DEFAULT_MAIN_TABS.map((t) => t.id));
@@ -269,14 +304,14 @@ export function mergeMainTabs(stored: FilterTab[] | undefined): FilterTab[] {
   const propertyTabs = DEFAULT_PROPERTY_TABS.map((canonical) => {
     const existing = byId.get(canonical.id);
     if (existing) {
-      return { ...canonical, label: existing.label || canonical.label };
+      return mergeStoredTab(canonical, existing);
     }
     const legacyId = legacyToCanonical.get(canonical.id);
     if (legacyId) {
       const legacy = byId.get(legacyId)!;
-      return { id: canonical.id, label: legacy.label || canonical.label };
+      return mergeStoredTab(canonical, { ...legacy, id: canonical.id });
     }
-    return canonical;
+    return { ...canonical };
   });
 
   const usedLegacyIds = new Set(legacyToCanonical.values());
@@ -343,11 +378,7 @@ export function mergeExtraTabs(stored: FilterTab[] | undefined): FilterTab[] {
   const byId = new Map(deduped.map((tab) => [tab.id, tab]));
 
   for (const builtIn of DEFAULT_EXTRA_TABS) {
-    if (!byId.has(builtIn.id)) {
-      byId.set(builtIn.id, builtIn);
-    } else {
-      byId.set(builtIn.id, { ...builtIn, label: byId.get(builtIn.id)!.label });
-    }
+    byId.set(builtIn.id, mergeStoredTab(builtIn, byId.get(builtIn.id)));
   }
 
   const builtInIds = new Set(DEFAULT_EXTRA_TABS.map((t) => t.id));

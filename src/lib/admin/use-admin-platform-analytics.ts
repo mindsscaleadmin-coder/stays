@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HOST_BOOKINGS_SYNC_EVENT, mergeServerHostBookings } from "@/lib/host/host-booking-data";
 import type { HostBookingRecord } from "@/lib/host/host-booking-types";
 import { HOST_REVIEWS_SYNC_EVENT } from "@/lib/host/host-reviews-data";
@@ -40,17 +40,28 @@ const EMPTY_SNAPSHOT: PlatformAnalyticsSnapshot = {
   bookingStatusBreakdown: [],
 };
 
+let pullInflight: Promise<void> | null = null;
+let pulledAt = 0;
+
 async function pullServerBookings(): Promise<void> {
-  try {
-    const res = await fetch("/api/bookings?role=host");
-    if (!res.ok) return;
-    const data = (await res.json()) as { bookings?: HostBookingRecord[] };
-    if (Array.isArray(data.bookings) && data.bookings.length > 0) {
-      mergeServerHostBookings(data.bookings);
+  if (pullInflight) return pullInflight;
+  if (Date.now() - pulledAt < 8_000) return;
+  pullInflight = (async () => {
+    try {
+      const res = await fetch("/api/bookings?role=host");
+      if (!res.ok) return;
+      const data = (await res.json()) as { bookings?: HostBookingRecord[] };
+      if (Array.isArray(data.bookings) && data.bookings.length > 0) {
+        mergeServerHostBookings(data.bookings);
+      }
+      pulledAt = Date.now();
+    } catch {
+      // local analytics still work offline
+    } finally {
+      pullInflight = null;
     }
-  } catch {
-    // local analytics still work offline
-  }
+  })();
+  return pullInflight;
 }
 
 export function useAdminPlatformAnalytics(countryFilter = "") {
@@ -58,42 +69,49 @@ export function useAdminPlatformAnalytics(countryFilter = "") {
   const [ready, setReady] = useState(false);
   const [availableCountries, setAvailableCountries] = useState<string[]>([]);
 
-  const refresh = useCallback(async () => {
-    await pullServerBookings();
+  const refreshLocal = useCallback(() => {
     setSnapshot(computePlatformAnalytics({ country: countryFilter || undefined }));
     setAvailableCountries(listAnalyticsCountries());
   }, [countryFilter]);
 
+  const refresh = useCallback(async () => {
+    await pullServerBookings();
+    refreshLocal();
+  }, [refreshLocal]);
+
+  const pulledRef = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
     async function boot() {
-      await refresh();
+      if (!pulledRef.current) {
+        pulledRef.current = true;
+        await refresh();
+      } else {
+        refreshLocal();
+      }
       if (!cancelled) setReady(true);
     }
     void boot();
 
-    function onSync() {
-      void refresh();
-    }
-
-    window.addEventListener(HOST_BOOKINGS_SYNC_EVENT, onSync);
-    window.addEventListener(LISTINGS_SYNC_EVENT, onSync);
-    window.addEventListener(USERS_SYNC_EVENT, onSync);
-    window.addEventListener(HOST_REVIEWS_SYNC_EVENT, onSync);
-    window.addEventListener("storage", onSync);
+    window.addEventListener(HOST_BOOKINGS_SYNC_EVENT, refreshLocal);
+    window.addEventListener(LISTINGS_SYNC_EVENT, refreshLocal);
+    window.addEventListener(USERS_SYNC_EVENT, refreshLocal);
+    window.addEventListener(HOST_REVIEWS_SYNC_EVENT, refreshLocal);
+    window.addEventListener("storage", refreshLocal);
 
     const interval = window.setInterval(() => void refresh(), 30000);
 
     return () => {
       cancelled = true;
-      window.removeEventListener(HOST_BOOKINGS_SYNC_EVENT, onSync);
-      window.removeEventListener(LISTINGS_SYNC_EVENT, onSync);
-      window.removeEventListener(USERS_SYNC_EVENT, onSync);
-      window.removeEventListener(HOST_REVIEWS_SYNC_EVENT, onSync);
-      window.removeEventListener("storage", onSync);
+      window.removeEventListener(HOST_BOOKINGS_SYNC_EVENT, refreshLocal);
+      window.removeEventListener(LISTINGS_SYNC_EVENT, refreshLocal);
+      window.removeEventListener(USERS_SYNC_EVENT, refreshLocal);
+      window.removeEventListener(HOST_REVIEWS_SYNC_EVENT, refreshLocal);
+      window.removeEventListener("storage", refreshLocal);
       window.clearInterval(interval);
     };
-  }, [refresh]);
+  }, [refresh, refreshLocal]);
 
   const lastUpdatedLabel = useMemo(() => {
     const d = new Date(snapshot.kpis.lastUpdated);

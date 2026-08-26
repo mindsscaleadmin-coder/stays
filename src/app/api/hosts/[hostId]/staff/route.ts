@@ -21,21 +21,27 @@ export async function GET(
   request: Request,
   context: { params: Promise<{ hostId: string }> }
 ) {
-  const { hostId } = await context.params;
-  const url = new URL(request.url);
-  const ownerName = url.searchParams.get("ownerName") ?? "";
-  const ownerEmail = url.searchParams.get("ownerEmail") ?? "";
+  const requestId = getRequestId(request);
+  try {
+    const { hostId } = await context.params;
+    const actor = await requireHostSelfOrAdmin(hostId);
+    if (actor?.email) {
+      await ensureHostOwnerStaff({
+        hostId,
+        name: actor.email.split("@")[0] || "Owner",
+        email: actor.email,
+      });
+    }
 
-  if (ownerEmail) {
-    await ensureHostOwnerStaff({
-      hostId,
-      name: ownerName,
-      email: ownerEmail,
-    });
+    const staff = await listHostStaffMembers(hostId);
+    return NextResponse.json({ staff }, { headers: { "x-request-id": requestId } });
+  } catch (error) {
+    if (error instanceof AuthError || error instanceof BookingAccessError) {
+      return hostDataErrorResponse(error, requestId);
+    }
+    console.error("Host staff list error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-
-  const staff = await listHostStaffMembers(hostId);
-  return NextResponse.json({ staff });
 }
 
 export async function POST(

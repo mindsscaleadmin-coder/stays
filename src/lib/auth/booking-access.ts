@@ -18,12 +18,22 @@ export class BookingAccessError extends Error {
   }
 }
 
+/** Local-only: APIs skip sessions when Supabase is unset. Never true in production. */
 export function isDemoApiMode() {
+  if (process.env.NODE_ENV === "production") return false;
+  if (process.env.ALLOW_DEMO_AUTH === "0") return false;
   return !isSupabaseConfigured();
 }
 
+/**
+ * JWT / metadata roles only. Do not use for admin checks — use resolveSessionActor.
+ * `admin` in user_metadata is ignored because sign-up can set it.
+ */
 export function getUserRoles(user: User): string[] {
-  return (user.user_metadata?.roles as string[] | undefined) ?? ["guest"];
+  const raw = user.user_metadata?.roles;
+  if (!Array.isArray(raw)) return ["guest"];
+  const roles = raw.filter((role): role is string => typeof role === "string" && role !== "admin");
+  return roles.length > 0 ? roles : ["guest"];
 }
 
 export async function loadBookingWithListing(bookingId: string) {
@@ -44,32 +54,34 @@ export function assertGuestOwnsBooking(
 
 export function assertHostOwnsListing(
   booking: { listing: { hostId: string } },
-  userId: string
+  actor: { id: string; staffHostId?: string }
 ) {
-  if (booking.listing.hostId !== userId) {
-    throw new BookingAccessError("Host access denied for this booking");
-  }
+  if (booking.listing.hostId === actor.id) return;
+  if (actor.staffHostId && booking.listing.hostId === actor.staffHostId) return;
+  throw new BookingAccessError("Host access denied for this booking");
 }
 
 export function assertBookingParticipant(
   booking: { guestId: string; listing: { hostId: string } },
-  userId: string,
-  roles: string[]
+  actor: { id: string; roles: string[]; staffHostId?: string }
 ) {
-  if (canAccessAdmin(roles)) return;
-  if (booking.guestId === userId) return;
-  if (booking.listing.hostId === userId) return;
+  if (canAccessAdmin(actor.roles)) return;
+  if (booking.guestId === actor.id) return;
+  if (booking.listing.hostId === actor.id) return;
+  if (actor.staffHostId && booking.listing.hostId === actor.staffHostId) return;
   throw new BookingAccessError("Access denied");
 }
 
 export function resolveCancelActor(
   booking: { guestId: string; listing: { hostId: string } },
-  userId: string,
-  roles: string[]
+  actor: { id: string; roles: string[]; staffHostId?: string }
 ): "guest" | "host" | "admin" {
-  if (canAccessAdmin(roles)) return "admin";
-  if (booking.listing.hostId === userId && canManageListings(roles)) return "host";
-  if (booking.guestId === userId && canBook(roles)) return "guest";
+  if (canAccessAdmin(actor.roles)) return "admin";
+  const hostsListing =
+    booking.listing.hostId === actor.id ||
+    (Boolean(actor.staffHostId) && booking.listing.hostId === actor.staffHostId);
+  if (hostsListing && canManageListings(actor.roles)) return "host";
+  if (booking.guestId === actor.id && canBook(actor.roles)) return "guest";
   throw new BookingAccessError("You cannot cancel this booking");
 }
 

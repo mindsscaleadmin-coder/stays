@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { SEED_STAFF } from "@/lib/admin/staff-data";
+import { hashPassword, isHashedPassword, verifyPassword } from "@/lib/auth/password";
+import { isDemoApiMode } from "@/lib/auth/booking-access";
 import {
   DEFAULT_PERMISSIONS,
   normalizeStaffPermissions,
@@ -99,7 +101,8 @@ export async function savePlatformStaff(input: StaffMemberInput): Promise<StaffM
 
   let password = existing?.password ?? null;
   if (input.password !== undefined) {
-    password = input.password.trim() || null;
+    const next = input.password.trim();
+    password = next ? await hashPassword(next) : null;
   }
 
   const data = {
@@ -139,10 +142,19 @@ export async function verifyPlatformStaffPassword(
   }
   const pass = password.trim();
   if (member.password) {
-    if (member.password === pass) return { ok: true, member: toMemberSafe(member) };
-    return { ok: false, error: "Invalid email or password." };
+    const matches = await verifyPassword(pass, member.password);
+    if (!matches) return { ok: false, error: "Invalid email or password." };
+    if (!isHashedPassword(member.password)) {
+      await prisma.platformStaff.update({
+        where: { id: member.id },
+        data: { password: await hashPassword(pass) },
+      });
+    }
+    return { ok: true, member: toMemberSafe(member) };
   }
-  if (member.role === "admin") return { ok: true, member: toMemberSafe(member) };
+  if (isDemoApiMode() && member.role === "admin") {
+    return { ok: true, member: toMemberSafe(member) };
+  }
   return {
     ok: false,
     error:

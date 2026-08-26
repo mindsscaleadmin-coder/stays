@@ -1,6 +1,7 @@
+import { redirect } from "@/i18n/routing";
 import { setRequestLocale } from "next-intl/server";
-import { HostAnalyticsContent } from "@/components/dashboard/host-analytics-content";
 
+/** Analytics now lives on Overview — keep the old URL working. */
 export default async function HostAnalyticsPage({
   params,
 }: {
@@ -8,5 +9,5 @@ export default async function HostAnalyticsPage({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  return <HostAnalyticsContent />;
+  redirect({ href: "/host", locale });
 }

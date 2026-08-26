@@ -26,6 +26,12 @@ export interface PlatformAnnouncement {
   createdAt: string;
   pushedAt?: string;
   expiresAt?: string;
+  /** Empty = every country. */
+  countries: string[];
+  /** Empty = every parent category. */
+  parentCategories: string[];
+  /** Empty = every category. */
+  categories: string[];
 }
 
 export type MessageChannel = "email" | "sms";

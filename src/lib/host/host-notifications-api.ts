@@ -48,11 +48,21 @@ export async function markAllAlertsReadViaApi(hostId: string): Promise<HostNotif
   return patchNotifications(hostId, { action: "markAllRead" });
 }
 
-export async function broadcastPolicyAlertViaApi(title: string, message: string): Promise<number> {
+export async function broadcastPolicyAlertViaApi(
+  title: string,
+  message: string,
+  audience?: { countries?: string[]; parentCategories?: string[]; categories?: string[] }
+): Promise<number> {
   const res = await fetch("/api/admin/notifications/broadcast", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, message }),
+    body: JSON.stringify({
+      title,
+      message,
+      countries: audience?.countries ?? [],
+      parentCategories: audience?.parentCategories ?? [],
+      categories: audience?.categories ?? [],
+    }),
   });
   if (!res.ok) throw new Error("Failed to broadcast announcement");
   const json = (await res.json()) as { count: number };

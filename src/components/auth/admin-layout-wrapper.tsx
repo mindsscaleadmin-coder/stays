@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { usePathname } from "@/i18n/routing";
 import { AdminRouteGuard } from "@/components/auth/admin-route-guard";
 import { AdminDashboardShell } from "@/components/dashboard/admin-dashboard-shell";
+import { AdminStaffAccessProvider } from "@/lib/admin/use-admin-staff-access";
 
 const PUBLIC_ADMIN_PATHS = [
   "/admin/login",
@@ -32,8 +33,10 @@ function AdminChrome({ children }: { children: ReactNode }) {
 
 export function AdminLayoutWrapper({ children }: { children: ReactNode }) {
   return (
-    <AdminRouteGuard>
-      <AdminChrome>{children}</AdminChrome>
-    </AdminRouteGuard>
+    <AdminStaffAccessProvider>
+      <AdminRouteGuard>
+        <AdminChrome>{children}</AdminChrome>
+      </AdminRouteGuard>
+    </AdminStaffAccessProvider>
   );
 }

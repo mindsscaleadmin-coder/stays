@@ -1,33 +1,18 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import {
-  upsertPromotionToDb,
   setListingFeaturedInDb,
   listPromotionsForListing,
   listPromotionsForHost,
   purchasePromotionInDb,
+  activatePromotionInDb,
 } from "@/lib/listings/promotions-repo";
-import type { ListingPromotion } from "@/lib/host/host-promotions-types";
 import { requireHostSelfOrAdmin, assertListingHostOrAdmin, hostDataErrorResponse } from "@/lib/auth/listing-access";
-import { AuthError, requireSessionUser } from "@/lib/auth/session";
-import { BookingAccessError, getUserRoles } from "@/lib/auth/booking-access";
-import { canAccessAdmin } from "@/lib/auth/roles";
+import { AuthError } from "@/lib/auth/session";
+import { BookingAccessError } from "@/lib/auth/booking-access";
+import { requireActor, requireAdmin } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
-
-const purchaseSchema = z.object({
-  id: z.string().optional(),
-  listingId: z.string(),
-  hostId: z.string(),
-  kind: z.enum(["featured", "trending"]),
-  durationDays: z.union([z.literal(7), z.literal(14), z.literal(30)]),
-  priceAed: z.number().optional(),
-  purchasedAt: z.string().optional(),
-  startsAt: z.string().optional(),
-  endsAt: z.string().optional(),
-  status: z.enum(["active", "expired"]).optional(),
-  paymentRef: z.string().optional(),
-  listingTitle: z.string().optional(),
-});
+import { getStripe, isStripeConfigured, toStripeAmount } from "@/lib/stripe/server";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
@@ -67,64 +52,101 @@ export async function POST(request: Request) {
     const json = await request.json();
 
     if (json.action === "setFeatured") {
-      const user = await requireSessionUser();
-      const roles = getUserRoles(user);
-      if (!canAccessAdmin(roles)) {
-        throw new BookingAccessError("Admin access required");
-      }
+      const actor = await requireAdmin();
       const result = await setListingFeaturedInDb({
         listingId: String(json.listingId),
-        hostId: String(json.hostId || user.id),
+        hostId: String(json.hostId || actor.id),
         featured: Boolean(json.featured),
         title: typeof json.title === "string" ? json.title : undefined,
       });
       return NextResponse.json(result);
     }
 
-    if (json.action === "purchase") {
-      const user = await requireSessionUser();
-      const listingId = String(json.listingId || "");
-      const hostId = String(json.hostId || user.id);
-      await assertListingHostOrAdmin(listingId, user.id);
+    if (json.action === "confirm") {
+      const actor = await requireActor();
+      const promotionId = String(json.promotionId || "");
+      const sessionId = typeof json.sessionId === "string" ? json.sessionId : "";
+      const promo = await prisma.listingPromotion.findUnique({ where: { id: promotionId } });
+      if (!promo) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      await assertListingHostOrAdmin(promo.listingId, actor);
+      if (promo.status === "active") {
+        return NextResponse.json({ promotion: promo });
+      }
+      if (!isStripeConfigured() || !sessionId) {
+        return NextResponse.json({ error: "Payment not confirmed" }, { status: 409 });
+      }
+      const stripe = getStripe()!;
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      if (session.metadata?.promotionId !== promotionId) {
+        return NextResponse.json({ error: "Session does not match promotion" }, { status: 409 });
+      }
+      if (session.payment_status !== "paid" && session.payment_status !== "no_payment_required") {
+        return NextResponse.json({ error: "Payment incomplete" }, { status: 409 });
+      }
+      const saved = await activatePromotionInDb(promotionId, session.id);
+      return NextResponse.json({ promotion: saved });
+    }
 
+    if (json.action === "purchase") {
+      const actor = await requireActor();
+      const listingId = String(json.listingId || "");
+      const hostId = String(json.hostId || actor.staffHostId || actor.id);
+      await assertListingHostOrAdmin(listingId, actor);
+
+      const stripeOn = isStripeConfigured();
       const saved = await purchasePromotionInDb({
         listingId,
         hostId,
         kind: json.kind,
         durationDays: json.durationDays,
         listingTitle: typeof json.listingTitle === "string" ? json.listingTitle : undefined,
+        activate: !stripeOn,
       });
       if (!saved) {
         return NextResponse.json({ error: "Invalid promotion package" }, { status: 400 });
       }
-      return NextResponse.json({ promotion: saved });
+
+      if (!stripeOn) {
+        return NextResponse.json({ promotion: saved });
+      }
+
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      const stripe = getStripe()!;
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        success_url: `${appUrl}/host/promote?listingId=${encodeURIComponent(listingId)}&promoId=${saved.id}&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${appUrl}/host/promote?listingId=${encodeURIComponent(listingId)}&canceled=1`,
+        expires_at: Math.floor(Date.now() / 1000) + 23 * 60 * 60,
+        line_items: [
+          {
+            quantity: 1,
+            price_data: {
+              currency: "aed",
+              unit_amount: toStripeAmount(saved.priceAed, "AED"),
+              product_data: {
+                name: `${saved.kind === "featured" ? "Featured" : "Trending"} · ${saved.durationDays} days`,
+                description: saved.listingId,
+              },
+            },
+          },
+        ],
+        metadata: { promotionId: saved.id, listingId, hostId },
+      });
+
+      await prisma.listingPromotion.update({
+        where: { id: saved.id },
+        data: { paymentRef: session.id },
+      });
+
+      return NextResponse.json({
+        promotion: { ...saved, paymentRef: session.id, status: "pending" },
+        checkoutUrl: session.url,
+      });
     }
 
-    const parsed = purchaseSchema.safeParse(json);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Invalid promotion" }, { status: 400 });
-    }
-
-    const user = await requireSessionUser();
-    await assertListingHostOrAdmin(parsed.data.listingId, user.id);
-
-    const now = new Date().toISOString();
-    const promo: ListingPromotion = {
-      id: parsed.data.id || `promo-${Date.now()}`,
-      listingId: parsed.data.listingId,
-      hostId: parsed.data.hostId,
-      kind: parsed.data.kind,
-      durationDays: parsed.data.durationDays,
-      priceAed: parsed.data.priceAed ?? 0,
-      currency: "AED",
-      purchasedAt: parsed.data.purchasedAt ?? now,
-      startsAt: parsed.data.startsAt ?? now,
-      endsAt: parsed.data.endsAt ?? now,
-      status: parsed.data.status ?? "active",
-      paymentRef: parsed.data.paymentRef ?? `PAY-${Date.now()}`,
-    };
-    const saved = await upsertPromotionToDb(promo, parsed.data.listingTitle);
-    return NextResponse.json({ promotion: saved });
+    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (error) {
     if (error instanceof AuthError || error instanceof BookingAccessError) {
       return hostDataErrorResponse(error, requestId);

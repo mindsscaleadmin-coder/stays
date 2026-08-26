@@ -11,19 +11,39 @@ export interface ActiveFlashDeal {
   currency: string;
 }
 
-/** Whether the listing's flash deal is currently live. */
-export function isFlashDealActive(
-  settings: Pick<
-    ListingPricingSettings,
-    "flashDealEnabled" | "flashDealDiscountPct" | "flashDealEndsAt" | "discountsEnabled"
-  >,
+type FlashDealFields = Pick<
+  ListingPricingSettings,
+  "flashDealEnabled" | "flashDealDiscountPct" | "flashDealEndsAt" | "discountsEnabled"
+>;
+
+function flashDealEndMs(endsAt: string | null | undefined): number | null {
+  if (!endsAt) return null;
+  const ends = new Date(endsAt);
+  if (Number.isNaN(ends.getTime())) return null;
+  return ends.getTime();
+}
+
+/** Enabled deal whose end time has already passed — drop it from Flash Deals. */
+export function isFlashDealExpired(settings: FlashDealFields, now = new Date()): boolean {
+  if (!settings.flashDealEnabled || !settings.flashDealEndsAt) return false;
+  const ends = flashDealEndMs(settings.flashDealEndsAt);
+  return ends != null && ends <= now.getTime();
+}
+
+export function disableExpiredFlashDeal<T extends FlashDealFields>(
+  settings: T,
   now = new Date()
-): boolean {
+): T {
+  if (!isFlashDealExpired(settings, now)) return settings;
+  return { ...settings, flashDealEnabled: false };
+}
+
+/** Whether the listing's flash deal is currently live. */
+export function isFlashDealActive(settings: FlashDealFields, now = new Date()): boolean {
   if (!settings.discountsEnabled || !settings.flashDealEnabled) return false;
   if (!settings.flashDealEndsAt || settings.flashDealDiscountPct <= 0) return false;
-  const ends = new Date(settings.flashDealEndsAt);
-  if (Number.isNaN(ends.getTime())) return false;
-  return ends.getTime() > now.getTime();
+  const ends = flashDealEndMs(settings.flashDealEndsAt);
+  return ends != null && ends > now.getTime();
 }
 
 export function getActiveFlashDeal(
@@ -96,25 +116,55 @@ export interface FlashDealCard extends Stay {
   flashCurrency: string;
 }
 
+/** Live flash deal attached on a public Stay (from the shared pricing store). */
+export function stayHasLiveFlashDeal(stay: Stay, now = new Date()): boolean {
+  if (!stay.flashDealEndsAt || !(stay.flashDealDiscountPct && stay.flashDealDiscountPct > 0)) {
+    return false;
+  }
+  const ends = flashDealEndMs(stay.flashDealEndsAt);
+  return ends != null && ends > now.getTime();
+}
+
+function cardFromDeal(stay: Stay, deal: ActiveFlashDeal): FlashDealCard {
+  return {
+    ...stay,
+    flashDiscountPct: deal.discountPct,
+    flashEndsAt: deal.endsAt,
+    flashDealPrice: deal.dealPrice,
+    flashCurrency: deal.currency,
+    price: deal.dealPrice,
+    badge: "Deal",
+  };
+}
+
 /**
- * Build homepage flash-deal cards from public listings that have an active host flash deal.
+ * Homepage / deals filter: only listings with a live host flash deal.
+ * Expired or turned-off deals are omitted — no catalog/demo filler cards.
  */
 export function buildFlashDealCards(listings: Stay[], now = new Date()): FlashDealCard[] {
-  if (typeof window === "undefined") return [];
   const cards: FlashDealCard[] = [];
   for (const stay of listings) {
-    const settings = loadPricingSettings(stay.id);
-    const deal = getActiveFlashDeal(settings, now);
+    if (stayHasLiveFlashDeal(stay, now)) {
+      const pct = Math.min(100, Math.max(0, stay.flashDealDiscountPct ?? 0));
+      const base = stay.originalPrice && stay.originalPrice > stay.price ? stay.originalPrice : stay.price;
+      const dealPrice = stay.originalPrice && stay.originalPrice > stay.price
+        ? stay.price
+        : Math.round(base * (1 - pct / 100));
+      cards.push(
+        cardFromDeal(stay, {
+          listingId: stay.id,
+          discountPct: pct,
+          endsAt: stay.flashDealEndsAt!,
+          dealPrice,
+          currency: stay.flashDealCurrency ?? "",
+        })
+      );
+      continue;
+    }
+    if (typeof window === "undefined") continue;
+    const deal = getActiveFlashDeal(loadPricingSettings(stay.id), now);
     if (!deal) continue;
-    cards.push({
-      ...stay,
-      flashDiscountPct: deal.discountPct,
-      flashEndsAt: deal.endsAt,
-      flashDealPrice: deal.dealPrice,
-      flashCurrency: deal.currency,
-      price: deal.dealPrice,
-      badge: "Deal",
-    });
+    cards.push(cardFromDeal(stay, deal));
   }
   return cards;
 }

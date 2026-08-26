@@ -5,6 +5,9 @@ import {
   deleteListing,
   deleteRoomFromListingPayload,
   listListings,
+  listListingsByHost,
+  relabelListingsInDb,
+  searchListings,
   seedListingsIfEmpty,
   setListingStatus,
   updateListingFields,
@@ -13,12 +16,26 @@ import {
 } from "@/lib/server/listings-repo";
 import type {
   AddListingRoomInput,
+  ListingReviewStatus,
   SubmitListingInput,
   UpdateListingInput,
 } from "@/lib/listings/submission-types";
 import type { AdminListingPatch } from "@/lib/listings/submission-data";
+import type { ListingRelabelChanges } from "@/lib/listings/relabel-listings";
+import {
+  listingSearchHasFilters,
+  type ListingSearchFilters,
+} from "@/lib/listings/match-listing";
 import { getSeedListings } from "@/lib/listings/listing-seeds";
+import { attachPricingToListings } from "@/lib/server/listing-pricing-repo";
+import { attachPublicListingMeta } from "@/lib/listings/attach-public-listing-meta";
 import { setListingFeaturedInDb } from "@/lib/listings/promotions-repo";
+import { AuthError } from "@/lib/auth/session";
+import { BookingAccessError, isDemoApiMode } from "@/lib/auth/booking-access";
+import { canAccessAdmin } from "@/lib/auth/roles";
+import { hostDataErrorResponse, requireListingHostOrAdmin } from "@/lib/auth/listing-access";
+import { actingHostId, requireActor, requireAdmin, requireHost } from "@/lib/auth/guards";
+import { getRequestId } from "@/lib/observability/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +43,86 @@ async function ensureSeeded() {
   await seedListingsIfEmpty(getSeedListings());
 }
 
-export async function GET() {
+const LISTING_STATUSES = new Set<ListingReviewStatus>([
+  "pending",
+  "approved",
+  "rejected",
+  "unpublished",
+]);
+
+function parseListingSearchParams(request: Request): ListingSearchFilters {
+  const url = new URL(request.url);
+  const pick = (key: string) => url.searchParams.get(key)?.trim() || undefined;
+  const statusRaw = pick("status");
+  const status =
+    statusRaw && LISTING_STATUSES.has(statusRaw as ListingReviewStatus)
+      ? (statusRaw as ListingReviewStatus)
+      : undefined;
+  return {
+    status,
+    country: pick("country"),
+    state: pick("state"),
+    district: pick("district"),
+    city: pick("city"),
+    parentCategory: pick("parent") || pick("parentCategory"),
+    category: pick("category"),
+    subcategory: pick("subcategory"),
+    q: pick("q"),
+  };
+}
+
+export async function GET(request: Request) {
   try {
     await ensureSeeded();
-    const listings = await listListings();
-    return NextResponse.json({ listings, shared: true });
+    const filters = parseListingSearchParams(request);
+    const publicCatalog = filters.status === "approved";
+
+    if (!publicCatalog && !isDemoApiMode()) {
+      const actor = await requireActor();
+      if (!canAccessAdmin(actor.roles)) {
+        const hostId = actingHostId(actor);
+        const scoped = await attachPublicListingMeta(
+          await attachPricingToListings(
+            (await listListingsByHost(hostId)).filter((listing) =>
+              !filters.status || listing.status === filters.status
+            )
+          )
+        );
+        return NextResponse.json(
+          { listings: scoped, shared: true },
+          { headers: { "Cache-Control": "private, no-store" } }
+        );
+      }
+    }
+
+    const listings = await attachPublicListingMeta(
+      await attachPricingToListings(
+        listingSearchHasFilters(filters)
+          ? await searchListings(filters)
+          : await listListings()
+      )
+    );
+    const publicApproved =
+      filters.status === "approved" &&
+      !filters.country &&
+      !filters.state &&
+      !filters.district &&
+      !filters.parentCategory &&
+      !filters.category &&
+      !filters.subcategory &&
+      !filters.q;
+    return NextResponse.json(
+      { listings, shared: true },
+      {
+        headers: publicApproved
+          ? { "Cache-Control": "public, s-maxage=20, stale-while-revalidate=60" }
+          : { "Cache-Control": "private, no-store" },
+      }
+    );
   } catch (error) {
+    if (error instanceof AuthError || error instanceof BookingAccessError) {
+      return hostDataErrorResponse(error);
+    }
     console.error("List listings error:", error);
     return NextResponse.json({ error: "Failed to load listings" }, { status: 500 });
   }
@@ -45,6 +136,7 @@ export async function POST(request: Request) {
 
     if (action === "update") {
       const id = String(body.id || "");
+      await requireListingHostOrAdmin(id);
       const input = body.input as UpdateListingInput;
       const listing = await updateListingFields(id, input);
       if (!listing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -52,6 +144,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "status") {
+      await requireAdmin();
       const id = String(body.id || "");
       const status = body.status;
       const listing = await setListingStatus(id, status, body.extra);
@@ -60,6 +153,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "adminPatch") {
+      await requireAdmin();
       const id = String(body.id || "");
       const patch = body.patch as AdminListingPatch;
       const listing = await updateListingPayload(id, (prev) => ({
@@ -83,6 +177,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "delete") {
+      await requireAdmin();
       const id = String(body.id || "");
       const ok = await deleteListing(id);
       return NextResponse.json({ ok });
@@ -90,6 +185,7 @@ export async function POST(request: Request) {
 
     if (action === "addRoom") {
       const listingId = String(body.listingId || "");
+      await requireListingHostOrAdmin(listingId);
       const input = body.input as AddListingRoomInput;
       const result = await addRoomToListingPayload(listingId, input);
       if (!result) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -98,6 +194,7 @@ export async function POST(request: Request) {
 
     if (action === "deleteRoom") {
       const listingId = String(body.listingId || "");
+      await requireListingHostOrAdmin(listingId);
       const roomId = String(body.roomId || "");
       const listing = await deleteRoomFromListingPayload(listingId, roomId);
       if (!listing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -106,6 +203,7 @@ export async function POST(request: Request) {
 
     if (action === "updateRoomPrice") {
       const listingId = String(body.listingId || "");
+      await requireListingHostOrAdmin(listingId);
       const roomId = String(body.roomId || "");
       const price = Number(body.price);
       const listing = await updateRoomPriceOnListingPayload(listingId, roomId, price);
@@ -113,13 +211,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ listing });
     }
 
+    if (action === "relabel") {
+      await requireAdmin();
+      const changes = body.changes as ListingRelabelChanges | undefined;
+      if (!changes || typeof changes !== "object") {
+        return NextResponse.json({ error: "Invalid relabel payload" }, { status: 400 });
+      }
+      const result = await relabelListingsInDb(changes);
+      return NextResponse.json(result);
+    }
+
+    const actor = await requireHost();
     const input = body as SubmitListingInput;
-    if (!input?.title || !input?.hostId) {
+    if (!input?.title) {
+      return NextResponse.json({ error: "Invalid listing" }, { status: 400 });
+    }
+    if (!isDemoApiMode()) {
+      input.hostId = actingHostId(actor);
+      input.hostName = input.hostName || actor.email || "Host";
+    } else if (!input.hostId) {
       return NextResponse.json({ error: "Invalid listing" }, { status: 400 });
     }
     const listing = await createListing(input);
     return NextResponse.json({ listing }, { status: 201 });
   } catch (error) {
+    if (error instanceof AuthError || error instanceof BookingAccessError) {
+      return hostDataErrorResponse(error, getRequestId(request));
+    }
     console.error("Listing write error:", error);
     const message = error instanceof Error ? error.message : "Failed to save listing";
     const isDb =

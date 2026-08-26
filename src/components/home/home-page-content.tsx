@@ -22,19 +22,21 @@ import {
 } from "lucide-react";
 import { useTranslations, useLocale } from "next-intl";
 import { StarRating, CountdownTimer } from "@/components/ui/star-rating";
-import {
-  DESTINATIONS,
-  POPULAR_CATEGORIES,
-  POPULAR_EXPERIENCES,
-  POPULAR_VENUES,
-  BOOKING_ACTIVITY,
-  HERO_BG,
-} from "@/lib/mock/data";
+import { BOOKING_ACTIVITY, HERO_BG } from "@/lib/mock/data";
 import { getFavoriteIds, setFavoriteIds } from "@/lib/mock/guest-data";
 import { usePublicListings } from "@/lib/listings/use-public-listings";
-import { SearchFilterBar } from "@/components/search/search-filter-bar";
-import { formatMoney, locationMatchesCountry } from "@/lib/currency";
+import { HeroSearchBar } from "@/components/search/hero-search-bar";
+import { formatStoredMoney, locationMatchesCountry } from "@/lib/currency";
 import { useCountry } from "@/components/providers/country-provider";
+import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
+import {
+  taxonomyDestinationCards,
+  taxonomyExperienceCards,
+  taxonomyExperienceParentName,
+  taxonomyParentCards,
+  taxonomyVenueCards,
+  taxonomyVenueParentName,
+} from "@/lib/admin/taxonomy-nav";
 import { useGuestLocation } from "@/lib/geo/use-guest-location";
 import { filterListingsNearGuest } from "@/lib/geo/guest-location";
 import { useCmsSettings } from "@/lib/admin/use-admin-content-policy";
@@ -44,7 +46,6 @@ import { HOST_PRICING_SYNC_EVENT } from "@/lib/host/host-pricing-data";
 import {
   buildFlashDealCards,
   remainingCountdown,
-  type FlashDealCard,
 } from "@/lib/host/flash-deal-utils";
 import {
   getActivePromotedListingIds,
@@ -56,7 +57,10 @@ export function HomePageContent() {
   const tc = useTranslations("common");
   const locale = useLocale();
   const { country: headerCountry } = useCountry();
-  const { listings: publicListings } = usePublicListings();
+  const { data: taxonomy } = useAdminTaxonomy();
+  const { listings: publicListings } = usePublicListings(undefined, {
+    country: headerCountry.name,
+  });
   const {
     location: guestLocation,
     loading: locationLoading,
@@ -82,6 +86,7 @@ export function HomePageContent() {
   const [activityIdx, setActivityIdx] = useState(0);
   const [pricingTick, setPricingTick] = useState(0);
   const [promoTick, setPromoTick] = useState(0);
+  const [dealClock, setDealClock] = useState(0);
 
   useEffect(() => {
     setWishlist(getFavoriteIds());
@@ -116,6 +121,11 @@ export function HomePageContent() {
       () => setActivityIdx((i) => (i + 1) % BOOKING_ACTIVITY.length),
       3000
     );
+    return () => clearInterval(iv);
+  }, []);
+
+  useEffect(() => {
+    const iv = setInterval(() => setDealClock((n) => n + 1), 30_000);
     return () => clearInterval(iv);
   }, []);
 
@@ -181,8 +191,8 @@ export function HomePageContent() {
   ]);
   const flashDeals = useMemo(() => {
     void pricingTick;
+    void dealClock;
 
-    // Scope to the country people are browsing from, then prefer their local area
     const inCountry = headerCountry.name
       ? publicListings.filter((s) =>
           locationMatchesCountry(s.location, headerCountry.name)
@@ -194,28 +204,8 @@ export function HomePageContent() {
       fallbackAll: true,
     });
 
-    const hostDeals = buildFlashDealCards(localPool);
-    if (hostDeals.length > 0) {
-      return hostDeals.slice(0, 2) as FlashDealCard[];
-    }
-
-    // Demo cards only from the same local pool (not distant markets)
-    return localPool
-      .filter((s) => s.badge === "Deal" || s.badge === "Trending")
-      .concat(localPool.filter((s) => s.badge !== "Deal" && s.badge !== "Trending"))
-      .filter((stay, index, arr) => arr.findIndex((s) => s.id === stay.id) === index)
-      .slice(0, 2)
-      .map(
-        (stay) =>
-          ({
-            ...stay,
-            flashDiscountPct: 20,
-            flashEndsAt: new Date(Date.now() + 36 * 3600_000).toISOString(),
-            flashDealPrice: Math.round(stay.price * 0.8),
-            flashCurrency: headerCountry.currency || "AED",
-          }) satisfies FlashDealCard
-      );
-  }, [publicListings, guestLocation, pricingTick, headerCountry.name, headerCountry.currency]);
+    return buildFlashDealCards(localPool).slice(0, 2);
+  }, [publicListings, guestLocation, pricingTick, dealClock, headerCountry.name]);
 
   const areaName =
     guestLocation?.area.name;
@@ -225,6 +215,28 @@ export function HomePageContent() {
   const flashSubtitle = areaName
     ? t("flashDealsNearby", { area: areaName })
     : t("flashDealsSubtitle");
+
+  const destinationCards = useMemo(
+    () => taxonomyDestinationCards(taxonomy, 6),
+    [taxonomy]
+  );
+  const categoryCards = useMemo(() => taxonomyParentCards(taxonomy, 6), [taxonomy]);
+  const experienceCards = useMemo(
+    () => taxonomyExperienceCards(taxonomy, 6),
+    [taxonomy]
+  );
+  const venueCards = useMemo(() => taxonomyVenueCards(taxonomy, 6), [taxonomy]);
+  const experienceParentName = taxonomyExperienceParentName(taxonomy);
+  const venueParentName = taxonomyVenueParentName(taxonomy);
+
+  const listingCountFor = (name: string) => {
+    const needle = name.trim().toLowerCase();
+    if (!needle) return 0;
+    return publicListings.filter((s) => {
+      const hay = `${s.category ?? ""} ${s.location ?? ""} ${s.type ?? ""}`.toLowerCase();
+      return hay.includes(needle);
+    }).length;
+  };
 
   const toggleWishlist = (id: string) =>
     setWishlist((w) => {
@@ -239,7 +251,7 @@ export function HomePageContent() {
 
   return (
     <>
-      <section className="relative min-h-[560px] flex items-center">
+      <section className="relative min-h-[28rem] sm:min-h-[34rem] md:min-h-[560px] flex items-center">
         <Image
           src={heroImage}
           alt="Farm stay hero"
@@ -250,9 +262,9 @@ export function HomePageContent() {
           unoptimized={heroImage.startsWith("data:")}
         />
         <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-transparent" />
-        <div className="relative max-w-7xl mx-auto px-4 py-16 w-full">
-          <div className="max-w-xl">
-            <h1 className="text-white text-4xl md:text-5xl font-bold font-display leading-tight mb-3">
+        <div className="relative max-w-7xl mx-auto px-4 py-10 sm:py-16 w-full min-w-0">
+          <div className="max-w-xl min-w-0">
+            <h1 className="text-white text-[1.75rem] sm:text-4xl md:text-5xl font-bold font-display leading-tight mb-3 break-words">
               {cms.heroEnabled ? (
                 <>
                   {cms.heroTitle}
@@ -289,8 +301,8 @@ export function HomePageContent() {
               </div>
             </div>
           </div>
-          <div className="mt-8 w-full lg:w-[calc(50%+50px)]">
-            <SearchFilterBar variant="hero" resultsPath="/listings" />
+          <div className="mt-6 sm:mt-8 w-full min-w-0 max-w-3xl lg:max-w-4xl">
+            <HeroSearchBar resultsPath="/listings" />
           </div>
         </div>
       </section>
@@ -401,22 +413,22 @@ export function HomePageContent() {
             </h2>
             <p className="text-gray-500 text-sm mt-0.5">{trendingSubtitle}</p>
           </div>
-          <Link href="/listings?filter=trending&q=nearby" className="text-green-700 text-sm font-semibold flex items-center gap-1">
+          <Link href="/listings?filter=trending&q=nearby" className="text-green-700 text-sm font-semibold flex items-center gap-1 shrink-0">
             {tc("viewAll")} <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 items-stretch">
           {trendingStays.map((stay) => (
             <div
               key={stay.id}
-              className="relative bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow group"
+              className="relative bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow group h-full flex flex-col"
             >
               <Link
                 href={`/listing/${stay.id}`}
                 className="absolute inset-0 z-10"
                 aria-label={`View ${stay.name}`}
               />
-              <div className="relative h-48 overflow-hidden">
+              <div className="relative h-48 shrink-0 overflow-hidden">
                 <Image
                   src={stay.img}
                   alt={stay.name}
@@ -446,39 +458,45 @@ export function HomePageContent() {
                 </button>
               </div>
               <div className="p-4">
-                <h3 className="font-semibold text-gray-800 text-sm leading-tight mb-1">
+                <h3 className="font-semibold text-gray-800 text-sm leading-tight mb-1 truncate">
                   {stay.name}
                 </h3>
-                <div className="flex items-center gap-1 text-gray-500 text-xs mb-2">
-                  <MapPin className="w-3 h-3" />
-                  {stay.location}
+                <div className="flex items-center gap-1 text-gray-500 text-xs mb-2 min-w-0">
+                  <MapPin className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{stay.location}</span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
-                  <span className="flex items-center gap-0.5">
+                <div className="flex items-center gap-2 text-xs text-gray-500 mb-3 whitespace-nowrap overflow-hidden">
+                  <span className="flex items-center gap-0.5 shrink-0">
                     <Users className="w-3 h-3" />
                     {stay.guests}
                   </span>
                   <span>·</span>
-                  <span>
+                  <span className="truncate">
                     {stay.beds} {tc("bedrooms")}
                   </span>
                   <span>·</span>
-                  <span>
+                  <span className="truncate">
                     {stay.baths} {tc("bathrooms")}
                   </span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
                     <span className="text-green-700 font-bold text-base">
-                      {formatMoney(stay.price, {
-                        currency: headerCountry.currency,
-                        exchangeRateToAED: headerCountry.exchangeRateToAED,
-                        locale,
-                      })}
+                      {formatStoredMoney(
+                        stay.originalPrice != null && stay.originalPrice > stay.price
+                          ? stay.originalPrice
+                          : stay.price,
+                        {
+                          storedCurrency: stay.currency || stay.flashDealCurrency || "AED",
+                          currency: headerCountry.currency,
+                          exchangeRateToAED: headerCountry.exchangeRateToAED,
+                          locale,
+                        }
+                      )}
                     </span>
                     <span className="text-gray-400 text-xs"> {tc("perNight")}</span>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 shrink-0">
                     <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
                     <span className="text-xs font-semibold text-gray-700">{stay.rating}</span>
                     <span className="text-xs text-gray-400">({stay.reviews})</span>
@@ -494,7 +512,7 @@ export function HomePageContent() {
       </section>
       )}
 
-      {sectionEnabled("flashDeals") && (
+      {sectionEnabled("flashDeals") && flashDeals.length > 0 && (
       <section className="max-w-7xl mx-auto px-4 mt-10">
         <div className="flex items-center justify-between mb-5">
           <div>
@@ -503,7 +521,7 @@ export function HomePageContent() {
             </h2>
             <p className="text-gray-500 text-sm mt-0.5">{flashSubtitle}</p>
           </div>
-          <Link href="/listings?filter=deals&q=nearby" className="text-green-700 text-sm font-semibold flex items-center gap-1">
+          <Link href="/listings?filter=deals&q=nearby" className="text-green-700 text-sm font-semibold flex items-center gap-1 shrink-0">
             {tc("viewAll")} <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
@@ -533,8 +551,9 @@ export function HomePageContent() {
                   </div>
                   <div className="flex items-center gap-2 mt-2">
                     <span className="text-green-700 font-bold">
-                      {formatMoney(deal.flashDealPrice, {
-                        currency: deal.flashCurrency || headerCountry.currency || "AED",
+                      {formatStoredMoney(deal.flashDealPrice, {
+                        storedCurrency: deal.flashCurrency || deal.currency || "AED",
+                        currency: headerCountry.currency,
                         exchangeRateToAED: headerCountry.exchangeRateToAED,
                         locale,
                       })}
@@ -558,20 +577,20 @@ export function HomePageContent() {
       </section>
       )}
 
-      {sectionEnabled("destinations") && (
+      {sectionEnabled("destinations") && destinationCards.length > 0 && (
       <section className="max-w-7xl mx-auto px-4 mt-10">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">{t("destinationsTitle")}</h2>
             <p className="text-gray-500 text-sm mt-0.5">{t("destinationsSubtitle")}</p>
           </div>
-          <Link href="/destinations" className="text-green-700 text-sm font-semibold flex items-center gap-1">
+          <Link href="/destinations" className="text-green-700 text-sm font-semibold flex items-center gap-1 shrink-0">
             {tc("viewAll")} <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          {DESTINATIONS.slice(0, 6).map((dest) => (
-            <Link key={dest.name} href={`/listings?q=${dest.name}`} className="group">
+          {destinationCards.map((dest) => (
+            <Link key={dest.id} href={dest.href} className="group">
               <div className="relative h-32 rounded-2xl overflow-hidden mb-2">
                 <Image
                   src={dest.img}
@@ -585,7 +604,9 @@ export function HomePageContent() {
                   <div className="text-white text-sm font-bold">
                     {dest.name}
                   </div>
-                  <div className="text-gray-300 text-[10px]">{dest.stays} stays</div>
+                  <div className="text-gray-300 text-[10px]">
+                    {dest.subtitle || `${listingCountFor(dest.name)} stays`}
+                  </div>
                 </div>
               </div>
             </Link>
@@ -594,20 +615,20 @@ export function HomePageContent() {
       </section>
       )}
 
-      {sectionEnabled("categories") && (
+      {sectionEnabled("categories") && categoryCards.length > 0 && (
       <section className="max-w-7xl mx-auto px-4 mt-10">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">{t("categoriesTitle")}</h2>
             <p className="text-gray-500 text-sm mt-0.5">{t("categoriesSubtitle")}</p>
           </div>
-          <Link href="/listings" className="text-green-700 text-sm font-semibold flex items-center gap-1">
+          <Link href="/listings" className="text-green-700 text-sm font-semibold flex items-center gap-1 shrink-0">
             {tc("viewAll")} <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          {POPULAR_CATEGORIES.map((cat) => (
-            <Link key={cat.name} href={cat.href} className="group">
+          {categoryCards.map((cat) => (
+            <Link key={cat.id} href={cat.href} className="group">
               <div className="relative h-32 rounded-2xl overflow-hidden mb-2">
                 <Image
                   src={cat.img}
@@ -619,7 +640,7 @@ export function HomePageContent() {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                 <div className="absolute bottom-2 inset-x-0 text-center">
                   <div className="text-white text-sm font-bold">{cat.name}</div>
-                  <div className="text-gray-300 text-[10px]">{cat.stays} stays</div>
+                  <div className="text-gray-300 text-[10px]">{listingCountFor(cat.name)} stays</div>
                 </div>
               </div>
             </Link>
@@ -628,7 +649,7 @@ export function HomePageContent() {
       </section>
       )}
 
-      {sectionEnabled("experiences") && (
+      {sectionEnabled("experiences") && experienceCards.length > 0 && (
       <section className="max-w-7xl mx-auto px-4 mt-10">
         <div className="flex items-center justify-between mb-5">
           <div>
@@ -636,15 +657,19 @@ export function HomePageContent() {
             <p className="text-gray-500 text-sm mt-0.5">{t("experiencesSubtitle")}</p>
           </div>
           <Link
-            href="/listings?parent=Experiences"
-            className="text-green-700 text-sm font-semibold flex items-center gap-1"
+            href={
+              experienceParentName
+                ? `/listings?parent=${encodeURIComponent(experienceParentName)}`
+                : "/listings"
+            }
+            className="text-green-700 text-sm font-semibold flex items-center gap-1 shrink-0"
           >
             {tc("viewAll")} <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          {POPULAR_EXPERIENCES.map((exp) => (
-            <Link key={exp.name} href={exp.href} className="group">
+          {experienceCards.map((exp) => (
+            <Link key={exp.id} href={exp.href} className="group">
               <div className="relative h-32 rounded-2xl overflow-hidden mb-2">
                 <Image
                   src={exp.img}
@@ -656,7 +681,7 @@ export function HomePageContent() {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                 <div className="absolute bottom-2 inset-x-0 text-center">
                   <div className="text-white text-sm font-bold">{exp.name}</div>
-                  <div className="text-gray-300 text-[10px]">{exp.stays} stays</div>
+                  <div className="text-gray-300 text-[10px]">{listingCountFor(exp.name)} stays</div>
                 </div>
               </div>
             </Link>
@@ -665,7 +690,7 @@ export function HomePageContent() {
       </section>
       )}
 
-      {sectionEnabled("venues") && (
+      {sectionEnabled("venues") && venueCards.length > 0 && (
       <section className="max-w-7xl mx-auto px-4 mt-10">
         <div className="flex items-center justify-between mb-5">
           <div>
@@ -673,15 +698,19 @@ export function HomePageContent() {
             <p className="text-gray-500 text-sm mt-0.5">{t("venuesSubtitle")}</p>
           </div>
           <Link
-            href="/listings?parent=Venues"
-            className="text-green-700 text-sm font-semibold flex items-center gap-1"
+            href={
+              venueParentName
+                ? `/listings?parent=${encodeURIComponent(venueParentName)}`
+                : "/listings"
+            }
+            className="text-green-700 text-sm font-semibold flex items-center gap-1 shrink-0"
           >
             {tc("viewAll")} <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          {POPULAR_VENUES.map((venue) => (
-            <Link key={venue.name} href={venue.href} className="group">
+          {venueCards.map((venue) => (
+            <Link key={venue.id} href={venue.href} className="group">
               <div className="relative h-32 rounded-2xl overflow-hidden mb-2">
                 <Image
                   src={venue.img}
@@ -693,7 +722,7 @@ export function HomePageContent() {
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                 <div className="absolute bottom-2 inset-x-0 text-center">
                   <div className="text-white text-sm font-bold">{venue.name}</div>
-                  <div className="text-gray-300 text-[10px]">{venue.stays} stays</div>
+                  <div className="text-gray-300 text-[10px]">{listingCountFor(venue.name)} stays</div>
                 </div>
               </div>
             </Link>

@@ -243,7 +243,7 @@ export function AdminFinancialContent() {
     [taxonomy.countries]
   );
 
-  const allHosts = useMemo(() => (ready ? listFinancialHosts() : []), [ready, settings]);
+  const allHosts = useMemo(() => (ready ? listFinancialHosts() : []), [ready]);
 
   const countryOptions = useMemo(() => {
     const names = new Set<string>();

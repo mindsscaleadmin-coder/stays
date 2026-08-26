@@ -8,29 +8,30 @@ import {
   updatePayoutStateInDb,
   upsertHostCommissionOverrideInDb,
 } from "@/lib/server/financial-settings-repo";
-import { requireSessionUser, AuthError } from "@/lib/auth/session";
-import { getUserRoles, isDemoApiMode, BookingAccessError } from "@/lib/auth/booking-access";
-import { canAccessAdmin } from "@/lib/auth/roles";
+import { AuthError } from "@/lib/auth/session";
+import { BookingAccessError } from "@/lib/auth/booking-access";
 import { hostDataErrorResponse } from "@/lib/auth/listing-access";
+import { requireAdmin } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
 import type { FinancialSettings, RefundRequest } from "@/lib/admin/financial-types";
+import { getPlatformLedger } from "@/lib/server/host-accounts-repo";
+import { refundBooking } from "@/lib/booking/booking-ops";
 
 export const dynamic = "force-dynamic";
 
-async function requireAdminWhenConfigured() {
-  if (isDemoApiMode()) return;
-  const user = await requireSessionUser();
-  if (!canAccessAdmin(getUserRoles(user))) {
-    throw new BookingAccessError("Admin access required");
-  }
-}
 
 export async function GET(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdminWhenConfigured();
-    const settings = await loadFinancialSettingsFromDb();
-    return NextResponse.json({ settings }, { headers: { "x-request-id": requestId } });
+    await requireAdmin();
+    const [settings, ledger] = await Promise.all([
+      loadFinancialSettingsFromDb(),
+      getPlatformLedger(),
+    ]);
+    return NextResponse.json(
+      { settings, ledger },
+      { headers: { "x-request-id": requestId } }
+    );
   } catch (error) {
     if (error instanceof AuthError || error instanceof BookingAccessError) {
       return hostDataErrorResponse(error, requestId);
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdminWhenConfigured();
+    await requireAdmin();
     const body = await request.json();
 
     if (body.action === "saveSettings" && body.settings) {
@@ -80,11 +81,29 @@ export async function PATCH(request: Request) {
     }
 
     if (body.action === "reviewRefund" && body.id && body.status) {
-      const settings = await reviewRefundRequestInDb(String(body.id), {
+      const refundId = String(body.id);
+      if (
+        refundId.startsWith("refund-") &&
+        (body.status === "approved" || body.status === "rejected")
+      ) {
+        const bookingId = refundId.slice("refund-".length);
+        if (body.status === "approved") {
+          await refundBooking({
+            bookingId,
+            actor: "admin",
+            reason: typeof body.reviewNote === "string" ? body.reviewNote : "Admin approved refund",
+          });
+        }
+      }
+      const settings = await reviewRefundRequestInDb(refundId, {
         status: body.status as RefundRequest["status"],
         reviewNote: body.reviewNote,
       });
-      return NextResponse.json({ settings }, { headers: { "x-request-id": requestId } });
+      const ledger = await getPlatformLedger();
+      return NextResponse.json(
+        { settings, ledger },
+        { headers: { "x-request-id": requestId } }
+      );
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

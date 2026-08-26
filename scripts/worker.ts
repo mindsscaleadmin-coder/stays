@@ -7,6 +7,7 @@ import { Worker } from "bullmq";
 import IORedis from "ioredis";
 import { QUEUE_NAME } from "../src/lib/queue/client";
 import { logger } from "../src/lib/queue/worker-logger";
+import { deliverBookingConfirmedEmail, deliverWelcomeEmail } from "../src/lib/email/jobs";
 
 const redisUrl = process.env.REDIS_URL;
 if (!redisUrl) {
@@ -24,16 +25,21 @@ async function handleWelcomeEmail(data: {
   email: string;
   fullName?: string;
 }) {
-  // Replace with Resend/SendGrid/Supabase edge function in production.
-  logger.info("welcome_email_sent", {
+  const result = await deliverWelcomeEmail(data);
+  logger.info("welcome_email_handled", {
     userId: data.userId,
     email: data.email,
-    fullName: data.fullName,
+    sent: result.sent,
   });
 }
 
 async function handleBookingConfirmed(data: { bookingId: string; guestId: string }) {
-  logger.info("booking_confirmed_notification", data);
+  const result = await deliverBookingConfirmedEmail(data.bookingId);
+  logger.info("booking_confirmed_handled", {
+    bookingId: data.bookingId,
+    guestId: data.guestId,
+    sent: result.sent,
+  });
 }
 
 async function handleAuditLog(data: {

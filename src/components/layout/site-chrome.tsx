@@ -7,11 +7,9 @@ import { SharedDataBanner } from "@/components/layout/shared-data-banner";
 import { Header } from "@/components/layout/header";
 import { Footer } from "@/components/layout/footer";
 import { isDashboardChromePath } from "@/lib/layout/dashboard-chrome";
-import { cn } from "@/lib/utils";
 
 /**
- * Site chrome. On dashboard routes the sidebar is full-height; header/footer
- * sit beside it instead of spanning over it.
+ * Site chrome. Dashboard pages render their own sidebar beside the page.
  */
 export function SiteChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -23,9 +21,7 @@ export function SiteChrome({ children }: { children: ReactNode }) {
       {!dashboard && <SharedDataBanner />}
       <Header />
       <main className="flex-1">{children}</main>
-      <div className={cn(dashboard && "lg:ms-[272px]")}>
-        <Footer />
-      </div>
+      {!dashboard && <Footer />}
     </div>
   );
 }

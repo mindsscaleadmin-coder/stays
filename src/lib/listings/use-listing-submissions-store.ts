@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "@/i18n/routing";
 import {
   LISTINGS_SYNC_EVENT,
   addRoomToListing,
@@ -23,6 +24,7 @@ import {
 } from "./submission-data";
 import type {
   AddListingRoomInput,
+  ListingReviewStatus,
   SubmitListingInput,
   SubmittedListing,
   UpdateListingInput,
@@ -74,8 +76,17 @@ async function postListingAction(body: unknown) {
   return res.json();
 }
 
+function pathNeedsAllListings(pathname: string) {
+  if (/\/(host|admin)\/(login|signup|forgot-password|reset-password)/.test(pathname)) {
+    return false;
+  }
+  return pathname.includes("/host") || pathname.includes("/admin");
+}
+
 export function useListingSubmissionsStore() {
   const shared = isSharedListingsEnabled();
+  const pathname = usePathname();
+  const needsAllListings = pathNeedsAllListings(pathname);
   // Always start empty so SSR + first client paint match (avoid hydration errors).
   const [all, setAll] = useState<SubmittedListing[]>([]);
   const [ready, setReady] = useState(false);
@@ -98,6 +109,17 @@ export function useListingSubmissionsStore() {
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!needsAllListings) {
+      if (shared) {
+        const mirrored = loadMirroredSubmissions();
+        if (mirrored.length > 0) setAll(mirrored);
+      }
+      setReady(true);
+      return () => {
+        cancelled = true;
+      };
+    }
 
     if (shared) {
       const mirrored = loadMirroredSubmissions();
@@ -130,7 +152,9 @@ export function useListingSubmissionsStore() {
     window.addEventListener(LISTINGS_SYNC_EVENT, onSync);
     window.addEventListener("storage", onStorage);
     const poll = shared
-      ? window.setInterval(() => void refreshRef.current(), 15000)
+      ? window.setInterval(() => {
+          if (document.visibilityState === "visible") void refreshRef.current();
+        }, 60_000)
       : null;
 
     return () => {
@@ -139,9 +163,9 @@ export function useListingSubmissionsStore() {
       window.removeEventListener("storage", onStorage);
       if (poll) window.clearInterval(poll);
     };
-    // Intentionally only re-bind when shared mode flips — not on every refresh identity.
+    // Intentionally only re-bind when shared mode or dashboard path flips.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shared]);
+  }, [shared, needsAllListings]);
 
   const pending = all.filter((l) => l.status === "pending");
   const active = all.filter((l) => l.status === "approved");
@@ -168,6 +192,16 @@ export function useListingSubmissionsStore() {
       const id = submitListing(input);
       await refresh();
       return id;
+    },
+    setStatus: async (id: string, status: ListingReviewStatus) => {
+      if (shared) {
+        await postListingAction({ action: "status", id, status });
+        await refresh();
+        return true;
+      }
+      const ok = updateListingStatus(id, status);
+      await refresh();
+      return ok;
     },
     update: async (id: string, input: UpdateListingInput) => {
       if (shared) {

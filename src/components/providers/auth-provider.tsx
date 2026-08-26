@@ -39,6 +39,7 @@ import { ensureSuperAdminStaff, getStaffByEmail, verifyAdminStaffPassword } from
 import {
   adminStaffLoginViaApi,
   fetchAdminStaffByEmailFromApi,
+  claimAdminViaApi,
   saveAdminStaffViaApi,
   shouldUseSharedAdminStaff,
 } from "@/lib/admin/staff-api";
@@ -176,17 +177,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const demo = getDemoUser();
-      if (demo && demo.email === email && canBook(demo.roles)) {
-        setUser(demo);
-        return {};
-      }
-      if (demo && demo.email === email) {
-        return { error: "Access denied. Guest account required." };
-      }
-
-      const newUser = createDemoUser({ email, fullName: email.split("@")[0] });
-      setDemoUser(newUser);
-      setUser(newUser);
+      const normalized = email.trim().toLowerCase();
+      const guestUser = createDemoUser({
+        email: normalized,
+        fullName: demo?.email.toLowerCase() === normalized
+          ? demo.fullName
+          : normalized.split("@")[0],
+        phone: demo?.email.toLowerCase() === normalized ? demo.phone : undefined,
+        country: demo?.email.toLowerCase() === normalized ? demo.country : undefined,
+        roles: ["guest"],
+      });
+      setDemoUser(guestUser);
+      setUser(guestUser);
       return {};
     },
     [supabase]
@@ -460,15 +462,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           },
         });
         if (!error) {
-          if (shouldUseSharedAdminStaff()) {
-            void saveAdminStaffViaApi({
-              name: input.fullName,
-              email: input.email.trim().toLowerCase(),
-              role: "admin",
-              permissions: [...DEFAULT_PERMISSIONS.admin],
-              active: true,
-            }).catch(() => null);
-          } else {
+          void claimAdminViaApi(input.inviteCode).catch(() => null);
+          if (!shouldUseSharedAdminStaff()) {
             ensureSuperAdminStaff(input.email, input.fullName);
           }
           void queueWelcomeEmail();

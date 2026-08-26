@@ -19,7 +19,7 @@ export function AdminLoginContent() {
 
   useEffect(() => {
     if (!loading && user && isAdmin) {
-      router.push("/admin");
+      router.replace("/admin");
     }
   }, [loading, user, isAdmin, router]);
 

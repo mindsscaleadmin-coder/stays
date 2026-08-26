@@ -163,7 +163,7 @@ export function HostStaffAccessPanel() {
             }}
             className="inline-flex items-center gap-1.5 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold px-4 py-2 rounded-xl"
           >
-            <Plus className="w-4 h-4" /> Add staff
+            <Plus className="w-4 h-4" /> Add
           </button>
         )}
       </div>

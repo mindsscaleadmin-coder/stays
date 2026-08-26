@@ -1,37 +1,56 @@
 import type { TaxonomyData } from "@/lib/admin/taxonomy-types";
-import { isExcludedFromListingForm } from "@/lib/admin/taxonomy-types";
+import { isExcludedFromListingForm, isFilterEnabled } from "@/lib/admin/taxonomy-types";
 import type { ListingFilterValues } from "./submission-types";
+
+function tabOn(taxonomy: TaxonomyData, id: string) {
+  return isFilterEnabled(taxonomy.mainTabs.find((t) => t.id === id));
+}
 
 export function validateListingFilters(
   taxonomy: TaxonomyData,
   values: ListingFilterValues
 ): string | null {
-  if (!values.countryId) return "Please select a country.";
-  if (!values.stateId) return "Please select a state.";
-  if (!values.districtId) return "Please select a district.";
-  if (!values.parentId) return "Please select a parent category.";
-  if (!values.categoryId) return "Please select a category.";
-  if (!values.subcategoryId) return "Please select a subcategory.";
-
-  const parent = taxonomy.parents.find((p) => p.id === values.parentId);
-  if (!parent || parent.enabled === false) return "Please select a valid parent category.";
-
-  const category = taxonomy.categories.find((c) => c.id === values.categoryId);
-  if (
-    !category ||
-    category.enabled === false ||
-    category.parentId !== values.parentId
-  ) {
-    return "Please select a category that matches the parent category.";
+  if (tabOn(taxonomy, "country") && !values.countryId) return "Please select a country.";
+  if (tabOn(taxonomy, "state") && !values.stateId) return "Please select a state.";
+  if (tabOn(taxonomy, "district") && !values.districtId) return "Please select a district.";
+  const districtCities = (taxonomy.cities ?? []).filter(
+    (c) =>
+      c.enabled !== false && values.districtId && c.districtId === values.districtId
+  );
+  if (tabOn(taxonomy, "city") && districtCities.length > 0 && !values.cityId) {
+    return "Please select a city.";
+  }
+  if (tabOn(taxonomy, "parent") && !values.parentId) return "Please select a parent category.";
+  if (tabOn(taxonomy, "category") && !values.categoryId) return "Please select a category.";
+  if (tabOn(taxonomy, "subcategory") && !values.subcategoryId) {
+    return "Please select a subcategory.";
   }
 
-  const subcategory = taxonomy.subcategories.find((sc) => sc.id === values.subcategoryId);
-  if (
-    !subcategory ||
-    subcategory.enabled === false ||
-    subcategory.categoryId !== values.categoryId
-  ) {
-    return "Please select a subcategory that matches the category.";
+  if (values.parentId) {
+    const parent = taxonomy.parents.find((p) => p.id === values.parentId);
+    if (!parent || parent.enabled === false) return "Please select a valid parent category.";
+  }
+
+  if (values.categoryId) {
+    const category = taxonomy.categories.find((c) => c.id === values.categoryId);
+    if (
+      !category ||
+      category.enabled === false ||
+      (values.parentId && category.parentId !== values.parentId)
+    ) {
+      return "Please select a category that matches the parent category.";
+    }
+  }
+
+  if (values.subcategoryId) {
+    const subcategory = taxonomy.subcategories.find((sc) => sc.id === values.subcategoryId);
+    if (
+      !subcategory ||
+      subcategory.enabled === false ||
+      (values.categoryId && subcategory.categoryId !== values.categoryId)
+    ) {
+      return "Please select a subcategory that matches the category.";
+    }
   }
 
   for (const tab of taxonomy.mainTabs.filter(
@@ -53,6 +72,7 @@ export function resolveListingLabels(
   const country = taxonomy.countries.find((c) => c.id === values.countryId)?.name ?? "";
   const state = taxonomy.states.find((s) => s.id === values.stateId)?.name ?? "";
   const district = taxonomy.districts.find((d) => d.id === values.districtId)?.name ?? "";
+  const city = (taxonomy.cities ?? []).find((c) => c.id === values.cityId)?.name ?? "";
   const parentCategory = taxonomy.parents.find((p) => p.id === values.parentId)?.name ?? "";
   const category = taxonomy.categories.find((c) => c.id === values.categoryId)?.name ?? "";
   const subcategory =
@@ -90,7 +110,7 @@ export function resolveListingLabels(
     parentCategory,
     category,
     subcategory,
-    city: district,
+    city: city || district,
     type,
     customFilters,
     advancedFilters,
@@ -120,6 +140,7 @@ export function listingToFilterValues(
     country: string;
     state: string;
     district: string;
+    city?: string;
     parentCategory: string;
     category?: string;
     subcategory: string;
@@ -137,6 +158,10 @@ export function listingToFilterValues(
   const districtId = findByName(
     taxonomy.districts.filter((d) => !stateId || d.stateId === stateId),
     listing.district
+  );
+  const cityId = findByName(
+    (taxonomy.cities ?? []).filter((c) => !districtId || c.districtId === districtId),
+    listing.city ?? ""
   );
   const parentId = findByName(
     taxonomy.parents.filter((p) => p.enabled !== false),
@@ -199,6 +224,7 @@ export function listingToFilterValues(
     countryId,
     stateId,
     districtId,
+    cityId,
     parentId,
     categoryId,
     subcategoryId,

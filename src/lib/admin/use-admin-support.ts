@@ -38,7 +38,6 @@ export function useAdminSupport() {
   const [tickets, setTickets] = useState<FlatSupportTicket[]>([]);
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [ready, setReady] = useState(false);
-  const [tick, setTick] = useState(0);
   const sharedStaff = shouldUseSharedAdminStaff();
   const sharedSupport = shouldUseSharedAdminSupport();
 
@@ -50,7 +49,6 @@ export function useAdminSupport() {
     } else {
       setTickets(loadAllSupportTickets());
     }
-    setTick((t) => t + 1);
     if (sharedStaff) {
       void fetchAdminStaffFromApi()
         .then(setStaffList)
@@ -87,7 +85,7 @@ export function useAdminSupport() {
       staffList.filter(
         (s) => s.active && (s.role === "support" || s.role === "admin" || s.role === "sub_admin")
       ),
-    [staffList, tick]
+    [staffList]
   );
 
   const openCount = useMemo(() => countOpenTickets(tickets), [tickets]);

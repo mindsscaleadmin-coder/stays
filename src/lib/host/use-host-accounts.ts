@@ -7,25 +7,42 @@ import {
   saveHostAccounts,
 } from "./host-accounts-data";
 import type { HostAccountsData, HostPayoutAccountInput } from "./host-accounts-types";
+import {
+  fetchHostAccountsFromApi,
+  savePayoutAccountViaApi,
+  shouldUseSharedHostAccounts,
+} from "./host-accounts-api";
 
 export function useHostAccounts(hostId: string | undefined) {
   const [data, setData] = useState<HostAccountsData | null>(null);
   const [ready, setReady] = useState(false);
+  const shared = shouldUseSharedHostAccounts();
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
     if (!hostId) {
       setData(null);
       setReady(true);
       return;
     }
+    try {
+      setData(await fetchHostAccountsFromApi(hostId));
+      setReady(true);
+      return;
+    } catch {
+      if (!shared) {
+        setData(loadHostAccounts(hostId));
+        setReady(true);
+        return;
+      }
+    }
     setData(loadHostAccounts(hostId));
     setReady(true);
-  }, [hostId]);
+  }, [hostId, shared]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
     function onStorage(e: StorageEvent) {
-      if (e.key === "farm-stays-host-accounts") refresh();
+      if (e.key === "farm-stays-host-accounts") void refresh();
     }
     window.addEventListener(HOST_ACCOUNTS_SYNC_EVENT, refresh);
     window.addEventListener("storage", onStorage);
@@ -35,8 +52,17 @@ export function useHostAccounts(hostId: string | undefined) {
     };
   }, [refresh]);
 
-  function saveAccount(input: HostPayoutAccountInput) {
-    if (!hostId || !data) return null;
+  async function saveAccount(input: HostPayoutAccountInput) {
+    if (!hostId) return null;
+    try {
+      const next = await savePayoutAccountViaApi(hostId, input);
+      setData(next);
+      window.dispatchEvent(new Event(HOST_ACCOUNTS_SYNC_EVENT));
+      return next;
+    } catch (error) {
+      if (shared) throw error;
+    }
+    if (!data) return null;
     const next: HostAccountsData = {
       ...data,
       payoutAccount: {

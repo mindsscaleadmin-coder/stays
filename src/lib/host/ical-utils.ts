@@ -1,4 +1,4 @@
-/** Minimal iCal helpers for host availability sync (demo). */
+/** iCal helpers for host channel sync (Airbnb / Booking.com calendars). */
 
 function formatIcalDate(iso: string): string {
   return iso.replace(/-/g, "");
@@ -13,19 +13,27 @@ function parseIcalDate(raw: string): string | null {
   return `${y}-${m}-${d}`;
 }
 
-export function exportBlockedDatesIcal(listingTitle: string, blockedDates: string[]): string {
-  const sorted = [...blockedDates].sort();
-  const events = sorted
-    .map((date) => {
-      const next = new Date(`${date}T12:00:00`);
+export type IcalBusyEvent = {
+  date: string;
+  summary: string;
+  uid?: string;
+};
+
+export function exportAvailabilityIcal(listingTitle: string, events: IcalBusyEvent[]): string {
+  const unique = new Map<string, IcalBusyEvent>();
+  for (const event of events) unique.set(event.date, event);
+  const body = Array.from(unique.values())
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((event) => {
+      const next = new Date(`${event.date}T12:00:00`);
       next.setDate(next.getDate() + 1);
       const end = next.toISOString().slice(0, 10);
       return [
         "BEGIN:VEVENT",
-        `UID:blocked-${date}@farm-stays.local`,
-        `DTSTART;VALUE=DATE:${formatIcalDate(date)}`,
+        `UID:${event.uid || `busy-${event.date}`}@farm-stays.local`,
+        `DTSTART;VALUE=DATE:${formatIcalDate(event.date)}`,
         `DTEND;VALUE=DATE:${formatIcalDate(end)}`,
-        `SUMMARY:Blocked — ${listingTitle}`,
+        `SUMMARY:${event.summary} — ${listingTitle}`,
         "TRANSP:OPAQUE",
         "END:VEVENT",
       ].join("\r\n");
@@ -35,12 +43,19 @@ export function exportBlockedDatesIcal(listingTitle: string, blockedDates: strin
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Farm Stays//Host Availability//EN",
+    "PRODID:-//Farm Stays//Channel Calendar//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    events,
+    body,
     "END:VCALENDAR",
   ].join("\r\n");
+}
+
+export function exportBlockedDatesIcal(listingTitle: string, blockedDates: string[]): string {
+  return exportAvailabilityIcal(
+    listingTitle,
+    blockedDates.map((date) => ({ date, summary: "Blocked" }))
+  );
 }
 
 export function importBlockedDatesFromIcal(content: string): string[] {

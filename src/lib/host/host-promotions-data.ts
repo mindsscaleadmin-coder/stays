@@ -50,6 +50,7 @@ function writeAll(items: ListingPromotion[]) {
 }
 
 function withStatus(promo: ListingPromotion, now = new Date()): ListingPromotion {
+  if (promo.status === "pending") return promo;
   const ends = new Date(promo.endsAt).getTime();
   const expired = Number.isNaN(ends) || ends <= now.getTime();
   return { ...promo, status: expired ? "expired" : "active" };
@@ -118,7 +119,7 @@ export async function purchasePromotion(input: {
   kind: ListingPromotionKind;
   durationDays: ListingPromotionDurationDays;
   listingTitle?: string;
-}): Promise<ListingPromotion | null> {
+}): Promise<{ promotion: ListingPromotion; checkoutUrl?: string } | null> {
   if (shouldUseSharedPromotions()) {
     const saved = await purchasePromotionViaApi(input);
     if (saved) notify();
@@ -147,7 +148,7 @@ export async function purchasePromotion(input: {
     startsAt: (existing ? now : start).toISOString(),
     endsAt: ends.toISOString(),
     status: "active",
-    paymentRef: `PAY-${Date.now().toString(36).toUpperCase()}`,
+    paymentRef: `DEMO-${Date.now().toString(36).toUpperCase()}`,
   };
 
   const all = readAll();
@@ -164,16 +165,7 @@ export async function purchasePromotion(input: {
   next.push(promo);
   writeAll(next);
 
-  // Demo localStorage path — also sync to DB when shared API is reachable
-  if (typeof window !== "undefined") {
-    void fetch("/api/promotions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(promo),
-    }).catch(() => null);
-  }
-
-  return promo;
+  return { promotion: promo };
 }
 
 export function formatPromoEnds(iso: string): string {
@@ -201,7 +193,7 @@ export const PROMO_EXPIRY_WARN_DAYS = 3;
 
 export function isPromoNearingEnd(
   endsAt: string,
-  status: "active" | "expired",
+  status: ListingPromotion["status"],
   now = new Date(),
   withinDays = PROMO_EXPIRY_WARN_DAYS
 ): boolean {

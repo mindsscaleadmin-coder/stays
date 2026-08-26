@@ -30,13 +30,37 @@ export function isSeasonallyClosed(date: string, periods: SeasonalPeriod[]): boo
   return period?.closed === true;
 }
 
-/** Manual block or seasonal closure — guests cannot book this night. */
+/** Manual block, inbound calendar, or seasonal closure — guests cannot book this night. */
 export function isDateUnavailable(
   date: string,
-  settings: { blockedDates: string[]; seasonalPeriods: SeasonalPeriod[] }
+  settings: {
+    blockedDates: string[];
+    icalImportedDates?: string[];
+    seasonalPeriods: SeasonalPeriod[];
+  }
 ): boolean {
   if (settings.blockedDates.includes(date)) return true;
+  if (settings.icalImportedDates?.includes(date)) return true;
   return isSeasonallyClosed(date, settings.seasonalPeriods);
+}
+
+/** Upcoming seasonally closed nights for outbound iCal. */
+export function expandSeasonalClosedDates(
+  periods: SeasonalPeriod[],
+  monthsAhead = 18
+): string[] {
+  if (periods.length === 0) return [];
+  const dates: string[] = [];
+  const cursor = new Date();
+  cursor.setHours(12, 0, 0, 0);
+  const end = new Date(cursor);
+  end.setMonth(end.getMonth() + monthsAhead);
+  while (cursor < end) {
+    const iso = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+    if (isSeasonallyClosed(iso, periods)) dates.push(iso);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
 }
 
 export function calendarMonthLabel(year: number, month: number): string {

@@ -23,7 +23,6 @@ import {
   Clock,
   Shield,
   Headphones,
-  ThumbsUp,
   Award,
   Lock,
   ChevronDown,
@@ -39,7 +38,6 @@ import {
   Mountain,
   Wind,
   Tv,
-  Copy,
   Calendar,
   LayoutGrid,
   Minus,
@@ -51,27 +49,25 @@ import {
   Link2,
 } from "lucide-react";
 import { useTranslations, useLocale } from "next-intl";
-import { StarRating, CountdownTimer } from "@/components/ui/star-rating";
+import { CountdownTimer } from "@/components/ui/star-rating";
 import {
   GALLERY,
-  ROOMS,
   PROPERTY_HIGHLIGHTS,
-  DETAIL_REVIEWS,
-  RATING_BREAKDOWN,
   BOOKING_ACTIVITY,
-  STAYS,
   type Stay,
 } from "@/lib/mock/data";
+import { usePublicListings } from "@/lib/listings/use-public-listings";
+import { ListingReviewsSection } from "@/components/listing/listing-reviews-section";
 import { VerifiedBadge } from "@/components/ui/verified-badge";
-import { formatMoney } from "@/lib/currency";
+import { formatStoredMoney } from "@/lib/currency";
 import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { photoTagLabel } from "@/lib/listings/photo-tags";
 import { getListingFeatureIcon } from "@/lib/listings/listing-feature-icons";
-import { useListingSettings } from "@/components/providers/listing-settings-provider";
 import {
   HOST_PRICING_SYNC_EVENT,
   loadPricingSettings,
+  preferStoredRateIfPublishedEmpty,
 } from "@/lib/host/host-pricing-data";
 import { fetchPricingFromApi, shouldUseSharedPricingStore } from "@/lib/host/host-pricing-api";
 import {
@@ -87,8 +83,9 @@ import type { ListingAvailabilitySettings } from "@/lib/host/host-availability-t
 import {
   calculateStayQuote,
   defaultCheckInOut,
-  resolveCombinedNightlyRate,
   resolveDisplayNightlyRate,
+  resolvePublishedRateTiers,
+  listPublishedHostOffers,
 } from "@/lib/host/calculate-stay-price";
 import {
   EXTRA_CHARGE_BILLING_LABELS,
@@ -99,15 +96,12 @@ import {
   type ListingPricingSettings,
 } from "@/lib/host/host-pricing-types";
 import { getActivePromotedListingIds } from "@/lib/host/host-promotions-data";
+import { getActiveFlashDeal, remainingCountdown } from "@/lib/host/flash-deal-utils";
 import { isFeaturedStay } from "@/lib/listings/public-listings";
-import {
-  applyGuestReviewRatings,
-  getPublishedReviewsForListing,
-  mergeStayReviews,
-  STAY_REVIEWS_SYNC_EVENT,
-} from "@/lib/booking/stay-reviews-data";
+import { applyGuestReviewRatings } from "@/lib/booking/stay-reviews-data";
 import type { StayReview } from "@/lib/booking/stay-reviews-types";
-import { addToBookingCart } from "@/lib/guest/booking-cart";
+import { addToBookingCart, loadBookingCart } from "@/lib/guest/booking-cart";
+import { readStayDatesFromSearch, readStayPartyFromSearch } from "@/lib/guest/stay-search-dates";
 
 const AMENITY_ICONS: Record<string, typeof Wifi> = {
   "Free WiFi": Wifi,
@@ -181,24 +175,6 @@ const EXPERIENCES = [
   },
 ];
 
-/** Demo extras when a listing has none configured yet */
-const DEMO_EXTRAS: ExtraCharge[] = [
-  {
-    id: "demo-extra-bed-breakfast",
-    label: "Extra bed with breakfast",
-    amount: 150,
-    billing: "per_night",
-    catalogId: "common:extra-bed-breakfast",
-  },
-  {
-    id: "demo-breakfast",
-    label: "Breakfast",
-    amount: 45,
-    billing: "per_person_per_night",
-    catalogId: "common:breakfast",
-  },
-];
-
 const POLICIES = [
   { title: "Check-in", desc: "From 3:00 PM. Early check-in subject to availability." },
   { title: "Check-out", desc: "Before 11:00 AM. Late check-out may incur extra charges." },
@@ -260,13 +236,12 @@ export function PropertyListingDetailPage({
   const tc = useTranslations("common");
   const locale = useLocale();
   const { data: taxonomy } = useAdminTaxonomy();
-  const { enabledRatingCategories, enabledGuestReviews, ready: listingSettingsReady } =
-    useListingSettings();
+  const { listings: catalogListings } = usePublicListings();
   const [showFeatured, setShowFeatured] = useState(() =>
     /featured|premium/i.test(stay.badge ?? "")
   );
-  const [reviewTick, setReviewTick] = useState(0);
   const [reviewsReady, setReviewsReady] = useState(false);
+  const [publishedReviews, setPublishedReviews] = useState<StayReview[]>([]);
 
   useEffect(() => {
     const ids = new Set(getActivePromotedListingIds("featured"));
@@ -274,74 +249,70 @@ export function PropertyListingDetailPage({
   }, [stay]);
 
   useEffect(() => {
-    setReviewsReady(true);
-    function bump() {
-      setReviewTick((n) => n + 1);
-    }
-    window.addEventListener(STAY_REVIEWS_SYNC_EVENT, bump);
-    window.addEventListener("storage", bump);
-    return () => {
-      window.removeEventListener(STAY_REVIEWS_SYNC_EVENT, bump);
-      window.removeEventListener("storage", bump);
-    };
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
+    setReviewsReady(false);
     void fetch(`/api/reviews?listingId=${encodeURIComponent(stay.id)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { reviews?: StayReview[] } | null) => {
-        if (cancelled || !data?.reviews?.length) return;
-        mergeStayReviews(data.reviews);
+        if (cancelled) return;
+        const rows = Array.isArray(data?.reviews) ? data.reviews : [];
+        setPublishedReviews(rows);
+        setReviewsReady(true);
       })
-      .catch(() => null);
+      .catch(() => {
+        if (!cancelled) {
+          setPublishedReviews([]);
+          setReviewsReady(true);
+        }
+      });
     return () => {
       cancelled = true;
     };
   }, [stay.id]);
 
-  const ratedStay = useMemo(
-    () => (reviewsReady ? applyGuestReviewRatings(stay) : stay),
-    [stay, reviewTick, reviewsReady]
-  );
+  const ratedStay = useMemo(() => {
+    if (!reviewsReady) return { ...stay, rating: 0, reviews: 0 };
+    if (publishedReviews.length === 0) return { ...stay, rating: 0, reviews: 0 };
+    const sum = publishedReviews.reduce((total, review) => total + review.rating, 0);
+    return {
+      ...stay,
+      rating: Math.round((sum / publishedReviews.length) * 10) / 10,
+      reviews: publishedReviews.length,
+    };
+  }, [stay, reviewsReady, publishedReviews]);
 
   const countryPricing = useMemo(
     () => resolveCountryPricingConfig(taxonomy.countries, stay.location),
     [taxonomy.countries, stay.location]
   );
 
-  // Host-added rooms when provided; otherwise demo ROOMS are bookable in the calculator.
-  const hostRooms = useMemo(() => {
-    if (roomsProp !== undefined) return roomsProp;
-    return ROOMS.map((room, i) => ({
-      id: `mock-${i}`,
-      name: room.name,
-      desc: room.desc,
-      price: room.price,
-      capacity: room.capacity,
-      beds: room.beds,
-      baths: room.baths,
-      img: room.img,
-    }));
-  }, [roomsProp]);
+  // Host-added rooms only — empty means guests book at the property base rate.
+  const hostRooms = useMemo(() => roomsProp ?? [], [roomsProp]);
   const hasRoomTypes = hostRooms.length > 0;
-  const displayRooms = hostRooms;
 
-  const [bookingRoomIds, setBookingRoomIds] = useState<string[]>(() =>
-    hostRooms.length === 1 && hostRooms[0].id ? [hostRooms[0].id] : []
-  );
+  const [bookingRoomIds, setBookingRoomIds] = useState<string[]>([]);
   const defaultDates = useMemo(() => defaultCheckInOut(2), []);
-  const [checkIn, setCheckIn] = useState(defaultDates.checkIn);
-  const [checkOut, setCheckOut] = useState(defaultDates.checkOut);
+  const [checkIn, setCheckIn] = useState(() => {
+    const fromSearch = readStayDatesFromSearch();
+    if (fromSearch) return fromSearch.checkIn;
+    const cartLine = loadBookingCart().find((line) => line.listingId === stay.id);
+    return cartLine?.checkIn || defaultDates.checkIn;
+  });
+  const [checkOut, setCheckOut] = useState(() => {
+    const fromSearch = readStayDatesFromSearch();
+    if (fromSearch) return fromSearch.checkOut;
+    const cartLine = loadBookingCart().find((line) => line.listingId === stay.id);
+    return cartLine?.checkOut || defaultDates.checkOut;
+  });
   const [datePickerOpen, setDatePickerOpen] = useState<"checkIn" | "checkOut" | null>(null);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const d = new Date(`${defaultDates.checkIn}T12:00:00`);
     return { year: d.getFullYear(), month: d.getMonth() };
   });
   const datePickerRef = useRef<HTMLDivElement>(null);
-  const [adults, setAdults] = useState(2);
-  const [children, setChildren] = useState(0);
-  const [infants, setInfants] = useState(0);
+  const [adults, setAdults] = useState(() => readStayPartyFromSearch()?.adults || 2);
+  const [children, setChildren] = useState(() => readStayPartyFromSearch()?.children ?? 0);
+  const [infants, setInfants] = useState(() => readStayPartyFromSearch()?.infants ?? 0);
   const [pets, setPets] = useState(0);
   const [guestsOpen, setGuestsOpen] = useState(false);
   /** Paying guests for capacity + per-pax fees (infants excluded). */
@@ -353,27 +324,53 @@ export function PropertyListingDetailPage({
   const [shareOpen, setShareOpen] = useState(false);
   const [shareFlash, setShareFlash] = useState(false);
   const shareMenuRef = useRef<HTMLDivElement>(null);
-  const [activityIdx, setActivityIdx] = useState(0);
   const [readMore, setReadMore] = useState(false);
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [selectedExperienceIds, setSelectedExperienceIds] = useState<string[]>([]);
   const [selectedExtraIds, setSelectedExtraIds] = useState<string[]>([]);
   const [cartAdded, setCartAdded] = useState(false);
   const [pricingSettings, setPricingSettings] = useState<ListingPricingSettings | null>(null);
   const [availability, setAvailability] = useState<ListingAvailabilitySettings | null>(null);
   const [listingExtras, setListingExtras] = useState<ExtraCharge[]>(
-    extraChargesProp && extraChargesProp.length > 0 ? extraChargesProp : DEMO_EXTRAS
+    extraChargesProp ?? []
   );
   const [extrasCurrency, setExtrasCurrency] = useState(extraChargesCurrencyProp ?? "AED");
 
+  const displayRooms = useMemo(() => {
+    if (hasRoomTypes) return hostRooms;
+    const nightly =
+      (pricingSettings
+        ? resolveDisplayNightlyRate(pricingSettings, null)
+        : 0) || stay.price;
+    return [
+      {
+        name: "Entire property",
+        desc: "No extra room types — guests book at the base nightly rate",
+        price: nightly,
+        capacity: stay.guests,
+        beds: stay.beds,
+        baths: stay.baths,
+        img: stay.img,
+      },
+    ];
+  }, [hasRoomTypes, hostRooms, pricingSettings, stay]);
+
+  useEffect(() => {
+    const fromSearch = readStayDatesFromSearch();
+    if (fromSearch) {
+      setCheckIn(fromSearch.checkIn);
+      setCheckOut(fromSearch.checkOut);
+      return;
+    }
+    const cartLine = loadBookingCart().find((line) => line.listingId === stay.id);
+    if (cartLine?.checkIn && cartLine.checkOut) {
+      setCheckIn(cartLine.checkIn);
+      setCheckOut(cartLine.checkOut);
+    }
+  }, [stay.id]);
+
   useEffect(() => {
     const validIds = new Set(hostRooms.map((r) => r.id).filter(Boolean) as string[]);
-    setBookingRoomIds((prev) => {
-      const kept = prev.filter((id) => validIds.has(id));
-      if (kept.length > 0) return kept;
-      if (hostRooms.length === 1 && hostRooms[0].id) return [hostRooms[0].id];
-      return [];
-    });
+    setBookingRoomIds((prev) => prev.filter((id) => validIds.has(id)));
   }, [hostRooms]);
 
   useEffect(() => {
@@ -389,30 +386,51 @@ export function PropertyListingDetailPage({
     [hostRooms, bookingRoomIds]
   );
 
+  function scrollToCalculator() {
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(max-width: 1023px)").matches) return;
+    requestAnimationFrame(() => {
+      document.getElementById("booking-calculator")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }
+
   function toggleBookingRoom(roomId: string | undefined) {
     if (!roomId) return;
+    const adding = !bookingRoomIds.includes(roomId);
     setBookingRoomIds((prev) =>
       prev.includes(roomId)
         ? prev.filter((id) => id !== roomId)
         : [...prev, roomId]
     );
+    if (adding) scrollToCalculator();
     setActiveTab("rooms");
   }
 
   function roomNightly(room: { id?: string; price: number }): number {
     if (pricingSettings && room.id) {
-      return resolveDisplayNightlyRate(pricingSettings, room.id);
+      const stored = pricingSettings.roomPrices.find((r) => r.roomId === room.id);
+      if (stored?.basePrice != null && stored.basePrice > 0) {
+        return resolveDisplayNightlyRate(pricingSettings, room.id);
+      }
     }
-    return room.price;
+    if (room.price > 0) return room.price;
+    if (pricingSettings) return resolveDisplayNightlyRate(pricingSettings, null);
+    return 0;
   }
 
   useEffect(() => {
     async function refreshPricing() {
       if (typeof window === "undefined") return;
+      const local = loadPricingSettings(stay.id);
       const pricing = shouldUseSharedPricingStore()
-        ? (await fetchPricingFromApi(stay.id).catch(() => null)) ??
-          loadPricingSettings(stay.id)
-        : loadPricingSettings(stay.id);
+        ? preferStoredRateIfPublishedEmpty(
+            await fetchPricingFromApi(stay.id).catch(() => null),
+            local
+          ).settings
+        : local;
       setPricingSettings(pricing);
       const currency = extraChargesCurrencyProp ?? pricing.currency ?? "AED";
       setExtrasCurrency(currency);
@@ -421,19 +439,11 @@ export function PropertyListingDetailPage({
         setListingExtras([]);
         return;
       }
-      if (pricing.extraCharges.length > 0) {
-        setListingExtras(pricing.extraCharges);
-        return;
-      }
-      if (extraChargesProp && extraChargesProp.length > 0) {
-        setListingExtras(extraChargesProp);
-        return;
-      }
-      if (extraChargesProp === undefined) {
-        setListingExtras(DEMO_EXTRAS);
-        return;
-      }
-      setListingExtras([]);
+      setListingExtras(
+        pricing.extraCharges.length > 0
+          ? pricing.extraCharges
+          : extraChargesProp ?? []
+      );
     }
     void refreshPricing();
     window.addEventListener(HOST_PRICING_SYNC_EVENT, refreshPricing);
@@ -490,24 +500,48 @@ export function PropertyListingDetailPage({
 
   /** Nightly rate from host pricing (sum of selected rooms, or property base). */
   const displayPrice = useMemo(() => {
-    if (hasRoomTypes && bookingRoomIds.length === 0) return null;
-    if (pricingSettings) {
-      if (hasRoomTypes) {
-        return resolveCombinedNightlyRate(pricingSettings, bookingRoomIds);
-      }
-      return resolveDisplayNightlyRate(pricingSettings, null);
+    if (hasRoomTypes && bookingRooms.length > 0) {
+      return bookingRooms.reduce((sum, room) => {
+        if (pricingSettings && room.id) {
+          const stored = pricingSettings.roomPrices.find((r) => r.roomId === room.id);
+          if (stored?.basePrice != null && stored.basePrice > 0) {
+            return sum + resolveDisplayNightlyRate(pricingSettings, room.id);
+          }
+        }
+        return sum + (room.price > 0 ? room.price : 0);
+      }, 0);
     }
-    if (hasRoomTypes) {
-      return bookingRooms.reduce((sum, room) => sum + room.price, 0);
+    if (pricingSettings) {
+      return resolveDisplayNightlyRate(pricingSettings, null);
     }
     return stay.price;
   }, [
     hasRoomTypes,
-    bookingRoomIds,
     bookingRooms,
     pricingSettings,
     stay.price,
   ]);
+
+  const hostOffers = useMemo(
+    () => (pricingSettings ? listPublishedHostOffers(pricingSettings) : []),
+    [pricingSettings]
+  );
+
+  const flashDeal = useMemo(
+    () => (pricingSettings ? getActiveFlashDeal(pricingSettings) : null),
+    [pricingSettings]
+  );
+  const flashCountdown = flashDeal ? remainingCountdown(flashDeal.endsAt) : null;
+
+  const publishedRates = useMemo(() => {
+    if (!pricingSettings) {
+      return { nightly: displayPrice ?? stay.price, weekend: null, monthly: null };
+    }
+    return resolvePublishedRateTiers(
+      pricingSettings,
+      bookingRooms.map((r) => r.id).filter((id): id is string => Boolean(id))
+    );
+  }, [pricingSettings, bookingRooms, displayPrice, stay.price]);
 
   const stayQuote = useMemo(() => {
     if (!pricingSettings) return null;
@@ -516,8 +550,7 @@ export function PropertyListingDetailPage({
       checkIn,
       checkOut,
       guests: guestCount,
-      // Empty array = rooms required but none chosen (no accommodation line yet)
-      roomIds: hasRoomTypes ? bookingRoomIds : undefined,
+      roomIds: hasRoomTypes && bookingRoomIds.length > 0 ? bookingRoomIds : undefined,
       selectedExtras,
       experiencesTotal,
     });
@@ -531,17 +564,6 @@ export function PropertyListingDetailPage({
     selectedExtras,
     experiencesTotal,
   ]);
-
-  function scrollToCalculator() {
-    if (typeof window === "undefined") return;
-    if (!window.matchMedia("(max-width: 1023px)").matches) return;
-    requestAnimationFrame(() => {
-      document.getElementById("booking-calculator")?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    });
-  }
 
   function toggleExperience(id: string) {
     setSelectedExperienceIds((prev) => {
@@ -682,19 +704,18 @@ export function PropertyListingDetailPage({
 
   const similar = useMemo(
     () => {
-      const base = STAYS.filter((s) => s.id !== stay.id).slice(0, 4);
+      const base = catalogListings.filter((s) => s.id !== stay.id).slice(0, 4);
       if (!reviewsReady) return base;
       return base.map((s) => applyGuestReviewRatings(s));
     },
-    [stay.id, reviewTick, reviewsReady]
+    [stay.id, reviewsReady, catalogListings]
   );
   const priceCurrency =
     pricingSettings?.currency ?? extrasCurrency ?? countryPricing.currency;
-  const moneyRate = countryPricing.exchangeRateToAED;
-  const money = (amountAed: number) =>
-    formatMoney(amountAed, {
+  const money = (amount: number) =>
+    formatStoredMoney(amount, {
+      storedCurrency: priceCurrency,
       currency: priceCurrency,
-      exchangeRateToAED: moneyRate,
       locale,
     });
   const discount = stay.originalPrice
@@ -707,7 +728,7 @@ export function PropertyListingDetailPage({
 
   /** Paying guests (adults + children) cannot exceed selected rooms' combined capacity. */
   const maxGuests = useMemo(() => {
-    if (hasRoomTypes) return roomCapacity;
+    if (hasRoomTypes && roomCapacity > 0) return roomCapacity;
     return Math.max(1, stay.guests);
   }, [hasRoomTypes, roomCapacity, stay.guests]);
 
@@ -808,14 +829,6 @@ export function PropertyListingDetailPage({
     (farmActivities && farmActivities.length > 0) ||
     Boolean(livestockCrops?.trim());
 
-  useEffect(() => {
-    const iv = setInterval(
-      () => setActivityIdx((i) => (i + 1) % BOOKING_ACTIVITY.length),
-      3000
-    );
-    return () => clearInterval(iv);
-  }, []);
-
   const tabs = [
     { key: "overview", label: t("tabs.overview") },
     { key: "amenities", label: t("tabs.amenities") },
@@ -827,9 +840,6 @@ export function PropertyListingDetailPage({
     { key: "policies", label: t("tabs.policies") },
   ];
 
-  const activity = BOOKING_ACTIVITY[activityIdx];
-  const activityName = activity.name;
-  const activityTime = activity.time;
   const stayName = stay.name;
   const stayLocation = stay.location;
   const highlights = propertyHighlights !== undefined ? propertyHighlights : PROPERTY_HIGHLIGHTS;
@@ -904,58 +914,9 @@ export function PropertyListingDetailPage({
     propertyFeatureIcons,
   ]);
 
-  const ratingBreakdown = useMemo(() => {
-    if (listingSettingsReady && enabledRatingCategories.length > 0) {
-      return enabledRatingCategories.map((r) => ({
-        id: r.id,
-        label: r.label,
-        score: r.score,
-      }));
-    }
-    return RATING_BREAKDOWN.map((r, i) => ({ id: `default-rc-${i}`, ...r }));
-  }, [listingSettingsReady, enabledRatingCategories]);
-
-  const detailReviews = useMemo(() => {
-    const fromStay =
-      reviewsReady
-        ? getPublishedReviewsForListing(stay.id).map((r: StayReview) => ({
-            id: r.id,
-            name: r.authorName,
-            location: "Verified stay",
-            rating: r.rating,
-            text: r.comment,
-            avatar: r.authorName.slice(0, 2).toUpperCase(),
-            date: r.createdAt.slice(0, 10),
-            helpful: 0,
-          }))
-        : [];
-
-    if (fromStay.length > 0) return fromStay;
-
-    if (listingSettingsReady && enabledGuestReviews.length > 0) {
-      return enabledGuestReviews.map((r) => ({
-        id: r.id,
-        name: r.name,
-        location: r.location,
-        rating: r.rating,
-        text: r.text,
-        avatar: r.avatar,
-        date: r.date,
-        helpful: r.helpful,
-      }));
-    }
-    return DETAIL_REVIEWS.map((r, i) => ({ id: `default-gr-${i}`, ...r }));
-  }, [listingSettingsReady, enabledGuestReviews, stay.id, reviewTick, reviewsReady]);
-
   function scrollToSection(key: string) {
     setActiveTab(key);
     document.getElementById(`section-${key}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  function copyPromo(code: string) {
-    navigator.clipboard.writeText(code).catch(() => undefined);
-    setCopiedCode(code);
-    setTimeout(() => setCopiedCode(null), 2000);
   }
 
   function getSharePayload() {
@@ -1041,7 +1002,7 @@ export function PropertyListingDetailPage({
   }, [shareOpen]);
 
   return (
-    <div className="bg-gray-50 min-h-screen">
+    <div className="bg-gray-50 min-h-screen pb-24 lg:pb-0">
       {/* Photo grid — directly under site header */}
       <div className="max-w-7xl mx-auto px-4 pt-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 h-auto md:h-[480px] rounded-2xl overflow-hidden bg-white">
@@ -1163,11 +1124,23 @@ export function PropertyListingDetailPage({
                 <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-gray-600">
                   <div className="flex items-center gap-1">
                     <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                    <span className="font-semibold text-gray-800">{ratedStay.rating}</span>
-                    <span className="text-gray-500">
-                      ({ratedStay.reviews} {tc("reviews")})
-                      {ratedStay.rating >= 4.5 ? " · Excellent" : ratedStay.rating >= 3.5 ? " · Good" : ""}
-                    </span>
+                    {ratedStay.reviews > 0 ? (
+                      <>
+                        <span className="font-semibold text-gray-800">{ratedStay.rating}</span>
+                        <span className="text-gray-500">
+                          ({ratedStay.reviews} {tc("reviews")})
+                          {ratedStay.rating >= 4.5
+                            ? " · Excellent"
+                            : ratedStay.rating >= 3.5
+                              ? " · Good"
+                              : ""}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-gray-500">
+                        {reviewsReady ? t("reviewsEmptyTitle") : tc("reviews")}
+                      </span>
+                    )}
                   </div>
                   <span className="hidden sm:inline text-gray-300">·</span>
                   <div className="flex items-center gap-1">
@@ -1285,7 +1258,7 @@ export function PropertyListingDetailPage({
             </div>
 
             <div className="mb-3">
-              <span className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-700 text-xs font-medium px-3 py-1.5 rounded-full">
+              <span className="inline-flex items-center gap-1.5 bg-[#fbbf24] border border-[#fbbf24] text-gray-900 text-xs font-medium px-3 py-1.5 rounded-full">
                 <Flame className="w-3.5 h-3.5" />
                 {t("viewingNow", { count: 18 })}
               </span>
@@ -1449,14 +1422,20 @@ export function PropertyListingDetailPage({
             </section>
 
             {/* Live activity */}
-            <div className="bg-green-700 rounded-xl px-5 py-3 flex items-center gap-3 mb-5 flex-wrap">
+            <div className="bg-[#fbbf24] rounded-xl px-5 py-3 flex items-center gap-3 mb-5" dir="ltr">
               <div className="flex items-center gap-2 shrink-0">
-                <div className="w-2 h-2 bg-green-300 rounded-full animate-pulse" />
-                <span className="text-white text-sm font-semibold">Live</span>
+                <div className="w-2 h-2 bg-gray-900 rounded-full animate-pulse" />
+                <span className="text-gray-900 text-sm font-semibold">Live</span>
               </div>
-              <div className="text-green-100 text-sm">
-                <strong className="text-white">{activityName}</strong> booked this property{" "}
-                <span className="text-green-300">— {activityTime}</span>
+              <div className="listing-live-marquee-wrapper" aria-label="Recent bookings">
+                <div className="listing-live-marquee-track">
+                  {[...BOOKING_ACTIVITY, ...BOOKING_ACTIVITY].map((item, index) => (
+                    <span key={`${item.name}-${index}`} className="listing-live-marquee-item text-gray-800 text-sm">
+                      <strong className="text-gray-900">{item.name}</strong> booked this property{" "}
+                      <span className="text-gray-800">— {item.time}</span>
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1482,7 +1461,7 @@ export function PropertyListingDetailPage({
               ) : (
               <div className="flex flex-col gap-4">
                 {displayRooms.map((room, i) => {
-                  const roomId = room.id ?? "";
+                  const roomId = String((room as { id?: string }).id ?? "");
                   const isBookable = hasRoomTypes && Boolean(roomId);
                   const isSelected = isBookable && bookingRoomIds.includes(roomId);
                   const nightly = roomNightly(room);
@@ -1758,62 +1737,12 @@ export function PropertyListingDetailPage({
               </div>
             </section>
 
-            {/* Reviews */}
-            <section id="section-reviews" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="font-bold text-gray-900 text-base font-display">{t("reviewsTitle")}</h2>
-                <div className="flex items-center gap-2">
-                  <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
-                  <span className="text-2xl font-bold text-gray-900">{ratedStay.rating}</span>
-                  <span className="text-gray-400 text-sm">/ 5</span>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 mb-6">
-                {ratingBreakdown.map(({ id, label, score }) => (
-                  <div key={id} className="flex items-center gap-3">
-                    <span className="text-xs text-gray-500 w-28 shrink-0">{label}</span>
-                    <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-green-500 rounded-full"
-                        style={{ width: `${(score / 5) * 100}%` }}
-                      />
-                    </div>
-                    <span className="text-xs font-semibold text-gray-700 w-8 text-end">{score}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory">
-                {detailReviews.map((r) => (
-                  <div
-                    key={r.id}
-                    className="min-w-[280px] max-w-[280px] snap-start border border-gray-200 rounded-xl p-4 shrink-0"
-                  >
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-9 h-9 bg-green-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
-                        {r.avatar}
-                      </div>
-                      <div>
-                        <div className="font-semibold text-gray-800 text-sm">{r.name}</div>
-                        <div className="text-gray-400 text-xs">
-                          {r.location} · {r.date}
-                        </div>
-                      </div>
-                    </div>
-                    <StarRating rating={r.rating} />
-                    <p className="text-gray-600 text-sm leading-relaxed mt-2 mb-2 line-clamp-4">{r.text}</p>
-                    <button type="button" className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
-                      <ThumbsUp className="w-3 h-3" /> Helpful ({r.helpful})
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button
-                type="button"
-                className="mt-5 w-full border border-gray-300 hover:border-green-500 text-gray-600 hover:text-green-700 text-sm font-medium py-2.5 rounded-xl transition-colors"
-              >
-                {t("viewAllReviews", { count: ratedStay.reviews })}
-              </button>
-            </section>
+            <ListingReviewsSection
+              reviews={publishedReviews}
+              ready={reviewsReady}
+              average={ratedStay.rating}
+              count={ratedStay.reviews}
+            />
 
             {/* Policies */}
             <section id="section-policies" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
@@ -1834,28 +1763,27 @@ export function PropertyListingDetailPage({
             <div className="sticky top-20 flex flex-col gap-4">
               {/* Limited offer */}
               <div id="booking-calculator" className="bg-white rounded-2xl border border-gray-200 shadow-lg p-5 scroll-mt-24">
+                {flashDeal && flashCountdown && (
                 <div className="bg-amber-50 border border-amber-200/70 rounded-lg px-3 py-2 mb-4">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-amber-800 text-xs font-semibold flex items-center gap-1">
-                      <Zap className="w-3 h-3" /> {t("limitedOffer")}
+                      <Zap className="w-3 h-3" /> {t("limitedOffer")} −{flashDeal.discountPct}%
                     </span>
                   </div>
-                  <CountdownTimer d={2} h={3} m={24} />
+                  <CountdownTimer
+                    key={flashDeal.endsAt}
+                    d={flashCountdown.d}
+                    h={flashCountdown.h}
+                    m={flashCountdown.m}
+                  />
                 </div>
+                )}
 
                 <div className="flex items-baseline gap-2 mb-3 flex-wrap">
-                  {displayPrice == null ? (
-                    <span className="text-lg font-semibold text-gray-500">
-                      Select a room to see the rate
-                    </span>
-                  ) : (
-                    <>
-                      <span className="text-3xl font-bold text-gray-900">
-                        {money(displayPrice)}
-                      </span>
-                      <span className="text-gray-400 text-sm">{tc("perNight")}</span>
-                    </>
-                  )}
+                  <span className="text-3xl font-bold text-gray-900">
+                    {money(publishedRates.nightly || displayPrice)}
+                  </span>
+                  <span className="text-gray-400 text-sm">{tc("perNight")}</span>
                 </div>
                 {bookingRooms.length > 0 ? (
                   <p className="text-xs text-gray-500 mb-3">
@@ -1864,11 +1792,9 @@ export function PropertyListingDetailPage({
                       : `${bookingRooms.length} rooms selected · combined nightly rate`}
                   </p>
                 ) : (
-                  !hasRoomTypes && (
-                    <p className="text-xs text-gray-500 mb-3">Property base rate</p>
-                  )
+                  <p className="text-xs text-gray-500 mb-3">Property base rate</p>
                 )}
-                {!hasRoomTypes && stay.originalPrice && displayPrice != null && (
+                {stay.originalPrice && bookingRooms.length === 0 && (
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-gray-400 text-sm line-through">
                       {money(stay.originalPrice)}
@@ -2112,7 +2038,10 @@ export function PropertyListingDetailPage({
                         <p className="text-xs text-gray-500 leading-relaxed pt-1 border-t border-gray-100">
                           {hasRoomTypes ? (
                             bookingRooms.length === 0 ? (
-                              <>Select at least one room. Guest limit follows room capacity.</>
+                              <>
+                                This place has a maximum of {maxGuests} guests, not including
+                                infants. Add a room to update capacity and rate.
+                              </>
                             ) : (
                               <>
                                 Selected rooms sleep up to {maxGuests} guest
@@ -2144,69 +2073,69 @@ export function PropertyListingDetailPage({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 mb-4">
-                  <div className="bg-green-50 border border-green-100 rounded-lg p-2.5 text-center">
-                    <div className="text-lg font-bold text-gray-900">{ratedStay.rating}</div>
-                    <div className="text-[10px] text-gray-500 font-medium">
-                      {ratedStay.rating >= 4.5 ? "Excellent" : ratedStay.rating >= 3.5 ? "Good" : "Rating"}
+                {ratedStay.reviews > 0 && (
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                    <div className="bg-green-50 border border-green-100 rounded-lg p-2.5 text-center">
+                      <div className="text-lg font-bold text-gray-900">{ratedStay.rating}</div>
+                      <div className="text-[10px] text-gray-500 font-medium">
+                        {ratedStay.rating >= 4.5 ? "Excellent" : ratedStay.rating >= 3.5 ? "Good" : "Rating"}
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5 text-center">
+                      <div className="text-lg font-bold text-gray-900">{ratedStay.reviews}</div>
+                      <div className="text-[10px] text-gray-500 font-medium">Reviews</div>
                     </div>
                   </div>
-                  <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5 text-center">
-                    <div className="text-lg font-bold text-gray-900">{ratedStay.reviews}</div>
-                    <div className="text-[10px] text-gray-500 font-medium">Reviews</div>
-                  </div>
-                </div>
+                )}
 
-                {hasRoomTypes && (
+                {bookingRooms.length > 0 && (
                   <div className="border border-gray-200 rounded-xl p-3 mb-3 space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide">
                         Rooms
                       </div>
                       <span className="text-[10px] text-gray-400">
-                        Select one or more
+                        {bookingRooms.length} selected
                       </span>
                     </div>
                     <ul className="space-y-1.5">
-                      {hostRooms.map((room) => {
-                        const id = room.id ?? "";
-                        const checked = Boolean(id && bookingRoomIds.includes(id));
-                        const label = room.name;
+                      {bookingRooms.map((room) => {
                         const nightly = roomNightly(room);
                         return (
-                          <li key={id || room.name}>
-                            <label className="flex items-center gap-2.5 cursor-pointer rounded-lg px-1 py-1 hover:bg-gray-50">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleBookingRoom(id)}
-                                className="rounded border-gray-300 text-green-600 focus:ring-green-500 w-4 h-4"
-                              />
-                              <span className="flex-1 min-w-0 text-sm font-medium text-gray-800 truncate">
-                                {label}
-                                <span className="block text-[10px] font-normal text-gray-400">
-                                  Up to {room.capacity} guests
-                                </span>
+                          <li
+                            key={room.id || room.name}
+                            className="flex items-center gap-2.5 rounded-lg px-1 py-1"
+                          >
+                            <span className="flex-1 min-w-0 text-sm font-medium text-gray-800 truncate">
+                              {room.name}
+                              <span className="block text-[10px] font-normal text-gray-400">
+                                Up to {room.capacity} guests
                               </span>
-                              <span className="text-xs font-semibold text-gray-700 tabular-nums shrink-0">
-                                {money(nightly)}
-                              </span>
-                            </label>
+                            </span>
+                            <span className="text-xs font-semibold text-gray-700 tabular-nums shrink-0">
+                              {money(nightly)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => toggleBookingRoom(room.id)}
+                              className="text-[10px] font-semibold text-gray-400 hover:text-red-600 shrink-0"
+                              aria-label={`Remove ${room.name}`}
+                            >
+                              Remove
+                            </button>
                           </li>
                         );
                       })}
                     </ul>
-                    {bookingRooms.length > 0 && (
-                      <div className="flex items-center justify-between pt-1.5 border-t border-gray-100 text-xs">
-                        <span className="text-gray-500">
-                          {bookingRooms.length} room{bookingRooms.length === 1 ? "" : "s"} ·
-                          sleeps {roomCapacity}
-                        </span>
-                        <span className="font-bold text-gray-900 tabular-nums">
-                          {money(displayPrice ?? 0)} / night
-                        </span>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-between pt-1.5 border-t border-gray-100 text-xs">
+                      <span className="text-gray-500">
+                        {bookingRooms.length} room{bookingRooms.length === 1 ? "" : "s"} ·
+                        sleeps {roomCapacity}
+                      </span>
+                      <span className="font-bold text-gray-900 tabular-nums">
+                        {money(displayPrice ?? 0)} / night
+                      </span>
+                    </div>
                   </div>
                 )}
 
@@ -2374,10 +2303,6 @@ export function PropertyListingDetailPage({
                   <span className="w-full block font-bold py-3.5 rounded-xl transition-colors text-center text-sm mb-3 bg-gray-200 text-gray-500 cursor-not-allowed">
                     Preview only
                   </span>
-                ) : hasRoomTypes && bookingRooms.length === 0 ? (
-                  <span className="w-full block font-bold py-3.5 rounded-xl transition-colors text-center text-sm mb-3 bg-gray-200 text-gray-500 cursor-not-allowed">
-                    Choose at least one room
-                  </span>
                 ) : (
                   <>
                     <CheckAvailabilityLink
@@ -2445,6 +2370,30 @@ export function PropertyListingDetailPage({
                 </p>
               </div>
 
+              {hostOffers.length > 0 && (
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4">
+                <h3 className="font-semibold text-gray-800 text-sm mb-3 flex items-center gap-2">
+                  <Tag className="w-4 h-4 text-orange-500" /> {t("specialOffers")}
+                </h3>
+                <div className="flex flex-col gap-2">
+                  {hostOffers.map((offer) => (
+                    <div key={offer.id} className="bg-white rounded-lg p-3 border border-amber-200">
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
+                        <p className="text-sm font-semibold text-gray-900">{offer.title}</p>
+                        <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded shrink-0">
+                          {offer.badge}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-1">{offer.detail}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-amber-800/70 mt-3 leading-relaxed">
+                  Applied automatically at checkout when your dates qualify. No promo code needed.
+                </p>
+              </div>
+              )}
+
               <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
                 <div className="flex items-center gap-2 text-orange-700 font-semibold text-sm mb-1">
                   <Flame className="w-4 h-4" /> {t("highDemand")}
@@ -2492,36 +2441,6 @@ export function PropertyListingDetailPage({
                       ))}
                     </div>
                   </div>
-                </div>
-              </div>
-
-              <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4">
-                <h3 className="font-semibold text-gray-800 text-sm mb-3 flex items-center gap-2">
-                  <Tag className="w-4 h-4 text-orange-500" /> {t("specialOffers")}
-                </h3>
-                <div className="flex flex-col gap-2">
-                  {[
-                    { code: "SUMMER25", desc: "Summer Escape — 25% off", exp: "31 Aug 2026" },
-                    { code: "LONGSTAY", desc: "Long Stay Offer — 15% off 5+ nights", exp: "30 Sep 2026" },
-                  ].map((offer) => (
-                    <div key={offer.code} className="bg-white rounded-lg p-3 border border-amber-200">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded tracking-wider">
-                          {offer.code}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => copyPromo(offer.code)}
-                          className="flex items-center gap-1 text-[10px] text-green-700 font-semibold hover:underline"
-                        >
-                          <Copy className="w-3 h-3" />
-                          {copiedCode === offer.code ? "Copied!" : "Copy"}
-                        </button>
-                      </div>
-                      <p className="text-xs text-gray-600 mt-1">{offer.desc}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">Expires {offer.exp}</p>
-                    </div>
-                  ))}
                 </div>
               </div>
 
@@ -2606,6 +2525,20 @@ export function PropertyListingDetailPage({
           </div>
         </div>
       </section>
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-50 border-t border-gray-200 bg-white/95 backdrop-blur-md px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
+        <div className="min-w-0">
+          <p className="text-base font-bold text-gray-900 tabular-nums leading-tight">
+            {money(publishedRates.nightly || displayPrice)}
+          </p>
+          <p className="text-[11px] text-gray-500">{tc("perNight")}</p>
+        </div>
+        <a
+          href="#booking-calculator"
+          className="ms-auto shrink-0 inline-flex items-center justify-center bg-green-700 hover:bg-green-800 text-white text-sm font-bold px-5 py-2.5 rounded-xl min-h-[44px]"
+        >
+          {tc("checkAvailability")}
+        </a>
+      </div>
     </div>
   );
 }

@@ -1,12 +1,34 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { createStayReview, listPublishedReviews } from "@/lib/booking/stay-reviews-repo";
+import { AuthError, requireSessionUser } from "@/lib/auth/session";
+import { isDemoApiMode } from "@/lib/auth/booking-access";
+import {
+  createStayReview,
+  getReviewByBookingId,
+  getReviewEligibilityForBooking,
+  listPublishedReviews,
+} from "@/lib/booking/stay-reviews-repo";
+import { expirePendingBookings } from "@/lib/booking/lifecycle";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const listingId = searchParams.get("listingId");
+  const bookingId = searchParams.get("bookingId");
+
+  if (bookingId) {
+    await expirePendingBookings();
+    const [review, eligibility] = await Promise.all([
+      getReviewByBookingId(bookingId),
+      getReviewEligibilityForBooking(bookingId),
+    ]);
+    if (!eligibility && !review) {
+      return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+    }
+    return NextResponse.json({ review, eligibility });
+  }
+
   if (!listingId) {
-    return NextResponse.json({ error: "listingId required" }, { status: 400 });
+    return NextResponse.json({ error: "listingId or bookingId required" }, { status: 400 });
   }
   const reviews = await listPublishedReviews(listingId);
   return NextResponse.json({ reviews });
@@ -23,15 +45,34 @@ const postSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    await expirePendingBookings();
     const json = await request.json();
     const parsed = postSchema.safeParse(json);
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid review payload" }, { status: 400 });
     }
 
-    const review = await createStayReview(parsed.data);
+    let authorId = parsed.data.authorId;
+    let authorName = parsed.data.authorName;
+    if (!isDemoApiMode()) {
+      const user = await requireSessionUser();
+      authorId = user.id;
+      authorName =
+        (user.user_metadata?.full_name as string | undefined) ||
+        user.email ||
+        authorName;
+    }
+
+    const review = await createStayReview({
+      ...parsed.data,
+      authorId,
+      authorName,
+    });
     return NextResponse.json({ review });
   } catch (error) {
+    if (error instanceof AuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     const err = error as Error & { code?: string };
     const status =
       err.code === "NOT_FOUND"

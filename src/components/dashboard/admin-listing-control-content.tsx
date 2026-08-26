@@ -19,6 +19,7 @@ import { useAdminUsers } from "@/lib/admin/use-admin-users";
 import { useListingSubmissions } from "@/lib/listings/use-listing-submissions";
 import type { SubmittedListing } from "@/lib/listings/submission-types";
 import { cn } from "@/lib/utils";
+import { toLegacyQualityView } from "@/lib/admin/listing-quality-rules-data";
 
 type TabId = "queue" | "listings" | "quality";
 
@@ -33,6 +34,7 @@ const inputClass =
 
 function QualityRulesSection() {
   const { rules, updateRules, resetRules } = useListingQualityRules();
+  const view = toLegacyQualityView(rules);
   const [message, setMessage] = useState("");
 
   function flash(text: string) {
@@ -78,7 +80,7 @@ function QualityRulesSection() {
               type="number"
               min={0}
               max={20}
-              value={rules.minPhotos}
+              value={view.minPhotos}
               onChange={(e) => updateRules({ minPhotos: Math.max(0, Number(e.target.value) || 0) })}
               className={cn(inputClass, "mt-1")}
             />
@@ -89,7 +91,7 @@ function QualityRulesSection() {
               type="number"
               min={0}
               max={2000}
-              value={rules.minDescriptionLength}
+              value={view.minDescriptionLength}
               onChange={(e) =>
                 updateRules({ minDescriptionLength: Math.max(0, Number(e.target.value) || 0) })
               }
@@ -102,7 +104,7 @@ function QualityRulesSection() {
               type="number"
               min={0}
               max={20}
-              value={rules.minAmenities}
+              value={view.minAmenities}
               onChange={(e) => updateRules({ minAmenities: Math.max(0, Number(e.target.value) || 0) })}
               className={cn(inputClass, "mt-1")}
             />
@@ -123,7 +125,7 @@ function QualityRulesSection() {
             <label key={key} className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
               <input
                 type="checkbox"
-                checked={rules[key]}
+                checked={view[key]}
                 onChange={(e) => updateRules({ [key]: e.target.checked })}
                 className="rounded border-gray-300 text-green-600 focus:ring-green-500"
               />
@@ -134,7 +136,7 @@ function QualityRulesSection() {
 
         <p className="text-xs text-gray-400 flex items-start gap-1.5">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          Changes apply immediately to new submissions and listing edits from hosts.
+          Changes apply immediately when hosts submit or edit a listing.
         </p>
       </section>
     </div>

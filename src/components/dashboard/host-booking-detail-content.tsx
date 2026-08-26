@@ -4,13 +4,19 @@ import { useMemo, useState } from "react";
 import { Link } from "@/i18n/routing";
 import {
   ArrowLeft,
+  CalendarDays,
   CheckCircle,
   Clock,
   DoorClosed,
   DoorOpen,
   Loader2,
+  Mail,
+  MapPin,
+  Phone,
   Printer,
+  User,
   XCircle,
+  type LucideIcon,
 } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
 import { BookingMessageThread } from "@/components/booking/booking-message-thread";
@@ -18,7 +24,7 @@ import { formatBookingDate, STATUS_STYLES } from "@/lib/mock/dashboard-data";
 import { useHostBookings } from "@/lib/host/use-host-bookings";
 import type { RefundStatus } from "@/lib/host/host-booking-types";
 import { displaySpecialRequests, getBookingTimeline } from "@/lib/host/host-booking-utils";
-import { CANCELLATION_MATRIX, getCancellationRule } from "@/lib/booking/policies";
+import { getCancellationRule } from "@/lib/booking/policies";
 import { useAuth } from "@/components/providers/auth-provider";
 import { cn } from "@/lib/utils";
 
@@ -89,6 +95,7 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
   const canCheckIn =
     booking.status === "confirmed" &&
     booking.checkInStatus === "pending" &&
+    booking.paymentStatus === "Paid" &&
     (timeline === "ongoing" || timeline === "upcoming");
   const canCheckOut = booking.status === "confirmed" && booking.checkInStatus === "checked_in";
   const canCancel =
@@ -107,190 +114,354 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
       setCancelOpen(false);
       setCancelReason("");
       flash("Booking cancelled. Refund applied per policy when eligible.");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Could not cancel booking.");
     } finally {
       setBusy(false);
     }
   }
 
+  const expiresLabel = booking.expiresAt
+    ? new Date(booking.expiresAt).toLocaleString("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
+
+  async function runAccept() {
+    setBusy(true);
+    try {
+      await accept(booking!.id);
+      flash("Booking accepted — dates blocked if paid.");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Could not accept booking.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runDecline() {
+    setBusy(true);
+    try {
+      await decline(booking!.id);
+      flash("Booking declined — guest refunded when paid.");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Could not decline booking.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openCancel() {
+    const preview = previewCancelRefund(booking!, "host");
+    setRefundStatus(
+      preview.band === "full" ? "full" : preview.band === "partial" ? "partial" : "none"
+    );
+    setRefundAmount(
+      preview.refundAmount > 0 ? `AED ${preview.refundAmount.toLocaleString()}` : ""
+    );
+    setCancelOpen(true);
+  }
+
   return (
     <HostDashboardShell>
-      <div className="space-y-4 print:space-y-0">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 print:hidden">
+      <div className="space-y-5 print:space-y-0">
+        <div className="flex items-center justify-between gap-3 print:hidden">
           <Link
             href="/host/bookings"
-            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-green-700"
+            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-green-800"
           >
             <ArrowLeft className="w-4 h-4" />
-            Back to Bookings
+            Bookings
           </Link>
-          <div className="flex flex-wrap items-center gap-2">
-            {booking.status === "pending" && (
-              <>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true);
-                    try {
-                      await accept(booking.id);
-                      flash("Booking accepted — dates blocked if paid.");
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 text-sm bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-50"
-                >
-                  <CheckCircle className="w-4 h-4" />
-                  Accept
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true);
-                    try {
-                      await decline(booking.id);
-                      flash("Booking declined — guest refunded when paid.");
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 text-sm border border-gray-300 hover:border-red-400 text-gray-700 hover:text-red-600 px-4 py-2 rounded-xl font-semibold disabled:opacity-50"
-                >
-                  <XCircle className="w-4 h-4" />
-                  Decline
-                </button>
-              </>
-            )}
-            {canCheckIn && (
-              <button
-                type="button"
-                onClick={() => {
-                  checkIn(booking.id);
-                  flash("Guest checked in.");
-                }}
-                className="inline-flex items-center gap-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold"
-              >
-                <DoorOpen className="w-4 h-4" />
-                Check in
-              </button>
-            )}
-            {canCheckOut && (
-              <button
-                type="button"
-                onClick={() => {
-                  checkOut(booking.id);
-                  flash("Guest checked out. Stay marked completed.");
-                }}
-                className="inline-flex items-center gap-1.5 text-sm bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-xl font-semibold"
-              >
-                <DoorClosed className="w-4 h-4" />
-                Check out
-              </button>
-            )}
-            {canCancel && (
-              <button
-                type="button"
-                onClick={() => {
-                  const preview = previewCancelRefund(booking, "host");
-                  setRefundStatus(
-                    preview.band === "full"
-                      ? "full"
-                      : preview.band === "partial"
-                        ? "partial"
-                        : "none"
-                  );
-                  setRefundAmount(
-                    preview.refundAmount > 0
-                      ? `AED ${preview.refundAmount.toLocaleString()}`
-                      : ""
-                  );
-                  setCancelOpen(true);
-                }}
-                className="inline-flex items-center gap-1.5 text-sm border border-red-200 text-red-700 hover:bg-red-50 px-4 py-2 rounded-xl font-semibold"
-              >
-                Cancel booking
-              </button>
-            )}
+          <div className="flex items-center gap-2">
+            <span className="hidden sm:inline text-[11px] text-gray-400 font-mono">{booking.id}</span>
             <button
               type="button"
               onClick={handlePrint}
-              className="inline-flex items-center gap-1.5 text-sm border border-gray-300 hover:border-green-500 text-gray-700 hover:text-green-700 px-4 py-2 rounded-xl font-semibold"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 border border-gray-200 hover:border-green-400 px-3 py-1.5 rounded-full"
             >
-              <Printer className="w-4 h-4" />
+              <Printer className="w-3.5 h-3.5" />
               Print
             </button>
           </div>
         </div>
 
         {message && (
-          <div className="bg-green-50 border border-green-100 text-green-800 text-sm rounded-xl px-4 py-3 print:hidden">
+          <div className="bg-green-50 border border-green-100 text-green-800 text-sm rounded-2xl px-4 py-3 print:hidden">
             {message}
           </div>
         )}
 
-        {booking.status === "pending" && booking.expiresAt && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-xl px-4 py-3 print:hidden flex items-start gap-2">
-            <Clock className="w-4 h-4 mt-0.5 shrink-0" />
-            <div>
-              <p className="font-semibold">Request-to-book — respond by deadline</p>
-              <p className="text-amber-800/90 text-xs mt-0.5">
-                Expires {new Date(booking.expiresAt).toLocaleString()}. If you don’t accept or
-                decline in time, the request auto-expires and paid guests are refunded.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {booking.status === "expired" && (
-          <div className="bg-gray-100 border border-gray-200 text-gray-700 text-sm rounded-xl px-4 py-3 print:hidden">
-            This request expired because it wasn’t answered before the host deadline.
-          </div>
-        )}
-
-        <div className="print:hidden">
-          <BookingMessageThread
-            bookingId={booking.id}
-            viewerRole="host"
-            viewerId={user?.id || booking.hostId || "host"}
-            viewerName={user?.fullName || booking.hostName || "Host"}
-            title="Messages with guest"
-            subtitle={`${booking.guest} · ${booking.property}`}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 print:hidden">
-          <section className="bg-white rounded-2xl border p-4 space-y-3 lg:col-span-1">
-            <h3 className="text-sm font-semibold text-gray-900">Check-in / check-out</h3>
-            <dl className="space-y-2 text-sm">
-              <div className="flex justify-between gap-3">
-                <dt className="text-gray-500">Status</dt>
-                <dd className="font-medium capitalize text-gray-900">
-                  {booking.checkInStatus.replace("_", " ")}
-                </dd>
+        <section
+          className={cn(
+            "rounded-2xl border overflow-hidden print:hidden",
+            booking.status === "pending"
+              ? "border-amber-200 bg-[linear-gradient(180deg,#fffbeb_0%,#ffffff_42%)]"
+              : "border-gray-200 bg-white"
+          )}
+        >
+          <div className="p-5 sm:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex items-start gap-3.5 min-w-0">
+                <div
+                  className="w-12 h-12 rounded-2xl bg-[var(--brand-green)] text-white flex items-center justify-center text-lg font-bold shrink-0"
+                  aria-hidden
+                >
+                  {booking.guest
+                    .split(" ")
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .map((part) => part[0]?.toUpperCase())
+                    .join("") || "G"}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-green)]">
+                    {booking.status === "pending" ? "Request to book" : "Stay"}
+                  </p>
+                  <h1 className="text-2xl font-bold text-gray-900 font-display mt-0.5 tracking-tight">
+                    {booking.guest}
+                  </h1>
+                  <p className="text-sm text-gray-500 mt-1">{booking.property}</p>
+                </div>
               </div>
-              {booking.checkedInAt && (
-                <div className="flex justify-between gap-3">
-                  <dt className="text-gray-500">Checked in</dt>
-                  <dd className="text-gray-900 text-end">
-                    {new Date(booking.checkedInAt).toLocaleString()}
-                  </dd>
-                </div>
-              )}
-              {booking.checkedOutAt && (
-                <div className="flex justify-between gap-3">
-                  <dt className="text-gray-500">Checked out</dt>
-                  <dd className="text-gray-900 text-end">
-                    {new Date(booking.checkedOutAt).toLocaleString()}
-                  </dd>
-                </div>
-              )}
-            </dl>
-          </section>
+              <div className="text-end">
+                <span
+                  className={`inline-flex text-[10px] font-bold px-2.5 py-1 rounded-full capitalize ${STATUS_STYLES[booking.status]}`}
+                >
+                  {booking.status}
+                </span>
+                <p className="text-xl font-bold text-gray-900 mt-2 tabular-nums">{booking.total}</p>
+              </div>
+            </div>
 
-          <section className="bg-white rounded-2xl border p-4 space-y-3 lg:col-span-2">
-            <h3 className="text-sm font-semibold text-gray-900">Cancellation & refund</h3>
-            {booking.status === "cancelled" ? (
+            <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <HeroStat
+                icon={CalendarDays}
+                label="Check-in"
+                value={formatBookingDate(booking.checkIn)}
+              />
+              <HeroStat
+                icon={CalendarDays}
+                label="Check-out"
+                value={formatBookingDate(booking.checkOut)}
+              />
+              <HeroStat icon={User} label="Guests" value={`${booking.guests}`} />
+              <HeroStat icon={Clock} label="Nights" value={`${booking.nights}`} />
+            </div>
+
+            {booking.status === "pending" && expiresLabel && (
+              <p className="mt-4 text-xs text-amber-900/80 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 flex items-start gap-2">
+                <Clock className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                Respond by {expiresLabel}. Unanswered requests expire and paid guests are refunded.
+              </p>
+            )}
+            {booking.status === "expired" && (
+              <p className="mt-4 text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
+                This request expired because it wasn’t answered in time.
+              </p>
+            )}
+          </div>
+
+          {(booking.status === "pending" || canCheckIn || canCheckOut || canCancel) && (
+            <div className="px-5 sm:px-6 py-3.5 border-t border-gray-100/80 bg-white/80 flex flex-wrap items-center gap-2">
+              {booking.status === "pending" && (
+                <>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void runAccept()}
+                    className="inline-flex items-center gap-1.5 text-sm bg-[var(--brand-green)] hover:bg-[var(--brand-green-dark)] text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-50"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void runDecline()}
+                    className="inline-flex items-center gap-1.5 text-sm border border-gray-200 hover:border-red-300 text-gray-700 hover:text-red-700 px-4 py-2 rounded-xl font-semibold disabled:opacity-50"
+                  >
+                    <XCircle className="w-4 h-4" />
+                    Decline
+                  </button>
+                </>
+              )}
+              {canCheckIn && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await checkIn(booking.id);
+                      flash("Guest checked in.");
+                    } catch (error) {
+                      flash(error instanceof Error ? error.message : "Could not check in guest.");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 text-sm bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-50"
+                >
+                  <DoorOpen className="w-4 h-4" />
+                  Check in
+                </button>
+              )}
+              {canCheckOut && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await checkOut(booking.id);
+                      flash("Guest checked out. Stay marked completed.");
+                    } catch (error) {
+                      flash(error instanceof Error ? error.message : "Could not check out guest.");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 text-sm bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-50"
+                >
+                  <DoorClosed className="w-4 h-4" />
+                  Check out
+                </button>
+              )}
+              <span className="flex-1" />
+              {canCancel && (
+                <button
+                  type="button"
+                  onClick={openCancel}
+                  className="inline-flex items-center gap-1.5 text-sm text-red-700 hover:bg-red-50 px-3 py-2 rounded-xl font-semibold"
+                >
+                  Cancel stay
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+
+        <div className="grid grid-cols-1 xl:grid-cols-5 gap-5 print:hidden">
+          <div className="xl:col-span-3 space-y-5">
+            <section className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 mb-4">
+                Stay
+              </h2>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+                <CardRow label="Property" value={booking.property} />
+                <CardRow label="Room" value={booking.roomType} />
+                <CardRow
+                  label="Location"
+                  value={booking.propertyLocation}
+                  icon={MapPin}
+                />
+                <CardRow label="Booked" value={formatBookingDate(booking.bookedAt)} />
+              </dl>
+            </section>
+
+            <section className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 mb-4">
+                Guest
+              </h2>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+                <CardRow label="Name" value={booking.guest} />
+                <CardRow
+                  label="Party"
+                  value={`${booking.guests} (${booking.adults} adults${booking.children ? `, ${booking.children} children` : ""})`}
+                />
+                {booking.guestEmail ? <CardRow label="Email" value={booking.guestEmail} /> : null}
+                {booking.guestPhone ? <CardRow label="Phone" value={booking.guestPhone} /> : null}
+                {booking.guestCountry ? <CardRow label="Country" value={booking.guestCountry} /> : null}
+              </dl>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {booking.guestEmail && (
+                  <a
+                    href={`mailto:${booking.guestEmail}`}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 border border-gray-200 rounded-full px-3 py-1.5 hover:border-green-300"
+                  >
+                    <Mail className="w-3.5 h-3.5" /> Email
+                  </a>
+                )}
+                {booking.guestPhone && (
+                  <a
+                    href={`tel:${booking.guestPhone}`}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 border border-gray-200 rounded-full px-3 py-1.5 hover:border-green-300"
+                  >
+                    <Phone className="w-3.5 h-3.5" /> Call
+                  </a>
+                )}
+              </div>
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <NoteBlock label="Special requests" value={specialRequests || "None provided."} />
+                <NoteBlock
+                  label="Dietary needs"
+                  value={booking.dietaryNeeds?.trim() || "None provided."}
+                />
+              </div>
+            </section>
+
+            <section className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 mb-4">
+                Payment
+              </h2>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+                <CardRow label="Nightly" value={`${booking.nightlyRate} × ${booking.nights}`} />
+                <CardRow label="Cleaning" value={booking.cleaningFee} />
+                <CardRow label="Service" value={booking.serviceFee} />
+                <CardRow label="Method" value={booking.paymentMethod} />
+                <CardRow label="Status" value={booking.paymentStatus} />
+              </dl>
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-dashed border-gray-200">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  Total
+                </span>
+                <span className="text-lg font-bold text-gray-900 tabular-nums">{booking.total}</span>
+              </div>
+            </section>
+          </div>
+
+          <div className="xl:col-span-2 space-y-5">
+            <BookingMessageThread
+              bookingId={booking.id}
+              viewerRole="host"
+              viewerId={user?.id || booking.hostId || "host"}
+              viewerName={user?.fullName || booking.hostName || "Host"}
+              title="Messages"
+              subtitle={booking.guest}
+              compact
+            />
+
+            {booking.status !== "pending" && (
+              <section className="bg-white rounded-2xl border border-gray-200 p-5">
+                <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 mb-3">
+                  Arrival
+                </h2>
+                <p className="text-sm font-semibold text-gray-900 capitalize">
+                  {booking.checkInStatus.replace("_", " ")}
+                </p>
+                {booking.checkedInAt && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    In {new Date(booking.checkedInAt).toLocaleString()}
+                  </p>
+                )}
+                {booking.checkedOutAt && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Out {new Date(booking.checkedOutAt).toLocaleString()}
+                  </p>
+                )}
+              </section>
+            )}
+
+            <section className="bg-white rounded-2xl border border-gray-200 p-5">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 mb-3">
+                Cancellation
+              </h2>
+              {booking.status === "cancelled" ? (
               <dl className="space-y-2 text-sm">
                 {booking.cancelledAt && (
                   <div className="flex justify-between gap-3">
@@ -334,12 +505,20 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
                   <div className="flex flex-wrap gap-2 pt-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        update(booking.id, {
-                          refundStatus: "full",
-                          paymentStatus: "Refunded",
-                        });
-                        flash("Refund marked as completed.");
+                      onClick={async () => {
+                        try {
+                          await update(booking.id, {
+                            refundStatus: "full",
+                            paymentStatus: "Refunded",
+                          });
+                          flash("Refund marked as completed.");
+                        } catch (error) {
+                          flash(
+                            error instanceof Error
+                              ? error.message
+                              : "Could not complete refund."
+                          );
+                        }
                       }}
                       className="text-xs bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg font-semibold"
                     >
@@ -351,27 +530,19 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
             ) : (
               <div className="space-y-2 text-sm text-gray-600">
                 <p>
-                  Policy: <span className="font-semibold text-gray-900">{policy.label}</span> —{" "}
-                  {policy.shortDescription}
+                  <span className="font-semibold text-gray-900">{policy.label}</span>
                 </p>
-                <p className="text-xs text-gray-500">
-                  Host cancellations refund the guest in full when paid. Guest cancellations use
-                  the matrix below.
+                <p className="text-xs text-gray-500 leading-relaxed">{policy.shortDescription}</p>
+                <p className="text-[11px] text-gray-400 leading-relaxed">
+                  Host cancellations refund the guest in full when paid.
                 </p>
-                <ul className="text-[11px] text-gray-500 space-y-0.5 border-t border-gray-100 pt-2">
-                  {CANCELLATION_MATRIX.map((row) => (
-                    <li key={row.id}>
-                      <span className="font-semibold text-gray-700">{row.label}:</span>{" "}
-                      {row.shortDescription}
-                    </li>
-                  ))}
-                </ul>
               </div>
             )}
-          </section>
+            </section>
+          </div>
         </div>
 
-        <article className="booking-sheet bg-white rounded-2xl border shadow-sm overflow-hidden print:shadow-none print:rounded-none print:border print:border-black max-w-3xl mx-auto">
+        <article className="booking-sheet hidden print:block bg-white rounded-2xl border shadow-sm overflow-hidden print:shadow-none print:rounded-none print:border print:border-black max-w-3xl mx-auto">
           <header className="booking-sheet-header border-b px-6 py-5 flex items-start justify-between gap-4">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">
@@ -547,6 +718,55 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
         }
       `}</style>
     </HostDashboardShell>
+  );
+}
+
+function HeroStat({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white/70 px-3 py-2.5">
+      <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+        <Icon className="w-3 h-3" />
+        {label}
+      </p>
+      <p className="text-sm font-semibold text-gray-900 mt-1 tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function CardRow({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string;
+  icon?: LucideIcon;
+}) {
+  return (
+    <div>
+      <dt className="text-[11px] font-medium text-gray-400">{label}</dt>
+      <dd className="text-sm font-semibold text-gray-900 mt-0.5 flex items-start gap-1.5">
+        {Icon ? <Icon className="w-3.5 h-3.5 text-gray-400 mt-0.5 shrink-0" /> : null}
+        <span>{value}</span>
+      </dd>
+    </div>
+  );
+}
+
+function NoteBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-gray-50 border border-gray-100 px-3.5 py-3">
+      <p className="text-[11px] font-semibold text-gray-400 mb-1">{label}</p>
+      <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{value}</p>
+    </div>
   );
 }
 

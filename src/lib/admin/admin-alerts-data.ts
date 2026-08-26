@@ -305,7 +305,7 @@ function syncHostPaymentAlerts(state: AdminAlertsState): AdminAlert[] {
         title: `Host paid for ${kindLabel}`,
         message: `${hostName} purchased ${kindLabel} (${promo.durationDays} days) for “${listingTitle}” — AED ${promo.priceAed.toLocaleString()} · ${promo.paymentRef}. Ends ${new Date(promo.endsAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}.`,
         createdAt: promo.purchasedAt,
-        href: "/admin/settings/promote",
+        href: "/admin/advertisements",
         sourceKey: `host-payment-${promo.id}`,
       },
       state

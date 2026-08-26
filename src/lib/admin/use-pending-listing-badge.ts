@@ -12,7 +12,7 @@ async function fetchPendingCount(): Promise<number> {
     return getPendingCount();
   }
   try {
-    const res = await fetch("/api/listings", { cache: "no-store" });
+    const res = await fetch("/api/listings?status=pending", { cache: "no-store" });
     if (!res.ok) return getPendingCount();
     const data = (await res.json()) as { listings?: { status?: string }[] };
     return (data.listings ?? []).filter((l) => l.status === "pending").length;
@@ -46,7 +46,9 @@ export function usePendingListingBadgeCount(): number {
 
     window.addEventListener(LISTINGS_SYNC_EVENT, refresh);
     window.addEventListener("storage", onStorage);
-    const poll = window.setInterval(refresh, 10000);
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
+    }, 60_000);
 
     return () => {
       window.removeEventListener(LISTINGS_SYNC_EVENT, refresh);

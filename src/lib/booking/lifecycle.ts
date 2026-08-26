@@ -6,7 +6,10 @@ import {
   isPendingExpired,
   refundStatusFromBand,
 } from "@/lib/booking/policies";
+import { bookingStayHasEnded } from "@/lib/booking/stay-ended";
 import { getStripe, isStripeConfigured } from "@/lib/stripe/server";
+import { expireEndedFlashDeals } from "@/lib/server/listing-pricing-repo";
+import { withAudit } from "@/lib/booking/booking-audit";
 
 type Tx = Prisma.TransactionClient;
 
@@ -41,7 +44,7 @@ async function unblockDates(tx: Tx, listingId: string, checkIn: Date, checkOut: 
   });
 }
 
-async function maybeStripeRefund(input: {
+export async function maybeStripeRefund(input: {
   stripeSessionId?: string | null;
   amount: number;
   currency?: string;
@@ -101,7 +104,15 @@ export async function acceptBooking(bookingId: string) {
 
     const updated = await tx.booking.update({
       where: { id: bookingId },
-      data: { status: "confirmed", expiresAt: null },
+      data: {
+        status: "confirmed",
+        expiresAt: null,
+        auditLog: withAudit(booking.auditLog, {
+          actor: "Host",
+          action: "Accepted",
+          detail: "Request confirmed",
+        }),
+      },
     });
 
     if (updated.paymentStatus === "paid" && updated.checkOut) {
@@ -139,6 +150,11 @@ export async function declineBooking(bookingId: string, reason?: string) {
         expiresAt: null,
         paymentStatus:
           evaluation.refundAmount > 0 ? "refund_pending" : booking.paymentStatus,
+        auditLog: withAudit(booking.auditLog, {
+          actor: "Host",
+          action: "Declined",
+          detail: reason?.trim() || "Host declined the request",
+        }),
       },
     });
 
@@ -152,7 +168,15 @@ export async function declineBooking(bookingId: string, reason?: string) {
       if (stripe.refunded) {
         const booking = await prisma.booking.update({
           where: { id: bookingId },
-          data: { paymentStatus: "refunded" },
+          data: {
+            paymentStatus: "refunded",
+            stripeRefundId: stripe.refundId,
+            auditLog: withAudit(result.booking.auditLog, {
+              actor: "System",
+              action: "Refund issued",
+              detail: stripe.refundId,
+            }),
+          },
         });
         return { booking, evaluation: result.evaluation, stripe };
       }
@@ -212,6 +236,11 @@ export async function cancelBooking(input: {
             : booking.paymentStatus === "paid"
               ? "paid"
               : booking.paymentStatus,
+        auditLog: withAudit(booking.auditLog, {
+          actor: input.actor === "admin" ? "Admin" : input.actor === "host" ? "Host" : "Guest",
+          action: "Cancelled",
+          detail: input.reason.trim() || "Cancelled",
+        }),
       },
     });
 
@@ -233,7 +262,15 @@ export async function cancelBooking(input: {
     if (stripe.refunded) {
       const paid = await prisma.booking.update({
         where: { id: input.bookingId },
-        data: { paymentStatus: "refunded" },
+        data: {
+          paymentStatus: "refunded",
+          stripeRefundId: stripe.refundId,
+          auditLog: withAudit(updated.auditLog, {
+            actor: "System",
+            action: "Refund issued",
+            detail: stripe.refundId,
+          }),
+        },
       });
       return {
         booking: paid,
@@ -252,17 +289,31 @@ export async function cancelBooking(input: {
   };
 }
 
+let lastExpireAt = 0;
+const EXPIRE_MIN_INTERVAL_MS = 60_000;
+
 /** Expire pending requests past their deadline. Safe to call from cron or on read. */
-export async function expirePendingBookings(now: Date = new Date()) {
+export async function expirePendingBookings(
+  now: Date = new Date(),
+  opts?: { force?: boolean }
+) {
+  const ts = now.getTime();
+  if (!opts?.force && ts - lastExpireAt < EXPIRE_MIN_INTERVAL_MS) {
+    return { count: 0, bookings: [] };
+  }
+  lastExpireAt = ts;
+
   const stale = await prisma.booking.findMany({
     where: {
-      status: "pending",
+      status: { in: ["pending", "confirmed"] },
       expiresAt: { lte: now },
+      OR: [{ paymentStatus: "unpaid" }, { status: "pending" }],
     },
   });
 
   const expired = [];
   for (const booking of stale) {
+    const unpaidHold = booking.paymentStatus === "unpaid";
     const evaluation = evaluateCancellationRefund({
       policyId: booking.policyId,
       checkIn: booking.checkIn,
@@ -271,17 +322,25 @@ export async function expirePendingBookings(now: Date = new Date()) {
       paymentStatus: booking.paymentStatus,
     });
 
-    const updated = await prisma.booking.update({
-      where: { id: booking.id },
-      data: {
-        status: "expired",
-        cancelledAt: now,
-        cancelReason: "Host did not respond in time",
-        refundPercent: evaluation.refundPercent,
-        refundAmount: evaluation.refundAmount,
-        paymentStatus:
-          evaluation.refundAmount > 0 ? "refund_pending" : booking.paymentStatus,
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      const next = await tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          status: "expired",
+          cancelledAt: now,
+          cancelReason: unpaidHold
+            ? "Payment was not completed in time"
+            : "Host did not respond in time",
+          refundPercent: evaluation.refundPercent,
+          refundAmount: evaluation.refundAmount,
+          paymentStatus:
+            evaluation.refundAmount > 0 ? "refund_pending" : booking.paymentStatus,
+        },
+      });
+      if (booking.status === "confirmed" && booking.checkOut) {
+        await unblockDates(tx, booking.listingId, booking.checkIn, booking.checkOut);
+      }
+      return next;
     });
 
     if (evaluation.stripeEligible) {
@@ -300,5 +359,96 @@ export async function expirePendingBookings(now: Date = new Date()) {
     expired.push(updated);
   }
 
-  return { count: expired.length, bookings: expired };
+  const completed = await completeDueStays(now, { force: true });
+  const flashDeals = await expireEndedFlashDeals(now);
+
+  return {
+    count: expired.length,
+    bookings: expired,
+    completed: completed.count,
+    flashDealsExpired: flashDeals,
+  };
+}
+
+/** Host marks the guest as arrived. */
+export async function checkInBooking(bookingId: string) {
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!booking) throw new BookingError("Booking not found", "NOT_FOUND");
+  if (booking.checkInStatus === "checked_in") return booking;
+  if (booking.checkInStatus === "checked_out") {
+    throw new BookingError("Guest has already checked out", "INVALID_DATES");
+  }
+  if (booking.status !== "confirmed") {
+    throw new BookingError("Only confirmed stays can be checked in", "INVALID_DATES");
+  }
+  if (booking.paymentStatus !== "paid") {
+    throw new BookingError("Guest has not paid yet", "INVALID_DATES");
+  }
+
+  const now = new Date();
+  return prisma.booking.update({
+    where: { id: bookingId },
+    data: {
+      checkInStatus: "checked_in",
+      checkedInAt: booking.checkedInAt ?? now,
+      auditLog: withAudit(booking.auditLog, {
+        actor: "Host",
+        action: "Checked in",
+      }),
+    },
+  });
+}
+
+/** Host marks a confirmed stay as finished — unlocks the guest review. */
+export async function completeBooking(bookingId: string) {
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!booking) throw new BookingError("Booking not found", "NOT_FOUND");
+  if (booking.status === "completed") return booking;
+  if (booking.status !== "confirmed") {
+    throw new BookingError("Only confirmed stays can be checked out", "INVALID_DATES");
+  }
+
+  const now = new Date();
+  return prisma.booking.update({
+    where: { id: bookingId },
+    data: {
+      status: "completed",
+      checkInStatus: "checked_out",
+      checkedInAt: booking.checkedInAt ?? now,
+      checkedOutAt: now,
+      auditLog: withAudit(booking.auditLog, {
+        actor: "Host",
+        action: "Checked out",
+      }),
+    },
+  });
+}
+
+/** Mark confirmed bookings as completed after check-out day. */
+export async function completeDueStays(now: Date = new Date(), opts?: { force?: boolean }) {
+  if (!opts?.force && now.getTime() - lastExpireAt < EXPIRE_MIN_INTERVAL_MS) {
+    return { count: 0 };
+  }
+
+  const candidates = await prisma.booking.findMany({
+    where: {
+      status: "confirmed",
+      checkOut: { lte: now },
+    },
+    select: { id: true, status: true, checkOut: true },
+  });
+
+  const dueIds = candidates.filter((row) => bookingStayHasEnded(row, now)).map((row) => row.id);
+  if (dueIds.length === 0) return { count: 0 };
+
+  const result = await prisma.booking.updateMany({
+    where: { id: { in: dueIds }, status: "confirmed" },
+    data: {
+      status: "completed",
+      checkInStatus: "checked_out",
+      checkedOutAt: now,
+    },
+  });
+
+  return { count: result.count };
 }

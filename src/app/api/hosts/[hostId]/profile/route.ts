@@ -8,6 +8,7 @@ import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError } from "@/lib/auth/booking-access";
 import { getRequestId } from "@/lib/observability/logger";
 import type { HostPublicProfileInput } from "@/lib/host/host-profile-types";
+import { defaultHostPublicProfile } from "@/lib/host/host-profile-data";
 
 export const dynamic = "force-dynamic";
 
@@ -34,10 +35,7 @@ export async function PATCH(
     await requireHostSelfOrAdmin(hostId);
 
     const body = (await request.json()) as Partial<HostPublicProfileInput>;
-    const current = await getHostProfile(hostId);
-    if (!current) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
+    const current = (await getHostProfile(hostId)) ?? defaultHostPublicProfile(hostId);
 
     const saved = await saveHostProfile(hostId, {
       displayName: body.displayName ?? current.displayName,

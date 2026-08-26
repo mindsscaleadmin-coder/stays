@@ -2,18 +2,16 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   assertBookingParticipant,
-  getUserRoles,
   isDemoApiMode,
   loadBookingWithListing,
 } from "@/lib/auth/booking-access";
 import { withBookingAuth } from "@/lib/auth/with-booking-auth";
-import { getSessionUser } from "@/lib/auth/session";
 import {
   createBookingMessage,
   listBookingMessages,
 } from "@/lib/booking/booking-messages-repo";
 
-export const GET = withBookingAuth(async (_request, context, userId) => {
+export const GET = withBookingAuth(async (_request, context, actor) => {
   const { id } = await context.params;
 
   if (!isDemoApiMode()) {
@@ -21,12 +19,13 @@ export const GET = withBookingAuth(async (_request, context, userId) => {
     if (!booking) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-    const user = await getSessionUser();
-    const roles = user ? getUserRoles(user) : [];
-    assertBookingParticipant(booking, userId, roles);
+    assertBookingParticipant(booking, actor);
   }
 
   const messages = await listBookingMessages(id);
+  if (!messages) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   return NextResponse.json({ messages, bookingId: id });
 });
 
@@ -37,7 +36,7 @@ const postSchema = z.object({
   senderName: z.string().min(1).max(120),
 });
 
-export const POST = withBookingAuth(async (request, context, userId) => {
+export const POST = withBookingAuth(async (request, context, actor) => {
   try {
     const { id } = await context.params;
     const json = await request.json();
@@ -51,10 +50,8 @@ export const POST = withBookingAuth(async (request, context, userId) => {
       if (!booking) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      const user = await getSessionUser();
-      const roles = user ? getUserRoles(user) : [];
-      assertBookingParticipant(booking, userId, roles);
-      if (parsed.data.senderId !== userId) {
+      assertBookingParticipant(booking, actor);
+      if (parsed.data.senderId !== actor.id) {
         return NextResponse.json({ error: "senderId must match signed-in user" }, { status: 403 });
       }
     }
@@ -65,16 +62,7 @@ export const POST = withBookingAuth(async (request, context, userId) => {
     });
 
     if (!message) {
-      return NextResponse.json({
-        ok: true,
-        persisted: false,
-        message: {
-          id: `local-${Date.now()}`,
-          bookingId: id,
-          ...parsed.data,
-          createdAt: new Date().toISOString(),
-        },
-      });
+      return NextResponse.json({ error: "Booking not found" }, { status: 404 });
     }
 
     return NextResponse.json({ ok: true, persisted: true, message });

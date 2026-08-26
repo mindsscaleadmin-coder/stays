@@ -9,9 +9,12 @@ import {
   BOOKING_CART_SYNC_EVENT,
   loadBookingCart,
   removeFromBookingCart,
+  updateBookingCartLine,
   type BookingCartLine,
 } from "@/lib/guest/booking-cart";
+import { addOneStayDay, listingHref } from "@/lib/guest/stay-search-dates";
 import { quoteCartLine, quoteCartTotal } from "@/lib/guest/cart-quote";
+import { useCartPricing } from "@/lib/guest/use-cart-pricing";
 import { formatMoney } from "@/lib/currency";
 import { getCheckoutHref, getGuestLoginHref } from "@/lib/guest/checkout-access";
 
@@ -39,7 +42,11 @@ export function CartContent() {
     };
   }, [refresh]);
 
-  const { quotes, total, currency } = useMemo(() => quoteCartTotal(lines), [lines]);
+  const pricingByListing = useCartPricing(lines);
+  const { quotes, total, currency } = useMemo(
+    () => quoteCartTotal(lines, pricingByListing),
+    [lines, pricingByListing]
+  );
   const quoteById = useMemo(() => {
     const map = new Map(quotes.map((q) => [q.lineId, q]));
     return map;
@@ -109,7 +116,11 @@ export function CartContent() {
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <Link
-                          href={`/listing/${line.listingId}`}
+                          href={listingHref(line.listingId, {
+                            checkIn: line.checkIn,
+                            checkOut: line.checkOut,
+                            guests: line.guests,
+                          })}
                           className="font-semibold text-gray-900 hover:text-green-700 line-clamp-1"
                         >
                           {line.title}
@@ -128,11 +139,40 @@ export function CartContent() {
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-600">
-                      <span className="inline-flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5" />
-                        {line.checkIn} → {line.checkOut}
-                      </span>
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-600">
+                      <label className="inline-flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 shrink-0" />
+                        <input
+                          type="date"
+                          value={line.checkIn}
+                          onChange={(e) => {
+                            const nextIn = e.target.value;
+                            const nextOut =
+                              line.checkOut && nextIn && line.checkOut <= nextIn
+                                ? addOneStayDay(nextIn)
+                                : line.checkOut;
+                            updateBookingCartLine(line.id, {
+                              checkIn: nextIn,
+                              checkOut: nextOut,
+                            });
+                            refresh();
+                          }}
+                          className="border border-gray-200 rounded-md px-1.5 py-1 text-xs text-gray-800 bg-white"
+                          aria-label="Check-in"
+                        />
+                        <span className="text-gray-400">→</span>
+                        <input
+                          type="date"
+                          min={line.checkIn ? addOneStayDay(line.checkIn) : undefined}
+                          value={line.checkOut}
+                          onChange={(e) => {
+                            updateBookingCartLine(line.id, { checkOut: e.target.value });
+                            refresh();
+                          }}
+                          className="border border-gray-200 rounded-md px-1.5 py-1 text-xs text-gray-800 bg-white"
+                          aria-label="Check-out"
+                        />
+                      </label>
                       <span className="inline-flex items-center gap-1">
                         <Users className="w-3.5 h-3.5" />
                         {line.guests} guest{line.guests === 1 ? "" : "s"}

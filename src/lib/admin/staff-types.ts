@@ -27,7 +27,7 @@ export interface StaffMember {
   role: StaffRole;
   permissions: StaffPermission[];
   active: boolean;
-  /** Demo login password set by Super Admin (plain text for local demo only). */
+  /** Masked in API responses. Stored hashed on the server. */
   password?: string;
   createdAt: string;
 }

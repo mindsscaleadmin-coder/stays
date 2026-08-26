@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CountryPricingConfig } from "@/lib/admin/country-utils";
 import {
   applyCountryPricing,
@@ -8,6 +8,7 @@ import {
   loadPricingSettings,
   newExtraChargeId,
   newSeasonalPriceId,
+  preferStoredRateIfPublishedEmpty,
   savePricingSettings,
 } from "./host-pricing-data";
 import {
@@ -27,8 +28,48 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
   const [ready, setReady] = useState(false);
   const shared = shouldUseSharedPricingStore();
 
+  const settingsRef = useRef<ListingPricingSettings | null>(null);
+  const persistGen = useRef(0);
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const persistLatest = useCallback(async () => {
+    const snapshot = settingsRef.current;
+    if (!snapshot) return null;
+    const gen = ++persistGen.current;
+
+    if (shared) {
+      try {
+        const saved = await savePricingToApi(snapshot);
+        if (settingsRef.current !== snapshot) {
+          return persistLatest();
+        }
+        if (gen !== persistGen.current) return snapshot;
+        savePricingSettings(saved);
+        settingsRef.current = saved;
+        setSettings(saved);
+        window.dispatchEvent(new Event(HOST_PRICING_SYNC_EVENT));
+        return saved;
+      } catch {
+        if (settingsRef.current !== snapshot) {
+          return persistLatest();
+        }
+        if (gen !== persistGen.current) return snapshot;
+        savePricingSettings(snapshot);
+        settingsRef.current = snapshot;
+        setSettings(snapshot);
+        return snapshot;
+      }
+    }
+
+    savePricingSettings(snapshot);
+    settingsRef.current = snapshot;
+    setSettings(snapshot);
+    return snapshot;
+  }, [shared]);
+
   const refresh = useCallback(async () => {
     if (!listingId) {
+      settingsRef.current = null;
       setSettings(null);
       setReady(true);
       return;
@@ -37,62 +78,79 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
     if (shared) {
       try {
         const fromApi = await fetchPricingFromApi(listingId, country);
-        setSettings(fromApi ?? loadPricingSettings(listingId, country));
+        const local = loadPricingSettings(listingId, country);
+        const { settings: next, shouldPersist } = preferStoredRateIfPublishedEmpty(
+          fromApi,
+          local
+        );
+        savePricingSettings(next);
+        settingsRef.current = next;
+        setSettings(next);
+        if (shouldPersist) void persistLatest();
       } catch {
-        setSettings(loadPricingSettings(listingId, country));
+        const next = loadPricingSettings(listingId, country);
+        settingsRef.current = next;
+        setSettings(next);
       }
     } else {
-      setSettings(loadPricingSettings(listingId, country));
+      const next = loadPricingSettings(listingId, country);
+      settingsRef.current = next;
+      setSettings(next);
     }
     setReady(true);
-  }, [listingId, country?.countryId, country?.currency, country?.taxPct, country?.taxLabel, shared]);
+  }, [listingId, country, persistLatest, shared]);
 
   useEffect(() => {
     void refresh();
     function onStorage(e: StorageEvent) {
       if (e.key === "farm-stays-host-pricing") void refresh();
     }
-    window.addEventListener(HOST_PRICING_SYNC_EVENT, refresh);
+    // Same-window saves already update React state. Reloading on our own
+    // sync event raced the PATCH and wiped digits as the host typed.
     window.addEventListener("storage", onStorage);
     return () => {
-      window.removeEventListener(HOST_PRICING_SYNC_EVENT, refresh);
       window.removeEventListener("storage", onStorage);
     };
   }, [refresh]);
 
-  async function persist(next: ListingPricingSettings) {
-    if (shared) {
-      try {
-        const saved = await savePricingToApi(next);
-        setSettings(saved);
-        window.dispatchEvent(new Event(HOST_PRICING_SYNC_EVENT));
-        return saved;
-      } catch {
-        savePricingSettings(next);
-        setSettings(next);
-        return next;
-      }
-    }
-    savePricingSettings(next);
-    setSettings(next);
-    return next;
-  }
+  useEffect(() => {
+    return () => {
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+    };
+  }, []);
 
-  function save(updates: Partial<ListingPricingSettings>) {
-    if (!settings) return null;
-    const next = country
-      ? applyCountryPricing({ ...settings, ...updates }, country)
-      : { ...settings, ...updates };
-    void persist(next);
-    return next;
-  }
+  const save = useCallback(
+    (
+      updates: Partial<ListingPricingSettings>,
+      options?: { immediate?: boolean }
+    ) => {
+      const current = settingsRef.current;
+      if (!current) return null;
+      const next = country
+        ? applyCountryPricing({ ...current, ...updates }, country)
+        : { ...current, ...updates };
+      settingsRef.current = next;
+      setSettings(next);
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      if (options?.immediate) {
+        void persistLatest();
+      } else {
+        persistTimer.current = setTimeout(() => {
+          void persistLatest();
+        }, 400);
+      }
+      return next;
+    },
+    [country, persistLatest]
+  );
 
   function setRoomPrice(
     roomId: string,
     patch: Partial<Pick<RoomPricing, "basePrice" | "weekendPrice" | "monthlyPrice">>
   ) {
-    if (!settings) return;
-    const existing = settings.roomPrices.find((r) => r.roomId === roomId);
+    const current = settingsRef.current;
+    if (!current) return;
+    const existing = current.roomPrices.find((r) => r.roomId === roomId);
     const nextEntry: RoomPricing = {
       roomId,
       basePrice: patch.basePrice !== undefined ? patch.basePrice : (existing?.basePrice ?? null),
@@ -102,9 +160,17 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
         patch.monthlyPrice !== undefined ? patch.monthlyPrice : (existing?.monthlyPrice ?? null),
     };
     const roomPrices = existing
-      ? settings.roomPrices.map((r) => (r.roomId === roomId ? nextEntry : r))
-      : [...settings.roomPrices, nextEntry];
+      ? current.roomPrices.map((r) => (r.roomId === roomId ? nextEntry : r))
+      : [...current.roomPrices, nextEntry];
     save({ roomPrices });
+  }
+
+  async function flushSave() {
+    if (persistTimer.current) {
+      clearTimeout(persistTimer.current);
+      persistTimer.current = null;
+    }
+    return persistLatest();
   }
 
   return {
@@ -112,32 +178,37 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
     settings,
     refresh,
     save,
+    flushSave,
     setRoomPrice,
     addSeasonalPrice: (input: Omit<SeasonalPrice, "id">) => {
-      if (!settings) return;
+      const current = settingsRef.current;
+      if (!current) return;
       save({
-        seasonalPricing: [...settings.seasonalPricing, { ...input, id: newSeasonalPriceId() }],
+        seasonalPricing: [...current.seasonalPricing, { ...input, id: newSeasonalPriceId() }],
       });
     },
     removeSeasonalPrice: (id: string) => {
-      if (!settings) return;
+      const current = settingsRef.current;
+      if (!current) return;
       save({
-        seasonalPricing: settings.seasonalPricing.filter((s) => s.id !== id),
+        seasonalPricing: current.seasonalPricing.filter((s) => s.id !== id),
       });
     },
     addExtraCharge: (input: Omit<ExtraCharge, "id">) => {
-      if (!settings) return;
+      const current = settingsRef.current;
+      if (!current) return;
       save({
-        extraCharges: [...settings.extraCharges, { ...input, id: newExtraChargeId() }],
+        extraCharges: [...current.extraCharges, { ...input, id: newExtraChargeId() }],
       });
     },
     updateExtraCharge: (
       id: string,
       patch: Partial<Pick<ExtraCharge, "label" | "amount" | "billing">>
     ) => {
-      if (!settings) return;
+      const current = settingsRef.current;
+      if (!current) return;
       save({
-        extraCharges: settings.extraCharges.map((c) =>
+        extraCharges: current.extraCharges.map((c) =>
           c.id === id
             ? {
                 ...c,
@@ -150,9 +221,10 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
       });
     },
     removeExtraCharge: (id: string) => {
-      if (!settings) return;
+      const current = settingsRef.current;
+      if (!current) return;
       save({
-        extraCharges: settings.extraCharges.filter((c) => c.id !== id),
+        extraCharges: current.extraCharges.filter((c) => c.id !== id),
       });
     },
   };

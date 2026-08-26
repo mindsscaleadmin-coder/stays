@@ -60,6 +60,16 @@ export function useHostPromotions(listingId?: string, hostId?: string) {
 
   const now = new Date();
 
+  const confirmPayment = useCallback(
+    async (promotionId: string, sessionId: string) => {
+      const { confirmPromotionViaApi } = await import("./host-promotions-api");
+      const saved = await confirmPromotionViaApi(promotionId, sessionId);
+      await refresh();
+      return saved;
+    },
+    [refresh]
+  );
+
   return {
     ready,
     promotions,
@@ -70,7 +80,7 @@ export function useHostPromotions(listingId?: string, hostId?: string) {
             p.kind === "trending" &&
             p.status === "active" &&
             new Date(p.endsAt) > now
-        ) ?? getActivePromotion(listingId, "trending")
+        ) ?? (shared ? null : getActivePromotion(listingId, "trending"))
       : null,
     activeFeatured: listingId
       ? promotions.find(
@@ -79,7 +89,7 @@ export function useHostPromotions(listingId?: string, hostId?: string) {
             p.kind === "featured" &&
             p.status === "active" &&
             new Date(p.endsAt) > now
-        ) ?? getActivePromotion(listingId, "featured")
+        ) ?? (shared ? null : getActivePromotion(listingId, "featured"))
       : null,
     isTrendingActive: listingId
       ? promotions.some(
@@ -88,7 +98,7 @@ export function useHostPromotions(listingId?: string, hostId?: string) {
             p.kind === "trending" &&
             p.status === "active" &&
             new Date(p.endsAt) > now
-        ) || hasActivePromotion(listingId, "trending")
+        ) || (!shared && hasActivePromotion(listingId, "trending"))
       : false,
     isFeaturedActive: listingId
       ? promotions.some(
@@ -97,7 +107,7 @@ export function useHostPromotions(listingId?: string, hostId?: string) {
             p.kind === "featured" &&
             p.status === "active" &&
             new Date(p.endsAt) > now
-        ) || hasActivePromotion(listingId, "featured")
+        ) || (!shared && hasActivePromotion(listingId, "featured"))
       : false,
     refresh,
     purchase: async (input: {
@@ -111,5 +121,6 @@ export function useHostPromotions(listingId?: string, hostId?: string) {
       await refresh();
       return saved;
     },
+    confirmPayment,
   };
 }

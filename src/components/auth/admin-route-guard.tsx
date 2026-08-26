@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { usePathname, useRouter } from "@/i18n/routing";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -23,42 +23,35 @@ function AdminAuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, loading, isAdmin } = useAuth();
-  const { staff, canAccessPath, homePath } = useAdminStaffAccess();
+  const { staff, ready, canAccessPath, homePath } = useAdminStaffAccess();
+  const unlocked = useRef(false);
+  if (user && isAdmin && staff) unlocked.current = true;
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || !ready) return;
     if (!user || !isAdmin) {
-      router.push("/admin/login");
+      if (pathname !== "/admin/login") router.replace("/admin/login");
       return;
     }
     if (!staff) {
-      router.push("/admin/login");
+      if (pathname !== "/admin/login") router.replace("/admin/login");
       return;
     }
-    if (!canAccessPath(pathname)) {
+    if (!canAccessPath(pathname) && pathname !== homePath) {
       router.replace(homePath);
     }
-  }, [loading, user, isAdmin, staff, canAccessPath, pathname, homePath, router]);
+  }, [loading, ready, user, isAdmin, staff, canAccessPath, pathname, homePath, router]);
 
-  // Keep chrome mounted after first auth — full-page spinner on every nav felt broken.
-  if (loading && !user) {
+  if (unlocked.current) {
+    return children;
+  }
+
+  if (loading || !ready || !user || !isAdmin || !staff) {
     return (
       <div className="min-h-[50vh] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-slate-600" />
       </div>
     );
-  }
-
-  if (!loading && (!user || !isAdmin || !staff)) {
-    return (
-      <div className="min-h-[50vh] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-slate-600" />
-      </div>
-    );
-  }
-
-  if (!user || !isAdmin || !staff) {
-    return null;
   }
 
   if (!canAccessPath(pathname)) {

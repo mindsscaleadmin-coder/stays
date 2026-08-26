@@ -9,10 +9,8 @@ import {
   getHostBookingRecord,
   getHostInstantBookEnabled,
   loadHostBookings,
-  markHostBookingCheckedIn,
-  markHostBookingCheckedOut,
-  mergeServerHostBookings,
   previewCancelRefund,
+  saveHostBookings,
   setHostInstantBookEnabled,
   updateHostBookingRecord,
 } from "./host-booking-data";
@@ -30,32 +28,64 @@ function looksLikeServerBooking(id: string): boolean {
 async function tryServer(
   path: string,
   init?: RequestInit
-): Promise<{ ok: boolean; data?: Record<string, unknown> }> {
+): Promise<{ ok: boolean; data?: Record<string, unknown>; error?: string }> {
   try {
     const res = await fetch(path, {
       ...init,
       headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    return { ok: res.ok, data };
+    if (!res.ok) {
+      return {
+        ok: false,
+        data,
+        error: typeof data.error === "string" ? data.error : "Request failed",
+      };
+    }
+    return { ok: true, data };
   } catch {
-    return { ok: false };
+    return { ok: false, error: "Network error" };
   }
 }
 
+const HOST_BOOKINGS_PULL_TTL_MS = 8_000;
+const hostBookingsPull = new Map<
+  string,
+  { rows: HostBookingRecord[] | null; at: number; inflight?: Promise<HostBookingRecord[] | null> }
+>();
+
 async function fetchServerHostBookings(
-  hostId?: string
+  hostId?: string,
+  force = false
 ): Promise<HostBookingRecord[] | null> {
-  try {
-    const params = new URLSearchParams({ role: "host" });
-    if (hostId) params.set("hostId", hostId);
-    const res = await fetch(`/api/bookings?${params.toString()}`);
-    if (!res.ok) return null;
-    const data = (await res.json()) as { bookings?: HostBookingRecord[] };
-    return Array.isArray(data.bookings) ? data.bookings : null;
-  } catch {
-    return null;
+  const key = hostId || "*";
+  const cached = hostBookingsPull.get(key);
+  if (!force && cached?.inflight) return cached.inflight;
+  if (!force && cached && Date.now() - cached.at < HOST_BOOKINGS_PULL_TTL_MS) {
+    return cached.rows;
   }
+
+  const inflight = (async () => {
+    try {
+      const params = new URLSearchParams({ role: "host" });
+      if (hostId) params.set("hostId", hostId);
+      const res = await fetch(`/api/bookings?${params.toString()}`);
+      if (!res.ok) return cached?.rows ?? null;
+      const data = (await res.json()) as { bookings?: HostBookingRecord[] };
+      const rows = Array.isArray(data.bookings) ? data.bookings : null;
+      hostBookingsPull.set(key, { rows, at: Date.now() });
+      return rows;
+    } catch {
+      return cached?.rows ?? null;
+    }
+  })();
+
+  hostBookingsPull.set(key, {
+    rows: cached?.rows ?? null,
+    at: cached?.at ?? 0,
+    inflight,
+  });
+  return inflight;
 }
 
 export function useHostBookings(bookingId?: string) {
@@ -66,19 +96,34 @@ export function useHostBookings(bookingId?: string) {
   const [instantBookEnabled, setInstantBookEnabledState] = useState(false);
   const [ready, setReady] = useState(false);
 
-  const refresh = useCallback(async () => {
-    const server = await fetchServerHostBookings(hostId);
+  const refresh = useCallback(async (opts?: { force?: boolean }) => {
+    const [server, profileEnabled] = await Promise.all([
+      fetchServerHostBookings(hostId, opts?.force),
+      hostId
+        ? fetch(`/api/hosts/${encodeURIComponent(hostId)}/profile`)
+            .then(async (res) => {
+              if (!res.ok) return getHostInstantBookEnabled();
+              const data = (await res.json()) as { profile?: { instantBookEnabled?: boolean } };
+              return Boolean(data.profile?.instantBookEnabled);
+            })
+            .catch(() => getHostInstantBookEnabled())
+        : Promise.resolve(getHostInstantBookEnabled()),
+    ]);
     const all =
       server !== null
-        ? mergeServerHostBookings(server, { serverPrimary: true })
-        : loadHostBookings();
+        ? server
+        : loadHostBookings().filter((row) => !row.id.startsWith("GF-"));
+    if (server !== null) {
+      saveHostBookings(server, { silent: true });
+    }
     setBookings(all);
     setBooking(
       bookingId
         ? all.find((b) => b.id === bookingId) ?? getHostBookingRecord(bookingId) ?? null
         : null
     );
-    setInstantBookEnabledState(getHostInstantBookEnabled());
+    setHostInstantBookEnabled(profileEnabled, { silent: true });
+    setInstantBookEnabledState(profileEnabled);
     setReady(true);
   }, [bookingId, hostId]);
 
@@ -114,27 +159,43 @@ export function useHostBookings(bookingId?: string) {
     pendingCount: bookings.filter((b) => b.status === "pending").length,
     refresh,
     previewCancelRefund,
-    setInstantBookEnabled: (enabled: boolean) => {
+    setInstantBookEnabled: async (enabled: boolean) => {
       setHostInstantBookEnabled(enabled);
-      void refresh();
+      setInstantBookEnabledState(enabled);
+      if (hostId) {
+        const result = await tryServer(`/api/hosts/${encodeURIComponent(hostId)}/profile`, {
+          method: "PATCH",
+          body: JSON.stringify({ instantBookEnabled: enabled }),
+        });
+        if (!result.ok) {
+          throw new Error(result.error || "Could not save instant book");
+        }
+      }
+      await refresh({ force: true });
     },
     accept: async (id: string) => {
       if (looksLikeServerBooking(id)) {
-        await tryServer(`/api/bookings/${id}/accept`, { method: "POST" });
+        const result = await tryServer(`/api/bookings/${id}/accept`, { method: "POST" });
+        if (!result.ok) throw new Error(result.error || "Could not accept booking");
+        await refresh({ force: true });
+        return getHostBookingRecord(id);
       }
       const saved = acceptHostBooking(id);
-      await refresh();
+      await refresh({ force: true });
       return saved;
     },
     decline: async (id: string) => {
       if (looksLikeServerBooking(id)) {
-        await tryServer(`/api/bookings/${id}/decline`, {
+        const result = await tryServer(`/api/bookings/${id}/decline`, {
           method: "POST",
           body: JSON.stringify({ reason: "Host declined the request" }),
         });
+        if (!result.ok) throw new Error(result.error || "Could not decline booking");
+        await refresh({ force: true });
+        return getHostBookingRecord(id);
       }
       const saved = declineHostBooking(id);
-      await refresh();
+      await refresh({ force: true });
       return saved;
     },
     cancel: async (
@@ -148,7 +209,7 @@ export function useHostBookings(bookingId?: string) {
       const existing = getHostBookingRecord(id);
       const preview = existing ? previewCancelRefund(existing, "host") : null;
       if (looksLikeServerBooking(id)) {
-        await tryServer(`/api/bookings/${id}/cancel`, {
+        const result = await tryServer(`/api/bookings/${id}/cancel`, {
           method: "POST",
           body: JSON.stringify({
             reason: input.reason,
@@ -156,6 +217,9 @@ export function useHostBookings(bookingId?: string) {
             forceFullRefund: true,
           }),
         });
+        if (!result.ok) throw new Error(result.error || "Could not cancel booking");
+        await refresh({ force: true });
+        return getHostBookingRecord(id);
       }
       const saved = cancelHostBooking(id, {
         reason: input.reason,
@@ -168,22 +232,51 @@ export function useHostBookings(bookingId?: string) {
             ? `AED ${preview.refundAmount.toLocaleString()}`
             : undefined),
       });
-      await refresh();
+      await refresh({ force: true });
       return saved;
     },
-    checkIn: (id: string) => {
-      const saved = markHostBookingCheckedIn(id);
-      void refresh();
-      return saved;
+    checkIn: async (id: string) => {
+      if (looksLikeServerBooking(id)) {
+        const result = await tryServer(`/api/bookings/${id}/check-in`, { method: "POST" });
+        if (!result.ok) throw new Error(result.error || "Could not check in guest");
+        await refresh({ force: true });
+        return getHostBookingRecord(id);
+      }
+      throw new Error("This booking is not on the server calendar.");
     },
-    checkOut: (id: string) => {
-      const saved = markHostBookingCheckedOut(id);
-      void refresh();
-      return saved;
+    checkOut: async (id: string) => {
+      if (looksLikeServerBooking(id)) {
+        const result = await tryServer(`/api/bookings/${id}/checkout`, { method: "POST" });
+        if (!result.ok) throw new Error(result.error || "Could not check out guest");
+        await refresh({ force: true });
+        return getHostBookingRecord(id);
+      }
+      throw new Error("This booking is not on the server calendar.");
     },
-    update: (id: string, updates: HostBookingUpdate) => {
+    update: async (id: string, updates: HostBookingUpdate) => {
+      if (looksLikeServerBooking(id)) {
+        if (updates.refundStatus && updates.refundStatus !== "none") {
+          const result = await tryServer(`/api/bookings/${id}/refund`, {
+            method: "POST",
+            body: JSON.stringify({
+              completePending: updates.refundStatus === "full" || updates.refundStatus === "partial",
+              reason: "Host marked refund complete",
+            }),
+          });
+          if (!result.ok) throw new Error(result.error || "Could not update refund");
+        }
+        if (updates.noShow !== undefined) {
+          const result = await tryServer(`/api/bookings/${id}/no-show`, {
+            method: "POST",
+            body: JSON.stringify({ noShow: updates.noShow }),
+          });
+          if (!result.ok) throw new Error(result.error || "Could not update no-show");
+        }
+        await refresh({ force: true });
+        return getHostBookingRecord(id);
+      }
       const saved = updateHostBookingRecord(id, updates);
-      void refresh();
+      void refresh({ force: true });
       return saved;
     },
   };

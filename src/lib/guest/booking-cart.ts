@@ -48,6 +48,7 @@ export function loadBookingCart(): BookingCartLine[] {
 export function saveBookingCart(lines: BookingCartLine[]): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(lines));
+  window.dispatchEvent(new Event(BOOKING_CART_SYNC_EVENT));
   notify();
 }
 
@@ -56,17 +57,12 @@ export function getCartCount(): number {
 }
 
 /**
- * Add a stay to the cart. Same listing + same dates replaces the line;
- * different dates for the same listing are separate lines.
+ * Add a stay to the cart. Same listing replaces the line so new dates,
+ * guests, and extras overwrite the previous selection.
  */
 export function addToBookingCart(input: AddToCartInput): BookingCartLine {
   const all = loadBookingCart();
-  const existingIdx = all.findIndex(
-    (l) =>
-      l.listingId === input.listingId &&
-      l.checkIn === input.checkIn &&
-      l.checkOut === input.checkOut
-  );
+  const existingIdx = all.findIndex((l) => l.listingId === input.listingId);
 
   const line: BookingCartLine = {
     ...input,
@@ -74,12 +70,13 @@ export function addToBookingCart(input: AddToCartInput): BookingCartLine {
     addedAt: new Date().toISOString(),
   };
 
+  const next = all.filter((l) => l.listingId !== input.listingId);
   if (existingIdx >= 0) {
-    all[existingIdx] = line;
+    next.splice(Math.min(existingIdx, next.length), 0, line);
   } else {
-    all.push(line);
+    next.push(line);
   }
-  saveBookingCart(all);
+  saveBookingCart(next);
   return line;
 }
 

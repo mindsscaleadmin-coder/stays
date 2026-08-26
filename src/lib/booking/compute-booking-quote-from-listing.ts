@@ -4,6 +4,7 @@ import { getListingPricing } from "@/lib/server/listing-pricing-repo";
 import { sumExperienceTotal } from "@/lib/booking/experience-prices";
 import type { BookingQuote } from "@/lib/booking/compute-quote";
 import { computeBookingQuote } from "@/lib/booking/compute-quote";
+import { BookingError } from "@/lib/booking/confirm-booking";
 
 export async function computeBookingQuoteFromListing(input: {
   listingId: string;
@@ -13,10 +14,6 @@ export async function computeBookingQuoteFromListing(input: {
   roomIds?: string[];
   experienceIds?: string[];
   extraIds?: string[];
-  /** Fallback when pricing row missing (catalog base price × nights). */
-  fallbackNightlyRate?: number;
-  /** Client-sent accommodation — used only when pricing cannot be loaded. */
-  fallbackAccommodation?: number;
   currency?: string;
 }): Promise<BookingQuote> {
   const experiencesTotal = sumExperienceTotal(input.experienceIds ?? [], input.guestCount);
@@ -24,9 +21,9 @@ export async function computeBookingQuoteFromListing(input: {
     (await getListingPricing(input.listingId)) ??
     defaultForListing(input.listingId);
 
-  const selectedExtras = (pricing.extraCharges ?? []).filter((e) =>
-    (input.extraIds ?? []).includes(e.id)
-  );
+  const selectedExtras = pricing.extraChargesEnabled
+    ? (pricing.extraCharges ?? []).filter((e) => (input.extraIds ?? []).includes(e.id))
+    : [];
 
   const stayQuote = calculateStayQuote({
     settings: pricing,
@@ -38,45 +35,23 @@ export async function computeBookingQuoteFromListing(input: {
     experiencesTotal,
   });
 
-  if (stayQuote) {
-    const accommodation = Math.max(
-      0,
-      stayQuote.accommodationSubtotal - stayQuote.discountAmount
-    );
-    return computeBookingQuote({
-      checkIn: input.checkIn,
-      checkOut: input.checkOut,
-      guestCount: input.guestCount,
-      accommodation,
-      experiencesTotal: stayQuote.experiencesTotal,
-      extrasTotal: stayQuote.extrasTotal,
-      taxAmount: stayQuote.taxAmount,
-      currency: stayQuote.currency || input.currency || pricing.currency,
-    });
+  if (!stayQuote) {
+    throw new BookingError("Select valid check-in and check-out dates", "INVALID_DATES");
   }
 
-  const nights = Math.max(
-    1,
-    Math.round(
-      (new Date(`${input.checkOut}T12:00:00`).getTime() -
-        new Date(`${input.checkIn}T12:00:00`).getTime()) /
-        86_400_000
-    )
+  const accommodation = Math.max(
+    0,
+    stayQuote.accommodationSubtotal - stayQuote.discountAmount
   );
-  const nightly = input.fallbackNightlyRate ?? pricing.basePrice ?? 0;
-  const accommodation =
-    input.fallbackAccommodation != null
-      ? input.fallbackAccommodation
-      : nightly * nights;
-
   return computeBookingQuote({
     checkIn: input.checkIn,
     checkOut: input.checkOut,
     guestCount: input.guestCount,
     accommodation,
-    experiencesTotal,
-    extrasTotal: 0,
-    taxAmount: 0,
-    currency: input.currency || pricing.currency,
+    experiencesTotal: stayQuote.experiencesTotal,
+    extrasTotal: stayQuote.extrasTotal,
+    taxAmount: stayQuote.taxAmount,
+    currency: stayQuote.currency || input.currency || pricing.currency,
   });
 }
+

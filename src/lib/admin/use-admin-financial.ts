@@ -21,22 +21,33 @@ import {
   fetchFinancialSettingsFromApi,
   patchFinancialSettingsViaApi,
   shouldUseSharedAdminFinancial,
+  type PlatformLedger,
 } from "./financial-api";
 
 export function useAdminFinancial() {
   const shared = shouldUseSharedAdminFinancial();
   const [settings, setSettings] = useState<FinancialSettings>(() => loadFinancialSettings());
+  const [ledger, setLedger] = useState<PlatformLedger | null>(null);
   const [ready, setReady] = useState(false);
+
+  const applyPayload = useCallback(
+    (payload: { settings: FinancialSettings; ledger?: PlatformLedger }) => {
+      setSettings(payload.settings);
+      if (payload.ledger) setLedger(payload.ledger);
+    },
+    []
+  );
 
   const refresh = useCallback(() => {
     if (shared) {
       void fetchFinancialSettingsFromApi()
-        .then(setSettings)
+        .then(applyPayload)
         .catch(() => setSettings(loadFinancialSettings()));
     } else {
       setSettings(loadFinancialSettings());
+      setLedger(null);
     }
-  }, [shared]);
+  }, [shared, applyPayload]);
 
   useEffect(() => {
     refresh();
@@ -58,7 +69,7 @@ export function useAdminFinancial() {
         setSettings((prev) => {
           const next = updater(prev);
           void patchFinancialSettingsViaApi({ action: "saveSettings", settings: next })
-            .then(setSettings)
+            .then(applyPayload)
             .catch(() => {
               saveFinancialSettings(next);
               setSettings(loadFinancialSettings());
@@ -73,7 +84,7 @@ export function useAdminFinancial() {
         return next;
       });
     },
-    [shared]
+    [shared, applyPayload]
   );
 
   const runPayoutMutation = useCallback(
@@ -88,11 +99,13 @@ export function useAdminFinancial() {
     [refresh, shared]
   );
 
-  const transactions = useMemo(() => aggregateAllTransactions(), [settings]);
-  const payouts = useMemo(() => aggregateAllPayouts(settings), [settings]);
+  const localTransactions = useMemo(() => aggregateAllTransactions(), []);
+  const localPayouts = useMemo(() => aggregateAllPayouts(settings), [settings]);
+  const transactions = ledger?.transactions ?? localTransactions;
+  const payouts = ledger?.payouts ?? localPayouts;
   const report = useMemo(
-    () => computeFinancialReport(transactions, payouts),
-    [transactions, payouts]
+    () => ledger?.report ?? computeFinancialReport(transactions, payouts),
+    [ledger, transactions, payouts]
   );
 
   const pendingPayoutReviewCount = useMemo(
@@ -101,13 +114,19 @@ export function useAdminFinancial() {
   );
 
   const pendingRefundCount = useMemo(
-    () => settings.refundRequests.filter((r) => r.status === "pending").length,
-    [settings.refundRequests]
+    () =>
+      (ledger?.refunds ?? settings.refundRequests).filter((r) => r.status === "pending").length,
+    [ledger, settings.refundRequests]
+  );
+
+  const viewSettings = useMemo(
+    () => (ledger ? { ...settings, refundRequests: ledger.refunds } : settings),
+    [ledger, settings]
   );
 
   return {
     ready,
-    settings,
+    settings: viewSettings,
     transactions,
     payouts,
     report,
@@ -121,7 +140,10 @@ export function useAdminFinancial() {
           globalFeePct,
           globalServiceFeeFlat,
         })
-          .then(setSettings)
+          .then((payload) => {
+            applyPayload(payload);
+            refresh();
+          })
           .catch(() => {
             patch((prev) => ({
               ...prev,
@@ -147,7 +169,10 @@ export function useAdminFinancial() {
       const clamped = { ...override, feePct: clampCommissionPct(override.feePct) };
       if (shared) {
         void patchFinancialSettingsViaApi({ action: "setHostOverride", override: clamped })
-          .then(setSettings)
+          .then((payload) => {
+            applyPayload(payload);
+            refresh();
+          })
           .catch(() => {
             patch((prev) => ({
               ...prev,
@@ -176,7 +201,10 @@ export function useAdminFinancial() {
     removeHostOverride: (hostId: string) => {
       if (shared) {
         void patchFinancialSettingsViaApi({ action: "removeHostOverride", hostId })
-          .then(setSettings)
+          .then((payload) => {
+            applyPayload(payload);
+            refresh();
+          })
           .catch(() => {
             patch((prev) => ({
               ...prev,
@@ -202,7 +230,10 @@ export function useAdminFinancial() {
           action: "updatePayout",
           payoutId,
           adminStatus: "approved",
-        }).then(setSettings).catch(() => runPayoutMutation(() => updatePayoutState(payoutId, { adminStatus: "approved" })));
+        }).then((payload) => {
+          applyPayload(payload);
+          refresh();
+        }).catch(() => runPayoutMutation(() => updatePayoutState(payoutId, { adminStatus: "approved" })));
         return;
       }
       updatePayoutState(payoutId, { adminStatus: "approved" });
@@ -215,7 +246,10 @@ export function useAdminFinancial() {
           payoutId,
           adminStatus: "held",
           holdReason,
-        }).then(setSettings).catch(() => runPayoutMutation(() => updatePayoutState(payoutId, { adminStatus: "held", holdReason })));
+        }).then((payload) => {
+          applyPayload(payload);
+          refresh();
+        }).catch(() => runPayoutMutation(() => updatePayoutState(payoutId, { adminStatus: "held", holdReason })));
         return;
       }
       updatePayoutState(payoutId, { adminStatus: "held", holdReason });
@@ -227,7 +261,10 @@ export function useAdminFinancial() {
           action: "updatePayout",
           payoutId,
           adminStatus: "approved",
-        }).then(setSettings).catch(() => runPayoutMutation(() => updatePayoutState(payoutId, { adminStatus: "approved" })));
+        }).then((payload) => {
+          applyPayload(payload);
+          refresh();
+        }).catch(() => runPayoutMutation(() => updatePayoutState(payoutId, { adminStatus: "approved" })));
         return;
       }
       updatePayoutState(payoutId, { adminStatus: "approved" });
@@ -240,7 +277,10 @@ export function useAdminFinancial() {
           id,
           status,
           reviewNote,
-        }).then(setSettings).catch(() => runPayoutMutation(() => reviewRefundRequest(id, { status, reviewNote })));
+        }).then((payload) => {
+          applyPayload(payload);
+          refresh();
+        }).catch(() => runPayoutMutation(() => reviewRefundRequest(id, { status, reviewNote })));
         return;
       }
       reviewRefundRequest(id, { status, reviewNote });

@@ -1,22 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Link, useRouter } from "@/i18n/routing";
+import { Link } from "@/i18n/routing";
 import { useSearchParams } from "next/navigation";
 import { Mail, Phone, Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/components/providers/auth-provider";
 import { canBook } from "@/lib/auth/roles";
 import { getGuestSignupHref } from "@/lib/guest/checkout-access";
+import { goInternal, safeInternalPath } from "@/lib/auth/safe-next";
 import { AuthShell, AuthInput } from "./auth-shell";
 
 type Tab = "email" | "phone";
 
 export function LoginContent() {
   const t = useTranslations("auth");
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/account";
+  const next = safeInternalPath(searchParams.get("next"), "/account");
   const bookingIntent = next.includes("/booking/");
   const { signInWithEmail, signInWithGoogle, sendPhoneOtp, verifyPhoneOtp, isDemo, loading, user } =
     useAuth();
@@ -32,9 +32,9 @@ export function LoginContent() {
 
   useEffect(() => {
     if (!loading && user && canBook(user.roles)) {
-      router.push(next);
+      goInternal(next);
     }
-  }, [loading, user, router, next]);
+  }, [loading, user, next]);
 
   async function handleEmailLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -46,7 +46,7 @@ export function LoginContent() {
       setError(result.error);
       return;
     }
-    router.push(next);
+    goInternal(next);
   }
 
   async function handleGoogle() {
@@ -55,7 +55,7 @@ export function LoginContent() {
     const result = await signInWithGoogle();
     setSubmitting(false);
     if (result.error) setError(result.error);
-    else if (isDemo) router.push(next);
+    else if (isDemo) goInternal(next);
   }
 
   async function handleSendOtp(e: React.FormEvent) {
@@ -75,7 +75,7 @@ export function LoginContent() {
     const result = await verifyPhoneOtp(phone, otp);
     setSubmitting(false);
     if (result.error) setError(result.error);
-    else router.push(next);
+    else goInternal(next);
   }
 
   const redirecting = !loading && !!user && canBook(user.roles);

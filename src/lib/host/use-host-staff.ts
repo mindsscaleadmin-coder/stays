@@ -50,7 +50,7 @@ export function useHostStaff(
     }
     setStaff(loadHostStaffMembers(hostId));
     setReady(true);
-  }, [hostId, owner?.email, owner?.name, shared]);
+  }, [hostId, owner, shared]);
 
   useEffect(() => {
     void refresh();

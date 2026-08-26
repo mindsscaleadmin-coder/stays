@@ -25,8 +25,8 @@ export interface ListingPromotion {
   purchasedAt: string;
   startsAt: string;
   endsAt: string;
-  status: "active" | "expired";
-  /** Demo payment reference */
+  status: "pending" | "active" | "expired";
+  /** Stripe session id or demo reference */
   paymentRef: string;
 }
 

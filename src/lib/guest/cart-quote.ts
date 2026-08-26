@@ -1,5 +1,6 @@
 import { loadPricingSettings } from "@/lib/host/host-pricing-data";
 import { calculateStayQuote, countNights } from "@/lib/host/calculate-stay-price";
+import type { ListingPricingSettings } from "@/lib/host/host-pricing-types";
 import type { BookingCartLine } from "@/lib/guest/booking-cart";
 
 const EXPERIENCE_PRICES: Record<string, number> = {
@@ -21,19 +22,22 @@ export type CartLineQuote = {
   currency: string;
 };
 
-export function quoteCartLine(line: BookingCartLine): CartLineQuote | null {
+export function quoteCartLine(
+  line: BookingCartLine,
+  settings?: ListingPricingSettings
+): CartLineQuote | null {
   const nights = countNights(line.checkIn, line.checkOut);
   if (nights < 1) return null;
 
-  const pricing = loadPricingSettings(line.listingId);
+  const pricing = settings ?? loadPricingSettings(line.listingId);
   const currency = pricing.currency || line.currency || "AED";
   const experiencesTotal =
     line.experienceIds.reduce((sum, id) => sum + (EXPERIENCE_PRICES[id] ?? 0), 0) *
     Math.max(1, line.guests);
 
-  const selectedExtras = (pricing.extraCharges ?? []).filter((e) =>
-    line.extraIds.includes(e.id)
-  );
+  const selectedExtras = pricing.extraChargesEnabled
+    ? (pricing.extraCharges ?? []).filter((e) => line.extraIds.includes(e.id))
+    : [];
 
   const stayQuote = calculateStayQuote({
     settings: pricing,
@@ -79,13 +83,16 @@ export function quoteCartLine(line: BookingCartLine): CartLineQuote | null {
   };
 }
 
-export function quoteCartTotal(lines: BookingCartLine[]): {
+export function quoteCartTotal(
+  lines: BookingCartLine[],
+  pricingByListing?: Record<string, ListingPricingSettings>
+): {
   quotes: CartLineQuote[];
   total: number;
   currency: string;
 } {
   const quotes = lines
-    .map(quoteCartLine)
+    .map((line) => quoteCartLine(line, pricingByListing?.[line.listingId]))
     .filter((q): q is CartLineQuote => q != null);
   const currency = quotes[0]?.currency || "AED";
   const total = quotes.reduce((sum, q) => sum + q.total, 0);

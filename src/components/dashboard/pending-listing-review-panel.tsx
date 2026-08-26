@@ -7,7 +7,10 @@ import { CheckCircle, Clock, Tag, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatSubmittedAt } from "@/lib/listings/submission-data";
 import type { SubmittedListing } from "@/lib/listings/submission-types";
-import { buildQualityChecklist } from "@/lib/listings/listing-quality-validation";
+import {
+  buildQualityChecklist,
+  qualityInputFromListing,
+} from "@/lib/listings/listing-quality-validation";
 import { useListingQualityRules } from "@/components/providers/listing-quality-rules-provider";
 import { ListingQualityChecklist } from "./listing-quality-checklist";
 import { ListingDetailRow } from "./listing-detail-row";
@@ -38,19 +41,7 @@ export function PendingListingReviewPanel({
   const selected = listings.find((l) => l.id === selectedId) ?? null;
 
   const qualityChecklist = selected
-    ? buildQualityChecklist(
-        {
-          title: selected.title,
-          description: selected.description,
-          photoCount: selected.photoCount ?? selected.photoUrls?.length ?? 0,
-          country: selected.country,
-          state: selected.state,
-          parentCategory: selected.parentCategory,
-          farmType: selected.farmType,
-          amenities: selected.amenities,
-        },
-        qualityRules
-      )
+    ? buildQualityChecklist(qualityInputFromListing(selected), qualityRules)
     : [];
 
   function handleApprove(id: string) {

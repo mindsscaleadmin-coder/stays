@@ -78,3 +78,17 @@ export function mergeBookingMessagesFromServer(
   writeStore(store);
   return merged;
 }
+
+/** Server list is the thread. Used after a successful GET. */
+export function replaceBookingMessagesFromServer(
+  bookingId: string,
+  serverMessages: BookingMessage[]
+): BookingMessage[] {
+  const next = [...serverMessages].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+  const store = readStore();
+  store[bookingId] = next;
+  writeStore(store);
+  return next;
+}

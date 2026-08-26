@@ -43,6 +43,18 @@ export async function PATCH(
       ...current,
       ...body,
       listingId: id,
+      seasonalEnabled:
+        body.seasonalEnabled !== undefined
+          ? Boolean(body.seasonalEnabled)
+          : current.seasonalEnabled,
+      discountsEnabled:
+        body.discountsEnabled !== undefined
+          ? Boolean(body.discountsEnabled)
+          : current.discountsEnabled,
+      extraChargesEnabled:
+        body.extraChargesEnabled !== undefined
+          ? Boolean(body.extraChargesEnabled)
+          : current.extraChargesEnabled,
     };
 
     const saved = await saveListingPricing(next);

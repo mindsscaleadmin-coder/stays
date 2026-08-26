@@ -3,28 +3,29 @@
 import { useEffect, useState } from "react";
 import { Link } from "@/i18n/routing";
 import { CheckCircle2, Loader2 } from "lucide-react";
-import { useAuth } from "@/components/providers/auth-provider";
-import { usePublicListings } from "@/lib/listings/use-public-listings";
-import { mirrorGuestBookingToHost } from "@/lib/booking/mirror-to-host";
-import { resolveCatalogListingHost } from "@/lib/listings/catalog-listing-hosts";
+
+type PaidBooking = {
+  id: string;
+  listingId: string;
+  paymentStatus: string;
+};
+
+async function confirmStripeReturn(bookingId: string, sessionId?: string) {
+  const res = await fetch(`/api/bookings/${bookingId}/confirm-payment`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(sessionId ? { sessionId } : {}),
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { booking?: PaidBooking; paid?: boolean };
+  if (data.paid && data.booking) return data.booking;
+  return null;
+}
 
 async function waitForPaidBooking(bookingId: string, maxAttempts = 12) {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const res = await fetch(`/api/bookings/${bookingId}`);
-    const data = (await res.json()) as {
-      booking?: {
-        id: string;
-        listingId: string;
-        checkIn: string;
-        checkOut: string | null;
-        guestCount: number;
-        totalPrice: number;
-        status: string;
-        paymentStatus: string;
-        guest?: { fullName?: string; email?: string; phone?: string };
-        listing?: { title?: string; hostId?: string };
-      };
-    };
+    const data = (await res.json()) as { booking?: PaidBooking };
     if (res.ok && data.booking?.paymentStatus === "paid") {
       return data.booking;
     }
@@ -36,13 +37,14 @@ async function waitForPaidBooking(bookingId: string, maxAttempts = 12) {
 export function BookingSuccessContent({
   listingId,
   bookingId,
+  sessionId,
 }: {
   listingId: string;
   bookingId?: string;
+  sessionId?: string;
 }) {
-  const { user } = useAuth();
-  const { listings } = usePublicListings();
   const [ready, setReady] = useState(!bookingId);
+  const [paid, setPaid] = useState(!bookingId);
 
   useEffect(() => {
     if (!bookingId) return;
@@ -51,39 +53,18 @@ export function BookingSuccessContent({
     (async () => {
       try {
         const booking =
-          (await waitForPaidBooking(bookingId)) ??
-          (await fetch(`/api/bookings/${bookingId}`)
-            .then((r) => r.json())
-            .then((d) => d.booking)
-            .catch(() => null));
+          (sessionId ? await confirmStripeReturn(bookingId, sessionId) : null) ??
+          (await waitForPaidBooking(bookingId));
 
-        if (!booking || cancelled) return;
+        if (!booking || cancelled) {
+          if (!cancelled) {
+            setPaid(false);
+            setReady(true);
+          }
+          return;
+        }
 
-        const stay = listings.find((s) => s.id === booking.listingId);
-        const catalogHost = resolveCatalogListingHost(booking.listingId);
-        const checkIn = booking.checkIn.slice(0, 10);
-        const checkOut = (booking.checkOut || booking.checkIn).toString().slice(0, 10);
-
-        mirrorGuestBookingToHost({
-          id: booking.id,
-          listingId: booking.listingId,
-          property: stay?.name || booking.listing?.title || "Stay",
-          propertyLocation: stay?.location || "",
-          guest: booking.guest?.fullName || user?.fullName || "Guest",
-          guestEmail: booking.guest?.email || user?.email || "",
-          guestPhone: booking.guest?.phone || user?.phone,
-          guestId: booking.guestId || user?.id,
-          checkIn,
-          checkOut,
-          guests: booking.guestCount,
-          total: booking.totalPrice,
-          currency: "AED",
-          nightlyRate: stay?.price ?? booking.totalPrice,
-          status: booking.status === "confirmed" ? "confirmed" : "pending",
-          paymentStatus: booking.paymentStatus === "paid" ? "Paid" : booking.paymentStatus,
-          hostId: catalogHost?.hostId || booking.listing?.hostId,
-          img: stay?.img,
-        });
+        setPaid(booking.paymentStatus === "paid");
       } catch {
         // non-fatal — confirmation UI still shows
       } finally {
@@ -94,12 +75,40 @@ export function BookingSuccessContent({
     return () => {
       cancelled = true;
     };
-  }, [bookingId, listings, user]);
+  }, [bookingId, sessionId]);
 
   if (!ready) {
     return (
-      <div className="min-h-[50vh] flex items-center justify-center">
+      <div className="min-h-[50vh] flex flex-col items-center justify-center gap-3">
         <Loader2 className="w-8 h-8 animate-spin text-green-700" />
+        <p className="text-sm text-gray-500">Confirming your payment…</p>
+      </div>
+    );
+  }
+
+  if (bookingId && !paid) {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-16 text-center space-y-6">
+        <Loader2 className="w-12 h-12 text-amber-500 mx-auto" />
+        <h1 className="text-2xl font-bold text-gray-900">Payment is still processing</h1>
+        <p className="text-gray-600">
+          Stripe has not marked this booking paid yet. Refresh in a moment, or open My
+          trips — the host calendar updates as soon as payment clears.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+          <Link
+            href={`/account?tab=bookings&booking=${encodeURIComponent(bookingId)}`}
+            className="inline-flex items-center justify-center rounded-xl bg-green-700 text-white font-semibold px-6 py-3 hover:bg-green-800"
+          >
+            View my trips
+          </Link>
+          <Link
+            href={`/listing/${listingId}`}
+            className="inline-flex items-center justify-center rounded-xl border border-gray-200 font-semibold px-6 py-3 hover:bg-gray-50"
+          >
+            Back to listing
+          </Link>
+        </div>
       </div>
     );
   }
@@ -113,7 +122,11 @@ export function BookingSuccessContent({
       </p>
       <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
         <Link
-          href="/account/trips"
+          href={
+            bookingId
+              ? `/account?tab=bookings&booking=${encodeURIComponent(bookingId)}`
+              : "/account?tab=bookings"
+          }
           className="inline-flex items-center justify-center rounded-xl bg-green-700 text-white font-semibold px-6 py-3 hover:bg-green-800"
         >
           View my trips

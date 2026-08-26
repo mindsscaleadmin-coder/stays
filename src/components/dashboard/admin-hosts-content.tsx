@@ -35,7 +35,7 @@ import { findHostVerification } from "@/lib/host/verification-data";
 import { cn } from "@/lib/utils";
 
 const inputClass =
-  "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500";
+  "w-full min-w-0 max-w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500";
 
 const STATUS_STYLES: Record<string, string> = {
   verified: "bg-blue-500 text-white",
@@ -77,7 +77,7 @@ function FilterField({
   children: React.ReactNode;
 }) {
   return (
-    <label className="block min-w-0">
+    <label className="block w-full min-w-0">
       <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
         {label}
       </span>
@@ -341,7 +341,8 @@ export function AdminHostsContent() {
     return hosts.filter((host) => {
       if (status && host.status !== status) return false;
 
-      const verifyReq = findHostVerification(host);
+      const verifyReq =
+        verifications.find((row) => row.hostId === host.id) ?? findHostVerification(host);
       const verifyStatus = verifyReq?.status ?? "none";
       if (verification === "none" && verifyReq) return false;
       if (verification && verification !== "none" && verifyStatus !== verification) {
@@ -538,17 +539,17 @@ export function AdminHostsContent() {
         </div>
 
         <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 border-b bg-gray-50/80">
-            <div className="flex items-center gap-2">
-              <SlidersHorizontal className="w-4 h-4 text-green-700" />
-              <h3 className="text-sm font-semibold text-gray-900">Search & filters</h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 px-3 sm:px-4 py-3 border-b bg-gray-50/80">
+            <div className="flex items-center gap-2 min-w-0">
+              <SlidersHorizontal className="w-4 h-4 text-green-700 shrink-0" />
+              <h3 className="text-sm font-semibold text-gray-900 truncate">Search & filters</h3>
               {activeFilterCount > 0 && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
                   {activeFilterCount} active
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-3 text-xs text-gray-500">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
               <span>
                 <span className="font-semibold text-gray-800">{filtered.length}</span> of{" "}
                 {hosts.length} hosts
@@ -573,9 +574,9 @@ export function AdminHostsContent() {
           </div>
 
           {filtersOpen && (
-            <div className="p-4 space-y-4 border-b bg-white">
-              <div className="relative">
-                <Search className="w-4 h-4 text-gray-400 absolute start-3 top-1/2 -translate-y-1/2" />
+            <div className="gadget-filter-panel p-3 sm:p-4 space-y-3 sm:space-y-4 border-b bg-white min-w-0">
+              <div className="relative min-w-0">
+                <Search className="w-4 h-4 text-gray-400 absolute start-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="search"
                   value={query}
@@ -585,7 +586,7 @@ export function AdminHostsContent() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              <div className="gadget-filter-grid">
                 <FilterField label="Country">
                   <select
                     value={country}

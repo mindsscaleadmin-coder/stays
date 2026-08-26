@@ -22,8 +22,20 @@ export interface BenchmarkMetric {
   unit: string;
 }
 
+export interface HostOverviewStats {
+  activeListings: number;
+  pendingListings: number;
+  bookings: number;
+  bookingsThisWeek: number;
+  earnings: number;
+  earningsThisMonth: number;
+  avgRating: number;
+  reviewCount: number;
+}
+
 export interface HostAnalyticsData {
   hostId: string;
+  overview: HostOverviewStats;
   occupancyRatePct: number;
   occupancyTrend: OccupancyPoint[];
   bookingTrend: { month: string; bookings: number }[];

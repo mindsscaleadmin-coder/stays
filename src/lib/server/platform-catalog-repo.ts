@@ -21,6 +21,18 @@ import {
   DEFAULT_ADMIN_ALERT_SETTINGS,
 } from "@/lib/admin/admin-alerts-data";
 import type { AdminAlertsState } from "@/lib/admin/admin-alerts-types";
+import {
+  DEFAULT_LISTING_ADS,
+  normalizeListingAds,
+} from "@/lib/admin/listing-ads-data";
+import type { ListingAdsSettings } from "@/lib/admin/listing-ads-types";
+import {
+  DEFAULT_LISTING_QUALITY_RULES,
+  normalizeListingQualityRules,
+} from "@/lib/admin/listing-quality-rules-data";
+import type { ListingQualityRules } from "@/lib/admin/listing-quality-rules-types";
+import type { HostVerificationRequest } from "@/lib/host/verification-types";
+import type { GuestVerificationRequest } from "@/lib/guest/guest-verification-types";
 
 export const CATALOG_KEYS = {
   taxonomy: "taxonomy",
@@ -29,6 +41,10 @@ export const CATALOG_KEYS = {
   supportTickets: "support-tickets",
   financialSettings: "financial-settings",
   adminAlerts: "admin-alerts",
+  listingAds: "listing-ads",
+  listingQualityRules: "listing-quality-rules",
+  hostVerifications: "host-verifications",
+  guestVerifications: "guest-verifications",
 } as const;
 
 async function getPayload(key: string): Promise<string | null> {
@@ -230,4 +246,123 @@ export async function saveAdminAlertsStateToDb(
 ): Promise<AdminAlertsState> {
   await savePayload(CATALOG_KEYS.adminAlerts, state);
   return state;
+}
+
+export async function getListingAdsFromDb(): Promise<ListingAdsSettings> {
+  const raw = await getPayload(CATALOG_KEYS.listingAds);
+  if (!raw) return DEFAULT_LISTING_ADS;
+  try {
+    return normalizeListingAds(JSON.parse(raw) as Partial<ListingAdsSettings>);
+  } catch {
+    return DEFAULT_LISTING_ADS;
+  }
+}
+
+export async function saveListingAdsToDb(
+  settings: ListingAdsSettings
+): Promise<ListingAdsSettings> {
+  const next = normalizeListingAds(settings);
+  await savePayload(CATALOG_KEYS.listingAds, next);
+  return next;
+}
+
+export async function getListingQualityRulesFromDb(): Promise<ListingQualityRules> {
+  const raw = await getPayload(CATALOG_KEYS.listingQualityRules);
+  if (!raw) return DEFAULT_LISTING_QUALITY_RULES;
+  try {
+    return normalizeListingQualityRules(JSON.parse(raw));
+  } catch {
+    return DEFAULT_LISTING_QUALITY_RULES;
+  }
+}
+
+export async function saveListingQualityRulesToDb(
+  rules: ListingQualityRules
+): Promise<ListingQualityRules> {
+  const next = normalizeListingQualityRules(rules);
+  await savePayload(CATALOG_KEYS.listingQualityRules, next);
+  return next;
+}
+
+function parseVerifications(raw: string | null): Record<string, HostVerificationRequest> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, HostVerificationRequest>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function getHostVerificationsFromDb(): Promise<HostVerificationRequest[]> {
+  const map = parseVerifications(await getPayload(CATALOG_KEYS.hostVerifications));
+  return Object.values(map).sort(
+    (a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()
+  );
+}
+
+export async function getHostVerificationFromDb(
+  hostId: string
+): Promise<HostVerificationRequest | null> {
+  const map = parseVerifications(await getPayload(CATALOG_KEYS.hostVerifications));
+  return map[hostId] ?? null;
+}
+
+export async function saveHostVerificationToDb(
+  request: HostVerificationRequest
+): Promise<HostVerificationRequest> {
+  const map = parseVerifications(await getPayload(CATALOG_KEYS.hostVerifications));
+  map[request.hostId] = request;
+  await savePayload(CATALOG_KEYS.hostVerifications, map);
+  return request;
+}
+
+function parseGuestVerifications(
+  raw: string | null
+): Record<string, GuestVerificationRequest> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, GuestVerificationRequest>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function getGuestVerificationFromDb(
+  userId: string
+): Promise<GuestVerificationRequest | null> {
+  const map = parseGuestVerifications(await getPayload(CATALOG_KEYS.guestVerifications));
+  const stored = map[userId] ?? null;
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isVerified: true },
+  });
+  if (user?.isVerified) {
+    return (
+      stored ?? {
+        userId,
+        idType: "emirates_id",
+        notes: "",
+        status: "verified",
+        submittedAt: new Date().toISOString(),
+      }
+    );
+  }
+  return stored;
+}
+
+export async function saveGuestVerificationToDb(
+  request: GuestVerificationRequest
+): Promise<GuestVerificationRequest> {
+  const map = parseGuestVerifications(await getPayload(CATALOG_KEYS.guestVerifications));
+  map[request.userId] = request;
+  await savePayload(CATALOG_KEYS.guestVerifications, map);
+  if (request.status === "verified" || request.status === "rejected") {
+    await prisma.user.updateMany({
+      where: { id: request.userId },
+      data: { isVerified: request.status === "verified" },
+    });
+  }
+  return request;
 }

@@ -1,8 +1,8 @@
 "use client";
 
 import { Home } from "lucide-react";
-import { Link } from "@/i18n/routing";
 import type { ReactNode } from "react";
+import { Link } from "@/i18n/routing";
 
 interface HostAuthShellProps {
   title: string;
@@ -16,7 +16,7 @@ export function HostAuthShell({ title, subtitle, children, footer }: HostAuthShe
     <div className="min-h-[calc(100vh-200px)] flex items-center justify-center px-4 py-12 bg-gradient-to-b from-green-50/80 to-gray-50">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link href="/host/login" className="inline-flex items-center gap-2 mb-6">
+          <Link href="/" className="inline-flex items-center gap-2 mb-6">
             <div className="w-10 h-10 bg-green-700 rounded-xl flex items-center justify-center">
               <Home className="w-5 h-5 text-white" />
             </div>

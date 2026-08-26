@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
   assertBookingParticipant,
-  getUserRoles,
   isDemoApiMode,
 } from "@/lib/auth/booking-access";
 import { getSessionUser } from "@/lib/auth/session";
+import { resolveSessionActor } from "@/lib/auth/resolve-actor";
 import { AuthError } from "@/lib/auth/session";
 import { bookingAccessResponse } from "@/lib/auth/booking-access";
 import { getRequestId } from "@/lib/observability/logger";
@@ -34,7 +34,7 @@ export async function GET(
     if (!isDemoApiMode()) {
       const user = await getSessionUser();
       if (!user) throw new AuthError("Sign in required");
-      assertBookingParticipant(booking, user.id, getUserRoles(user));
+      assertBookingParticipant(booking, await resolveSessionActor(user));
     }
 
     return NextResponse.json(

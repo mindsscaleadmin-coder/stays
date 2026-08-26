@@ -1,16 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { Link, useRouter } from "@/i18n/routing";
 import { Calendar, Loader2, Lock, Users } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { usePublicListings } from "@/lib/listings/use-public-listings";
-import { loadPricingSettings } from "@/lib/host/host-pricing-data";
-import { calculateStayQuote } from "@/lib/host/calculate-stay-price";
-import { countNights } from "@/lib/host/calculate-stay-price";
-import { mirrorGuestBookingToHost } from "@/lib/booking/mirror-to-host";
-import { formatMoney } from "@/lib/currency";
+import { loadPricingSettings, savePricingSettings } from "@/lib/host/host-pricing-data";
+import { fetchPricingFromApi, shouldUseSharedPricingStore } from "@/lib/host/host-pricing-api";
+import type { ListingPricingSettings } from "@/lib/host/host-pricing-types";
+import { calculateStayQuote, countNights } from "@/lib/host/calculate-stay-price";
+import { formatMoney, formatStoredMoney } from "@/lib/currency";
+import { listingHref } from "@/lib/guest/stay-search-dates";
 import { resolveCatalogListingHost } from "@/lib/listings/catalog-listing-hosts";
 import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
@@ -49,6 +50,7 @@ export function CheckoutContent({
   const { data: taxonomy } = useAdminTaxonomy();
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paymentMode, setPaymentMode] = useState<"stripe" | "demo">("demo");
 
   const stay = useMemo(
     () => listings.find((s) => s.id === listingId),
@@ -61,20 +63,48 @@ export function CheckoutContent({
   );
 
   const nights = checkIn && checkOut ? countNights(checkIn, checkOut) : 0;
+  const [pricing, setPricing] = useState<ListingPricingSettings | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      const fromApi = shouldUseSharedPricingStore()
+        ? await fetchPricingFromApi(listingId).catch(() => null)
+        : null;
+      if (cancelled) return;
+      if (fromApi) savePricingSettings(fromApi);
+      setPricing(fromApi ?? loadPricingSettings(listingId, countryPricing));
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [listingId, countryPricing]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/payments/mode")
+      .then((res) => res.json())
+      .then((data: { mode?: string }) => {
+        if (!cancelled && data.mode === "stripe") setPaymentMode("stripe");
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const quotePreview = useMemo(() => {
-    if (!stay || !checkIn || !checkOut || nights < 1) return null;
-
-    const pricing = loadPricingSettings(stay.id);
+    if (!stay || !pricing || !checkIn || !checkOut || nights < 1) return null;
     const currency =
       pricing.currency || countryPricing.currency || "AED";
     const experiencesTotal =
       experienceIds.reduce((sum, id) => sum + (EXPERIENCE_PRICES[id]?.amount ?? 0), 0) *
       Math.max(1, guests);
 
-    const selectedExtras = (pricing.extraCharges ?? []).filter((e) =>
-      extraIds.includes(e.id)
-    );
+    const selectedExtras = pricing.extraChargesEnabled
+      ? (pricing.extraCharges ?? []).filter((e) => extraIds.includes(e.id))
+      : [];
 
     const stayQuote = calculateStayQuote({
       settings: pricing,
@@ -137,6 +167,7 @@ export function CheckoutContent({
     };
   }, [
     stay,
+    pricing,
     checkIn,
     checkOut,
     guests,
@@ -149,7 +180,7 @@ export function CheckoutContent({
   ]);
 
   async function handlePay() {
-    if (!stay || !quotePreview || !user) return;
+    if (!stay || !quotePreview?.stayQuote || !user) return;
     if (!checkIn || !checkOut || nights < 1) {
       setError("Select valid check-in and check-out dates.");
       return;
@@ -168,11 +199,6 @@ export function CheckoutContent({
           checkIn,
           checkOut,
           guestCount: guests,
-          nightlyRate: quotePreview.nightlyRate,
-          accommodation: quotePreview.accommodation,
-          experiencesTotal: quotePreview.experiencesTotal,
-          extrasTotal: quotePreview.extrasTotal,
-          taxAmount: quotePreview.taxAmount,
           currency: quotePreview.currency,
           roomIds: rooms,
           experienceIds,
@@ -184,7 +210,7 @@ export function CheckoutContent({
           listing: {
             id: stay.id,
             title: stay.name,
-            hostId: catalogHost?.hostId,
+            hostId: catalogHost?.hostId ?? stay.hostId,
             hostName: catalogHost?.hostName,
             location: stay.location,
             maxGuests: stay.guests,
@@ -205,46 +231,15 @@ export function CheckoutContent({
         return;
       }
 
-      const booking = data.booking as {
-        id: string;
-        status: string;
-        paymentStatus: string;
-        totalPrice: number;
-      };
+      const booking = data.booking as { id: string };
 
-      // When demoPay wasn't applied server-side, complete it
-      let paymentStatus = booking.paymentStatus;
-      let status = booking.status;
       if (data.mode === "demo" && !data.paid && booking.id) {
         const payRes = await fetch(`/api/bookings/${booking.id}/demo-pay`, {
           method: "POST",
         });
         const payData = await payRes.json();
         if (!payRes.ok) throw new Error(payData.error || "Payment failed");
-        paymentStatus = payData.booking.paymentStatus;
-        status = payData.booking.status;
       }
-
-      mirrorGuestBookingToHost({
-        id: booking.id,
-        listingId: stay.id,
-        property: stay.name,
-        propertyLocation: stay.location,
-        guest: user.fullName,
-        guestEmail: user.email,
-        guestPhone: user.phone,
-        guestId: user.id,
-        checkIn,
-        checkOut,
-        guests,
-        total: booking.totalPrice ?? quotePreview.total,
-        currency: quotePreview.currency,
-        nightlyRate: quotePreview.nightlyRate,
-        status: status === "confirmed" ? "confirmed" : "pending",
-        paymentStatus: paymentStatus === "paid" ? "Paid" : paymentStatus,
-        hostId: catalogHost?.hostId,
-        img: stay.img,
-      });
 
       router.push(`/booking/${stay.id}/success?bookingId=${booking.id}`);
     } catch (err) {
@@ -279,16 +274,17 @@ export function CheckoutContent({
   }
 
   const currency = quotePreview?.currency ?? countryPricing.currency;
-  const rate = quotePreview?.exchangeRateToAED ?? countryPricing.exchangeRateToAED;
-  const money = (amountAed: number) =>
-    formatMoney(amountAed, {
-      currency,
-      exchangeRateToAED: rate,
+  const money = (amount: number) =>
+    formatStoredMoney(amount, {
+      storedCurrency: currency,
+      storedRateToAED: countryPricing.exchangeRateToAED,
+      currency: countryPricing.currency,
+      exchangeRateToAED: countryPricing.exchangeRateToAED,
       locale,
     });
 
   return (
-    <div className="bg-gray-50 min-h-[70vh]">
+    <div className="bg-gray-50 min-h-[70vh] pb-24 lg:pb-0">
       <div className="max-w-5xl mx-auto px-4 py-8 sm:py-10">
         <h1 className="text-2xl font-bold text-gray-900 font-display mb-1">Checkout</h1>
         <p className="text-sm text-gray-500 mb-8">
@@ -325,12 +321,6 @@ export function CheckoutContent({
                   </div>
                 </div>
               </div>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-gray-200 p-5">
-              <h2 className="text-sm font-bold text-gray-900 mb-3">Guest</h2>
-              <p className="text-sm text-gray-800">{user?.fullName}</p>
-              <p className="text-sm text-gray-500">{user?.email}</p>
             </div>
 
             {experienceIds.length > 0 && (
@@ -370,16 +360,24 @@ export function CheckoutContent({
               </div>
 
               {error && (
-                <p className="text-sm text-red-600 mb-3 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-                  {error}
-                </p>
+                <div className="mb-3 bg-red-50 border border-red-100 rounded-lg px-3 py-2.5">
+                  <p className="text-sm text-red-600">{error}</p>
+                  {/not available|overlap/i.test(error) && (
+                    <Link
+                      href={listingHref(listingId, { checkIn, checkOut, guests })}
+                      className="mt-2.5 inline-flex w-full items-center justify-center text-sm font-semibold bg-white border border-red-200 text-red-800 hover:bg-red-50 px-3 py-2 rounded-lg"
+                    >
+                      Choose other dates
+                    </Link>
+                  )}
+                </div>
               )}
 
               <button
                 type="button"
-                disabled={paying || !quotePreview}
+                disabled={paying || !quotePreview?.stayQuote}
                 onClick={handlePay}
-                className="w-full inline-flex items-center justify-center gap-2 bg-green-700 hover:bg-green-800 disabled:bg-gray-300 text-white font-bold py-3.5 rounded-xl transition-colors"
+                className="hidden lg:inline-flex w-full items-center justify-center gap-2 bg-green-700 hover:bg-green-800 disabled:bg-gray-300 text-white font-bold py-3.5 rounded-xl transition-colors"
               >
                 {paying ? (
                   <>
@@ -393,14 +391,40 @@ export function CheckoutContent({
                   </>
                 )}
               </button>
-              <p className="mt-3 text-[11px] text-gray-400 text-center leading-relaxed">
-                {process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+              <p className="mt-3 text-[11px] text-gray-400 text-center leading-relaxed hidden lg:block">
+                {paymentMode === "stripe"
                   ? "You will be redirected to Stripe Checkout."
                   : "Demo mode: payment is simulated and the booking is written to the host calendar."}
               </p>
             </div>
           </div>
         </div>
+      </div>
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-50 border-t border-gray-200 bg-white/95 backdrop-blur-md px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] text-gray-500">Total</p>
+          <p className="text-base font-bold text-gray-900 tabular-nums leading-tight">
+            {money(quotePreview?.total ?? 0)}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={paying || !quotePreview?.stayQuote}
+          onClick={handlePay}
+          className="ms-auto shrink-0 inline-flex items-center justify-center gap-2 bg-green-700 hover:bg-green-800 disabled:bg-gray-300 text-white font-bold px-5 py-2.5 rounded-xl min-h-[44px]"
+        >
+          {paying ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Processing…
+            </>
+          ) : (
+            <>
+              <Lock className="w-4 h-4" />
+              Confirm and pay
+            </>
+          )}
+        </button>
       </div>
     </div>
   );

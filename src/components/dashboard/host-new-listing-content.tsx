@@ -36,9 +36,6 @@ import {
 
 const MAX_PHOTOS = 12;
 
-/** Checks available on the create/edit listing form (not manage details). */
-const NEW_LISTING_OMIT = ["farmType", "amenities"] as const;
-
 export function HostNewListingContent({ listingId }: { listingId?: string }) {
   const router = useRouter();
   const { user } = useAuth();
@@ -90,16 +87,22 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
       photoCount: photos.length,
       country: draftLabels.country,
       state: draftLabels.state,
+      district: draftLabels.district,
       parentCategory: draftLabels.parentCategory,
+      category: draftLabels.category,
+      subcategory: draftLabels.subcategory,
+      highlightCount: filterValues.highlightIds.length,
+      featureIconCount: filterValues.featureIconIds.length,
+      advancedCount: filterValues.advancedIds.length,
+      mapEmbedUrl: mapEmbedPreview ?? "",
+      customSelections: filterValues.customSelections,
+      customFilters: draftLabels.customFilters,
     }),
-    [title, description, photos.length, draftLabels]
+    [title, description, photos.length, draftLabels, filterValues, mapEmbedPreview]
   );
 
   const qualityChecklist = useMemo(
-    () =>
-      buildQualityChecklist(qualityInput, qualityRules, {
-        omit: [...NEW_LISTING_OMIT],
-      }),
+    () => buildQualityChecklist(qualityInput, qualityRules, { form: "details" }),
     [qualityInput, qualityRules]
   );
 
@@ -180,10 +183,19 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         photoCount: photos.length,
         country: labels.country,
         state: labels.state,
+        district: labels.district,
         parentCategory: labels.parentCategory,
+        category: labels.category,
+        subcategory: labels.subcategory,
+        highlightCount: filterValues.highlightIds.length,
+        featureIconCount: filterValues.featureIconIds.length,
+        advancedCount: filterValues.advancedIds.length,
+        mapEmbedUrl: mapEmbedUrl ?? "",
+        customSelections: filterValues.customSelections,
+        customFilters: labels.customFilters,
       },
       qualityRules,
-      { omit: [...NEW_LISTING_OMIT] }
+      { form: "details" }
     );
     if (qualityError) {
       setError(qualityError);

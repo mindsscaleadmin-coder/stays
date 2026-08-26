@@ -3,21 +3,19 @@ import { z } from "zod";
 import { BookingError } from "@/lib/booking/confirm-booking";
 import { cancelBooking, expirePendingBookings } from "@/lib/booking/lifecycle";
 import {
-  getUserRoles,
   isDemoApiMode,
   loadBookingWithListing,
   resolveCancelActor,
 } from "@/lib/auth/booking-access";
 import { canAccessAdmin } from "@/lib/auth/roles";
 import { withBookingAuth } from "@/lib/auth/with-booking-auth";
-import { getSessionUser } from "@/lib/auth/session";
 
 const bodySchema = z.object({
   reason: z.string().min(1),
   forceFullRefund: z.boolean().optional(),
 });
 
-export const POST = withBookingAuth(async (request, context, userId) => {
+export const POST = withBookingAuth(async (request, context, session) => {
   try {
     await expirePendingBookings();
     const { id } = await context.params;
@@ -35,12 +33,10 @@ export const POST = withBookingAuth(async (request, context, userId) => {
       if (!booking) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      const user = await getSessionUser();
-      const roles = user ? getUserRoles(user) : [];
-      actor = resolveCancelActor(booking, userId, roles);
+      actor = resolveCancelActor(booking, session);
       if (actor !== "admin" && actor !== "host") {
         forceFullRefund = false;
-      } else if (canAccessAdmin(roles) || actor === "host") {
+      } else if (canAccessAdmin(session.roles) || actor === "host") {
         forceFullRefund = parsed.data.forceFullRefund ?? true;
       }
     } else if (typeof json.actor === "string") {

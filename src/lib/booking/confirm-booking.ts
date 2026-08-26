@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { assertDatesAvailableForListing } from "@/lib/server/listing-availability-repo";
 import { computePendingExpiresAt } from "@/lib/booking/policies";
+import { isHostInstantBookEnabled } from "@/lib/server/host-profile-repo";
 
 export class BookingError extends Error {
   constructor(
@@ -54,7 +55,7 @@ export async function confirmBooking(input: {
     throw new BookingError("Invalid date range", "INVALID_DATES");
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const listing = await tx.listing.findUnique({
       where: { id: listingId },
     });
@@ -75,17 +76,23 @@ export async function confirmBooking(input: {
 
     let instantBook = false;
     let listingPolicy = policyId;
+    let hostName = "Host";
     try {
       const payload = JSON.parse(listing.payload) as {
         instantBook?: boolean;
         cancellationPolicyId?: string;
+        hostName?: string;
       };
       instantBook = Boolean(payload.instantBook);
       if (payload.cancellationPolicyId) {
         listingPolicy = payload.cancellationPolicyId;
       }
+      if (payload.hostName?.trim()) hostName = payload.hostName.trim();
     } catch {
       instantBook = false;
+    }
+    if (!instantBook) {
+      instantBook = await isHostInstantBookEnabled(listing.hostId);
     }
 
     const blocked = await tx.availability.findMany({
@@ -144,18 +151,35 @@ export async function confirmBooking(input: {
       },
     });
 
-    if (instantBook) {
-      for (const date of dates) {
-        await tx.availability.upsert({
-          where: {
-            listingId_date: { listingId, date },
-          },
-          create: { listingId, date, isBlocked: true },
-          update: { isBlocked: true },
-        });
-      }
-    }
+    await tx.bookingMessage.create({
+      data: {
+        bookingId: booking.id,
+        senderRole: "host",
+        senderId: listing.hostId,
+        senderName: hostName,
+        body: instantBook
+          ? `Thanks for booking ${listing.title}. Message us here about check-in, directions, or anything you need for your stay.`
+          : `Thanks for requesting ${listing.title}. We’ll confirm shortly — message us here if you have questions.`,
+      },
+    });
 
-    return booking;
+    return { booking, hostId: listing.hostId, listingTitle: listing.title, instantBook };
   });
+
+  const guest = await prisma.user.findUnique({ where: { id: result.booking.guestId } });
+  const checkInIso = result.booking.checkIn.toISOString().slice(0, 10);
+  const checkOutIso = result.booking.checkOut?.toISOString().slice(0, 10) ?? "";
+  try {
+    const { pushHostAlert } = await import("@/lib/server/host-notifications-repo");
+    await pushHostAlert(result.hostId, {
+      type: "booking",
+      title: result.instantBook ? "New booking confirmed" : "New booking request",
+      message: `${guest?.fullName || "A guest"} · ${result.listingTitle} · ${checkInIso} → ${checkOutIso}`,
+      href: `/host/bookings/${result.booking.id}`,
+    });
+  } catch {
+    // inbox write should not block checkout
+  }
+
+  return result.booking;
 }

@@ -1,9 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { resolveHostName } from "@/lib/admin/trust-data";
-import { defaultHostAnalytics } from "@/lib/host/host-analytics-data";
+import { computeHostAnalytics } from "@/lib/host/compute-host-analytics";
 import type { HostAnalyticsData } from "@/lib/host/host-analytics-types";
-
-type StoredAnalytics = Omit<HostAnalyticsData, "hostId">;
 
 async function ensureHostUser(hostId: string) {
   const existing = await prisma.user.findUnique({ where: { id: hostId } });
@@ -19,44 +17,107 @@ async function ensureHostUser(hostId: string) {
   });
 }
 
-function parsePayload(raw: string): StoredAnalytics | null {
+const listingSelect = {
+  id: true,
+  hostId: true,
+  status: true,
+  pricePerNight: true,
+  district: true,
+  payload: true,
+} as const;
+
+function listingBelongsToHost(
+  listing: { hostId: string; payload: string },
+  hostId: string,
+  hostName?: string
+): boolean {
+  if (listing.hostId === hostId || listing.hostId === "demo-host") return true;
+  if (!hostName) return false;
   try {
-    return JSON.parse(raw) as StoredAnalytics;
+    const parsed = JSON.parse(listing.payload) as { hostName?: string };
+    return parsed.hostName?.trim().toLowerCase() === hostName;
   } catch {
-    return null;
+    return false;
   }
 }
 
-function merge(hostId: string, stored: StoredAnalytics | null): HostAnalyticsData {
-  const defaults = defaultHostAnalytics(hostId);
-  if (!stored) return defaults;
-  return {
-    ...defaults,
-    ...stored,
-    hostId,
-    occupancyTrend: Array.isArray(stored.occupancyTrend)
-      ? stored.occupancyTrend
-      : defaults.occupancyTrend,
-    bookingTrend: Array.isArray(stored.bookingTrend)
-      ? stored.bookingTrend
-      : defaults.bookingTrend,
-    revenueMonthly: Array.isArray(stored.revenueMonthly)
-      ? stored.revenueMonthly
-      : defaults.revenueMonthly,
-    revenueYearly: Array.isArray(stored.revenueYearly)
-      ? stored.revenueYearly
-      : defaults.revenueYearly,
-    demographics: stored.demographics
-      ? { ...defaults.demographics, ...stored.demographics }
-      : defaults.demographics,
-    benchmarks: Array.isArray(stored.benchmarks) ? stored.benchmarks : defaults.benchmarks,
-  };
-}
-
 export async function getHostAnalytics(hostId: string): Promise<HostAnalyticsData> {
-  await ensureHostUser(hostId);
-  const row = await prisma.hostAnalytics.findUnique({ where: { hostId } });
-  return merge(hostId, row ? parsePayload(row.payload) : null);
+  const host = await prisma.user.findUnique({
+    where: { id: hostId },
+    select: { fullName: true },
+  });
+  const hostName = host?.fullName?.trim().toLowerCase();
+  const rows = await prisma.listing.findMany({ select: listingSelect });
+  const listings = rows.filter((row) => listingBelongsToHost(row, hostId, hostName));
+  const listingIds = listings.map((l) => l.id);
+
+  const bookings = listingIds.length
+    ? await prisma.booking.findMany({
+        where: { listingId: { in: listingIds } },
+        select: {
+          listingId: true,
+          guestId: true,
+          checkIn: true,
+          checkOut: true,
+          status: true,
+          totalPrice: true,
+          paymentStatus: true,
+          createdAt: true,
+        },
+      })
+    : [];
+
+  const reviews = listingIds.length
+    ? await prisma.review.findMany({
+        where: { listingId: { in: listingIds }, status: "published" },
+        select: { listingId: true, rating: true },
+      })
+    : [];
+
+  const districts = Array.from(new Set(listings.map((l) => l.district).filter(Boolean)));
+  const nearbyListings =
+    districts.length > 0
+      ? await prisma.listing.findMany({
+          where: {
+            hostId: { not: hostId },
+            status: "approved",
+            district: { in: districts },
+          },
+          select: listingSelect,
+        })
+      : [];
+  const nearbyIds = nearbyListings.map((l) => l.id);
+  const nearbyBookings = nearbyIds.length
+    ? await prisma.booking.findMany({
+        where: { listingId: { in: nearbyIds } },
+        select: {
+          listingId: true,
+          guestId: true,
+          checkIn: true,
+          checkOut: true,
+          status: true,
+          totalPrice: true,
+          paymentStatus: true,
+          createdAt: true,
+        },
+      })
+    : [];
+  const nearbyReviews = nearbyIds.length
+    ? await prisma.review.findMany({
+        where: { listingId: { in: nearbyIds }, status: "published" },
+        select: { listingId: true, rating: true },
+      })
+    : [];
+
+  return computeHostAnalytics({
+    hostId,
+    listings,
+    bookings,
+    reviews,
+    nearbyListings,
+    nearbyBookings,
+    nearbyReviews,
+  });
 }
 
 export async function saveHostAnalytics(data: HostAnalyticsData): Promise<HostAnalyticsData> {

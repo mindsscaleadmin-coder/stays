@@ -11,6 +11,7 @@ export interface HostNotificationAlert {
   message: string;
   date: string;
   read: boolean;
+  href?: string;
 }
 
 export interface HostNotificationPrefs {

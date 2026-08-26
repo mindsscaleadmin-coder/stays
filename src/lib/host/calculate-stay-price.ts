@@ -3,6 +3,7 @@ import {
   type ExtraCharge,
   type ListingPricingSettings,
 } from "./host-pricing-types";
+import { isFlashDealActive } from "./flash-deal-utils";
 
 export type StayQuoteInput = {
   settings: ListingPricingSettings;
@@ -76,11 +77,6 @@ export function stayNightDates(checkIn: string, checkOut: string): Date[] {
   return nights;
 }
 
-function isWeekendNight(d: Date): boolean {
-  const day = d.getDay(); // 0 Sun … 5 Fri, 6 Sat
-  return day === 5 || day === 6;
-}
-
 function seasonalRateForDate(
   settings: ListingPricingSettings,
   d: Date
@@ -123,34 +119,25 @@ export const MONTHLY_STAY_NIGHTS = 28;
 function nightRate(
   settings: ListingPricingSettings,
   d: Date,
-  roomId: string | null | undefined,
-  nights: number
-): { rate: number; usedSeasonal: boolean; usedMonthly: boolean } {
+  roomId: string | null | undefined
+): { rate: number; usedSeasonal: boolean } {
   const seasonal = seasonalRateForDate(settings, d);
   if (seasonal != null) {
-    return { rate: seasonal, usedSeasonal: true, usedMonthly: false };
+    return { rate: seasonal, usedSeasonal: true };
   }
 
-  const { base, weekend, monthly } = resolveBaseNightly(settings, roomId);
-  if (nights >= MONTHLY_STAY_NIGHTS && monthly != null && monthly > 0) {
-    return { rate: monthly, usedSeasonal: false, usedMonthly: true };
-  }
-  if (weekend != null && isWeekendNight(d)) {
-    return { rate: weekend, usedSeasonal: false, usedMonthly: false };
-  }
-  return { rate: base, usedSeasonal: false, usedMonthly: false };
+  const { base } = resolveBaseNightly(settings, roomId);
+  return { rate: base, usedSeasonal: false };
 }
 
 function pickStayDiscount(
   settings: ListingPricingSettings,
   nights: number,
   checkIn: string,
-  anySeasonal: boolean,
-  usedMonthlyRate: boolean
+  anySeasonal: boolean
 ): { pct: number; label: string | null } {
-  // Seasonal windows and dedicated monthly rates already replace base pricing —
-  // don't stack length-of-stay % discounts on top.
-  if (!settings.discountsEnabled || anySeasonal || usedMonthlyRate) {
+  // Seasonal windows replace the nightly rate — don't stack % discounts on top.
+  if (!settings.discountsEnabled || anySeasonal) {
     return { pct: 0, label: null };
   }
 
@@ -193,15 +180,11 @@ function pickStayDiscount(
 
   // Active flash deal wins when it offers a better (or equal) cut while the promo is live
   if (
-    settings.flashDealEnabled &&
-    settings.flashDealEndsAt &&
-    settings.flashDealDiscountPct > 0
+    isFlashDealActive(settings) &&
+    settings.flashDealDiscountPct >= pct
   ) {
-    const ends = new Date(settings.flashDealEndsAt).getTime();
-    if (!Number.isNaN(ends) && ends > Date.now() && settings.flashDealDiscountPct >= pct) {
-      pct = settings.flashDealDiscountPct;
-      label = `Flash deal (−${pct}%)`;
-    }
+    pct = settings.flashDealDiscountPct;
+    label = `Flash deal (−${pct}%)`;
   }
 
   return { pct: Math.min(100, Math.max(0, pct)), label };
@@ -259,13 +242,11 @@ export function calculateStayQuote(input: StayQuoteInput): StayQuote | null {
   const nightDates = stayNightDates(checkIn, checkOut);
   let accommodationSubtotal = 0;
   let anySeasonal = false;
-  let usedMonthlyRate = false;
   for (const d of nightDates) {
     for (const id of resolvedRoomIds) {
-      const { rate, usedSeasonal, usedMonthly } = nightRate(settings, d, id, nights);
+      const { rate, usedSeasonal } = nightRate(settings, d, id);
       accommodationSubtotal += rate;
       if (usedSeasonal) anySeasonal = true;
-      if (usedMonthly) usedMonthlyRate = true;
     }
   }
 
@@ -275,21 +256,22 @@ export function calculateStayQuote(input: StayQuoteInput): StayQuote | null {
     settings,
     nights,
     checkIn,
-    anySeasonal,
-    usedMonthlyRate
+    anySeasonal
   );
   const discountAmount = Math.round((accommodationSubtotal * discountPct) / 100);
   const afterDiscount = accommodationSubtotal - discountAmount;
 
+  const extrasOn = settings.extraChargesEnabled;
   const extraGuests = Math.max(0, guests - settings.guestsIncludedInBase);
   const extraGuestTotal =
-    extraGuests > 0 && settings.extraGuestCharge > 0 && accommodationSubtotal > 0
+    extrasOn &&
+    extraGuests > 0 &&
+    settings.extraGuestCharge > 0 &&
+    accommodationSubtotal > 0
       ? extraGuests * settings.extraGuestCharge * nights
       : 0;
 
-  const extrasTotal = settings.extraChargesEnabled
-    ? extrasAmount(selectedExtras, nights, guests)
-    : 0;
+  const extrasTotal = extrasOn ? extrasAmount(selectedExtras, nights, guests) : 0;
 
   const experiences = Math.max(0, experiencesTotal);
   const pretax = afterDiscount + extraGuestTotal + extrasTotal + experiences;
@@ -349,6 +331,86 @@ export function calculateStayQuote(input: StayQuoteInput): StayQuote | null {
   };
 }
 
+export type HostOfferCard = {
+  id: string;
+  badge: string;
+  title: string;
+  detail: string;
+};
+
+function formatOfferDate(ymd: string): string {
+  const d = parseYmd(ymd);
+  if (!d) return ymd;
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** Seasonal windows and stay discounts the host has turned on (for the listing sidebar). */
+export function listPublishedHostOffers(
+  settings: ListingPricingSettings,
+  now = new Date()
+): HostOfferCard[] {
+  const offers: HostOfferCard[] = [];
+  const today = formatYmd(now);
+
+  if (settings.seasonalEnabled) {
+    for (const season of settings.seasonalPricing) {
+      if (!season.endDate || season.endDate < today) continue;
+      offers.push({
+        id: season.id,
+        badge: "Season",
+        title: season.name,
+        detail: `${settings.currency} ${Math.round(season.price).toLocaleString()}/night · ${formatOfferDate(season.startDate)} – ${formatOfferDate(season.endDate)}`,
+      });
+    }
+  }
+
+  if (settings.discountsEnabled) {
+    if (settings.weeklyDiscountPct > 0) {
+      offers.push({
+        id: "weekly",
+        badge: `−${settings.weeklyDiscountPct}%`,
+        title: "Weekly stay",
+        detail: "Applies automatically on 7+ night bookings",
+      });
+    }
+    if (settings.monthlyDiscountPct > 0) {
+      offers.push({
+        id: "monthly",
+        badge: `−${settings.monthlyDiscountPct}%`,
+        title: "Monthly stay",
+        detail: "Applies automatically on 28+ night bookings",
+      });
+    }
+    if (settings.earlyBirdDiscountPct > 0) {
+      offers.push({
+        id: "early-bird",
+        badge: `−${settings.earlyBirdDiscountPct}%`,
+        title: "Early bird",
+        detail: `Book at least ${settings.earlyBirdDaysAhead} days ahead`,
+      });
+    }
+    if (settings.lastMinuteDiscountPct > 0) {
+      offers.push({
+        id: "last-minute",
+        badge: `−${settings.lastMinuteDiscountPct}%`,
+        title: "Last minute",
+        detail: `Book within ${settings.lastMinuteDaysAhead} days of check-in`,
+      });
+    }
+    if (isFlashDealActive(settings, now) && settings.flashDealEndsAt) {
+      const ends = new Date(settings.flashDealEndsAt);
+      offers.push({
+        id: "flash",
+        badge: `−${settings.flashDealDiscountPct}%`,
+        title: "Flash deal",
+        detail: `Ends ${ends.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`,
+      });
+    }
+  }
+
+  return offers;
+}
+
 /** Display nightly rate for the booking card (no dates required). */
 export function resolveDisplayNightlyRate(
   settings: ListingPricingSettings,
@@ -356,6 +418,29 @@ export function resolveDisplayNightlyRate(
 ): number {
   const { base } = resolveBaseNightly(settings, roomId);
   return base;
+}
+
+/** Nightly / weekend / monthly tiers guests should see (summed when rooms are selected). */
+export function resolvePublishedRateTiers(
+  settings: ListingPricingSettings,
+  roomIds?: string[]
+): { nightly: number; weekend: number | null; monthly: number | null } {
+  const ids = (roomIds ?? []).filter(Boolean);
+  const parts = (ids.length > 0 ? ids : [null]).map((id) =>
+    resolveBaseNightly(settings, id)
+  );
+  const nightly = parts.reduce((sum, p) => sum + p.base, 0);
+  const hasWeekend = parts.some((p) => p.weekend != null && p.weekend > 0);
+  const hasMonthly = parts.some((p) => p.monthly != null && p.monthly > 0);
+  return {
+    nightly,
+    weekend: hasWeekend
+      ? parts.reduce((sum, p) => sum + (p.weekend != null && p.weekend > 0 ? p.weekend : p.base), 0)
+      : null,
+    monthly: hasMonthly
+      ? parts.reduce((sum, p) => sum + (p.monthly != null && p.monthly > 0 ? p.monthly : p.base), 0)
+      : null,
+  };
 }
 
 /** Combined nightly rate when multiple rooms are selected. */

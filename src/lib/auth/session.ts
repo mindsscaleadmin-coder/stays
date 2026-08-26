@@ -29,6 +29,9 @@ export async function getSessionUser() {
 }
 
 export async function requireSessionUser() {
+  if (!isSupabaseConfigured() && process.env.NODE_ENV === "production") {
+    throw new AuthError("Authentication is not configured", 503);
+  }
   const user = await getSessionUser();
   if (!user) throw new AuthError("Sign in required");
   return user;

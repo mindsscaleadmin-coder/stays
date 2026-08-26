@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/routing";
 import {
   CalendarRange,
@@ -37,6 +38,8 @@ function bookingInDateRange(
 }
 
 export function HostBookingsContent() {
+  const searchParams = useSearchParams();
+  const focusId = searchParams.get("booking");
   const { bookings, ready, instantBookEnabled, setInstantBookEnabled, accept, decline } =
     useHostBookings();
   const platformConfig = usePlatformConfig();
@@ -44,6 +47,14 @@ export function HostBookingsContent() {
     platformConfig.features.instantBookingPlatformWide &&
     platformConfig.features.hostFeatures.instantBooking;
   const [tab, setTab] = useState<BookingTimelineTab>("requests");
+
+  useEffect(() => {
+    if (!focusId) return;
+    const found = bookings.find((b) => b.id === focusId);
+    if (!found) return;
+    const timeline = getBookingTimeline(found);
+    setTab(timeline === "all" ? "requests" : timeline);
+  }, [focusId, bookings]);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [status, setStatus] = useState<string>("");
@@ -78,14 +89,22 @@ export function HostBookingsContent() {
     setTimeout(() => setMessage(""), 2500);
   }
 
-  function handleAccept(id: string) {
-    accept(id);
-    flash("Booking accepted.");
+  async function handleAccept(id: string) {
+    try {
+      await accept(id);
+      flash("Booking accepted — it’s on your calendar.");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Could not accept booking.");
+    }
   }
 
-  function handleDecline(id: string) {
-    decline(id);
-    flash("Booking declined.");
+  async function handleDecline(id: string) {
+    try {
+      await decline(id);
+      flash("Booking declined.");
+    } catch (error) {
+      flash(error instanceof Error ? error.message : "Could not decline booking.");
+    }
   }
 
   if (!ready) {
@@ -143,7 +162,12 @@ export function HostBookingsContent() {
               role="switch"
               aria-checked={instantBookEnabled}
               disabled={!instantBookPlatformEnabled}
-              onClick={() => instantBookPlatformEnabled && setInstantBookEnabled(!instantBookEnabled)}
+              onClick={() => {
+                if (!instantBookPlatformEnabled) return;
+                void setInstantBookEnabled(!instantBookEnabled).catch((error) => {
+                  flash(error instanceof Error ? error.message : "Could not save instant book.");
+                });
+              }}
               className={cn(
                 "relative w-11 h-6 rounded-full transition-colors",
                 instantBookEnabled ? "bg-green-600" : "bg-gray-300",
@@ -257,7 +281,10 @@ export function HostBookingsContent() {
                 <Link
                   key={b.id}
                   href={`/host/bookings/${b.id}`}
-                  className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-gray-50/80 transition-colors cursor-pointer"
+                  className={cn(
+                    "p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-gray-50/80 transition-colors cursor-pointer",
+                    focusId === b.id && "bg-green-50/70 ring-1 ring-green-200"
+                  )}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">

@@ -5,10 +5,12 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import type {
+  City,
   Country,
   CountryInput,
   District,
@@ -17,7 +19,7 @@ import type {
   Subcategory,
   TaxonomyData,
 } from "@/lib/admin/taxonomy-types";
-import { buildLocationRows, type CountryGeoState } from "@/lib/admin/country-geo";
+import { applyCountryLocations, type CountryGeoState } from "@/lib/admin/country-geo";
 import { dedupeTabsById, isDefaultPropertyTab, resolveBuiltInMainTabId } from "@/lib/admin/taxonomy-types";
 import { loadTaxonomy, newId, namesMatch, normalizeTaxonomy, saveTaxonomy, SEED_TAXONOMY, TAXONOMY_STORAGE_KEY, TAXONOMY_SYNC_EVENT } from "@/lib/admin/taxonomy-data";
 import {
@@ -25,9 +27,21 @@ import {
   saveTaxonomyToApi,
   shouldUseSharedTaxonomy,
 } from "@/lib/admin/taxonomy-api";
+import { relabelSubmittedListings } from "@/lib/listings/submission-data";
+import { relabelListingsOnServer } from "@/lib/listings/relabel-listings-api";
+
+function scheduleListingRelabel(
+  changes: Parameters<typeof relabelSubmittedListings>[0]
+) {
+  queueMicrotask(() => {
+    relabelSubmittedListings(changes);
+    void relabelListingsOnServer(changes).catch(() => null);
+  });
+}
 
 interface AdminTaxonomyContextValue {
   data: TaxonomyData;
+  ready: boolean;
   addMainTab: (label: string) => string;
   editMainTab: (id: string, label: string) => void;
   deleteMainTab: (id: string) => boolean;
@@ -36,7 +50,10 @@ interface AdminTaxonomyContextValue {
   deleteExtraTab: (id: string) => boolean;
   addCountry: (name: string) => void;
   editCountry: (id: string, name: string) => void;
-  saveCountry: (input: CountryInput) => string;
+  saveCountry: (
+    input: CountryInput,
+    locations?: { geo: CountryGeoState[]; mode?: "merge" | "replace" }
+  ) => Promise<{ id: string; statesAdded: number; districtsAdded: number }>;
   importCountryLocations: (
     countryId: string,
     geo: CountryGeoState[],
@@ -49,6 +66,9 @@ interface AdminTaxonomyContextValue {
   addDistrict: (name: string, stateId: string) => void;
   editDistrict: (id: string, name: string, stateId: string) => void;
   deleteDistrict: (id: string) => void;
+  addCity: (name: string, districtId: string) => void;
+  editCity: (id: string, name: string, districtId: string) => void;
+  deleteCity: (id: string) => void;
   addParent: (name: string) => void;
   editParent: (id: string, name: string) => void;
   deleteParent: (id: string) => void;
@@ -80,6 +100,7 @@ interface AdminTaxonomyContextValue {
   setCountryEnabled: (id: string, enabled: boolean) => void;
   setStateEnabled: (id: string, enabled: boolean) => void;
   setDistrictEnabled: (id: string, enabled: boolean) => void;
+  setCityEnabled: (id: string, enabled: boolean) => void;
   setParentEnabled: (id: string, enabled: boolean) => void;
   setCategoryEnabled: (id: string, enabled: boolean) => void;
   setSubcategoryEnabled: (id: string, enabled: boolean) => void;
@@ -101,26 +122,40 @@ function persist(data: TaxonomyData): TaxonomyData {
   return next;
 }
 
+async function persistAsync(data: TaxonomyData): Promise<TaxonomyData> {
+  const next = normalizeTaxonomy(data);
+  saveTaxonomy(next);
+  if (!shouldUseSharedTaxonomy()) return next;
+  const saved = await saveTaxonomyToApi(next);
+  return normalizeTaxonomy(saved);
+}
+
 export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<TaxonomyData>(SEED_TAXONOMY);
+  const [ready, setReady] = useState(false);
+  const hydratedRef = useRef(false);
 
   const refresh = useCallback(async () => {
     if (shouldUseSharedTaxonomy()) {
       try {
         setData(await fetchTaxonomyFromApi());
+        hydratedRef.current = true;
+        setReady(true);
         return;
       } catch {
         // fall through
       }
     }
     setData(loadTaxonomy());
+    hydratedRef.current = true;
+    setReady(true);
   }, []);
 
   useEffect(() => {
-    refresh();
+    void refresh();
 
     function onStorage(e: StorageEvent) {
-      if (e.key === TAXONOMY_STORAGE_KEY) refresh();
+      if (e.key === TAXONOMY_STORAGE_KEY) void refresh();
     }
 
     function onSync() {
@@ -141,6 +176,7 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
 
   const update = useCallback((updater: (prev: TaxonomyData) => TaxonomyData) => {
     setData((prev) => {
+      if (!hydratedRef.current) return prev;
       const next = updater(prev);
       if (next === prev) return prev;
       return persist(next);
@@ -194,6 +230,12 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
           )
         ) {
           return prev;
+        }
+        const from = prev.mainTabs.find((t) => t.id === id)?.label;
+        if (from && from !== trimmed) {
+          scheduleListingRelabel({
+            customFilter: { fromLabel: from, toLabel: trimmed },
+          });
         }
         return {
           ...prev,
@@ -257,6 +299,12 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
         ) {
           return prev;
         }
+        const from = prev.extraTabs.find((t) => t.id === id)?.label;
+        if (from && from !== trimmed) {
+          scheduleListingRelabel({
+            customFilter: { fromLabel: from, toLabel: trimmed },
+          });
+        }
         return {
           ...prev,
           extraTabs: prev.extraTabs.map((t) => (t.id === id ? { ...t, label: trimmed } : t)),
@@ -309,22 +357,32 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const editCustomItem = useCallback(
-    (tabId: string, id: string, name: string, subcategoryId?: string) =>
-      update((prev) => ({
-        ...prev,
-        customItems: {
-          ...prev.customItems,
-          [tabId]: (prev.customItems[tabId] ?? []).map((item) =>
-            item.id === id
-              ? {
-                  ...item,
-                  name,
-                  subcategoryId: subcategoryId || undefined,
-                }
-              : item
-          ),
-        },
-      })),
+    (tabId: string, id: string, name: string, subcategoryId?: string) => {
+      const trimmed = name.trim();
+      update((prev) => {
+        const from = (prev.customItems[tabId] ?? []).find((item) => item.id === id)?.name;
+        if (from && from !== trimmed) {
+          scheduleListingRelabel({
+            customFilter: { fromValue: from, toValue: trimmed },
+          });
+        }
+        return {
+          ...prev,
+          customItems: {
+            ...prev.customItems,
+            [tabId]: (prev.customItems[tabId] ?? []).map((item) =>
+              item.id === id
+                ? {
+                    ...item,
+                    name: trimmed,
+                    subcategoryId: subcategoryId || undefined,
+                  }
+                : item
+            ),
+          },
+        };
+      });
+    },
     [update]
   );
 
@@ -363,114 +421,86 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const editCountry = useCallback(
-    (id: string, name: string) =>
-      update((prev) => ({
-        ...prev,
-        countries: prev.countries.map((c) => (c.id === id ? { ...c, name } : c)),
-      })),
-    [update]
-  );
-
-  const saveCountry = useCallback(
-    (input: CountryInput) => {
-      const id = input.id ?? newId("c");
+    (id: string, name: string) => {
+      const trimmed = name.trim();
       update((prev) => {
-        const next: Country = {
-          id,
-          name: input.name.trim(),
-          code: input.code?.trim().toUpperCase() || undefined,
-          flag: input.flag?.trim() || undefined,
-          currency: input.currency?.trim().toUpperCase() || undefined,
-          currencySymbol: input.currencySymbol?.trim() || undefined,
-          exchangeRateToAED: input.exchangeRateToAED ?? 1,
-          taxPct: input.taxPct ?? 5,
-          taxLabel: input.taxLabel?.trim() || "VAT",
-          dialCode: input.dialCode?.trim() || undefined,
-          enabled: input.enabled ?? true,
-          comingSoon: input.comingSoon ?? false,
-        };
-        const exists = prev.countries.some((c) => c.id === id);
+        const from = prev.countries.find((c) => c.id === id)?.name;
+        if (from && from !== trimmed) {
+          scheduleListingRelabel({ country: { from, to: trimmed } });
+        }
         return {
           ...prev,
-          countries: exists
-            ? prev.countries.map((c) => (c.id === id ? next : c))
-            : [...prev.countries, next],
+          countries: prev.countries.map((c) => (c.id === id ? { ...c, name: trimmed } : c)),
         };
       });
-      return id;
     },
     [update]
   );
 
-  const importCountryLocations = useCallback(
-    (countryId: string, geo: CountryGeoState[], mode: "merge" | "replace" = "merge") => {
-      const built = buildLocationRows(countryId, geo);
+  const saveCountry = useCallback(
+    async (
+      input: CountryInput,
+      locations?: { geo: CountryGeoState[]; mode?: "merge" | "replace" }
+    ) => {
+      if (!hydratedRef.current) {
+        throw new Error("Taxonomy is still loading. Try again in a moment.");
+      }
+      const id = input.id ?? newId("c");
+      const nextCountry: Country = {
+        id,
+        name: input.name.trim(),
+        code: input.code?.trim().toUpperCase() || undefined,
+        flag: input.flag?.trim() || undefined,
+        currency: input.currency?.trim().toUpperCase() || undefined,
+        currencySymbol: input.currencySymbol?.trim() || undefined,
+        exchangeRateToAED: input.exchangeRateToAED ?? 1,
+        taxPct: input.taxPct ?? 5,
+        taxLabel: input.taxLabel?.trim() || "VAT",
+        dialCode: input.dialCode?.trim() || undefined,
+        enabled: input.enabled ?? true,
+        comingSoon: input.comingSoon ?? false,
+      };
+      const from = data.countries.find((c) => c.id === id)?.name;
+      if (from && from !== nextCountry.name) {
+        scheduleListingRelabel({ country: { from, to: nextCountry.name } });
+      }
+      const exists = data.countries.some((c) => c.id === id);
+      let next: TaxonomyData = {
+        ...data,
+        countries: exists
+          ? data.countries.map((c) => (c.id === id ? nextCountry : c))
+          : [...data.countries, nextCountry],
+      };
       let statesAdded = 0;
       let districtsAdded = 0;
-
-      update((prev) => {
-        if (mode === "replace") {
-          const existingStateIds = prev.states
-            .filter((s) => s.countryId === countryId)
-            .map((s) => s.id);
-          statesAdded = built.states.length;
-          districtsAdded = built.districts.length;
-          return {
-            ...prev,
-            states: [
-              ...prev.states.filter((s) => s.countryId !== countryId),
-              ...built.states,
-            ],
-            districts: [
-              ...prev.districts.filter((d) => !existingStateIds.includes(d.stateId)),
-              ...built.districts,
-            ],
-          };
-        }
-
-        const nextStates = [...prev.states];
-        const nextDistricts = [...prev.districts];
-        const stateIdByName = new Map(
-          prev.states
-            .filter((s) => s.countryId === countryId)
-            .map((s) => [s.name.toLowerCase(), s.id] as const)
+      if (locations?.geo?.length) {
+        const applied = applyCountryLocations(
+          next,
+          id,
+          locations.geo,
+          locations.mode ?? "merge"
         );
+        next = applied.data;
+        statesAdded = applied.statesAdded;
+        districtsAdded = applied.districtsAdded;
+      }
+      const saved = await persistAsync(next);
+      setData(saved);
+      return { id, statesAdded, districtsAdded };
+    },
+    [data]
+  );
 
-        let localStates = 0;
-        let localDistricts = 0;
-
-        for (const state of built.states) {
-          const key = state.name.toLowerCase();
-          let stateId = stateIdByName.get(key);
-          if (!stateId) {
-            nextStates.push(state);
-            stateId = state.id;
-            stateIdByName.set(key, stateId);
-            localStates += 1;
-          }
-
-          const districtNames = built.districts
-            .filter((d) => d.stateId === state.id)
-            .map((d) => d.name);
-          const existingDistrictNames = new Set(
-            nextDistricts
-              .filter((d) => d.stateId === stateId)
-              .map((d) => d.name.toLowerCase())
-          );
-
-          for (const name of districtNames) {
-            if (existingDistrictNames.has(name.toLowerCase())) continue;
-            nextDistricts.push({ id: newId("d"), name, stateId });
-            existingDistrictNames.add(name.toLowerCase());
-            localDistricts += 1;
-          }
-        }
-
-        statesAdded = localStates;
-        districtsAdded = localDistricts;
-        return { ...prev, states: nextStates, districts: nextDistricts };
+  const importCountryLocations = useCallback(
+    (countryId: string, geo: CountryGeoState[], mode: "merge" | "replace" = "merge") => {
+      let statesAdded = 0;
+      let districtsAdded = 0;
+      update((prev) => {
+        const applied = applyCountryLocations(prev, countryId, geo, mode);
+        statesAdded = applied.statesAdded;
+        districtsAdded = applied.districtsAdded;
+        return applied.data;
       });
-
       return { statesAdded, districtsAdded };
     },
     [update]
@@ -480,11 +510,15 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
     (id: string) =>
       update((prev) => {
         const stateIds = prev.states.filter((s) => s.countryId === id).map((s) => s.id);
+        const districtIds = prev.districts
+          .filter((d) => stateIds.includes(d.stateId))
+          .map((d) => d.id);
         return {
           ...prev,
           countries: prev.countries.filter((c) => c.id !== id),
           states: prev.states.filter((s) => s.countryId !== id),
           districts: prev.districts.filter((d) => !stateIds.includes(d.stateId)),
+          cities: (prev.cities ?? []).filter((c) => !districtIds.includes(c.districtId)),
         };
       }),
     [update]
@@ -510,21 +544,33 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const editState = useCallback(
-    (id: string, name: string, countryId: string) =>
-      update((prev) => ({
-        ...prev,
-        states: prev.states.map((s) => (s.id === id ? { ...s, name, countryId } : s)),
-      })),
+    (id: string, name: string, countryId: string) => {
+      const trimmed = name.trim();
+      update((prev) => {
+        const from = prev.states.find((s) => s.id === id)?.name;
+        if (from && from !== trimmed) {
+          scheduleListingRelabel({ state: { from, to: trimmed } });
+        }
+        return {
+          ...prev,
+          states: prev.states.map((s) => (s.id === id ? { ...s, name: trimmed, countryId } : s)),
+        };
+      });
+    },
     [update]
   );
 
   const deleteState = useCallback(
     (id: string) =>
-      update((prev) => ({
-        ...prev,
-        states: prev.states.filter((s) => s.id !== id),
-        districts: prev.districts.filter((d) => d.stateId !== id),
-      })),
+      update((prev) => {
+        const districtIds = prev.districts.filter((d) => d.stateId === id).map((d) => d.id);
+        return {
+          ...prev,
+          states: prev.states.filter((s) => s.id !== id),
+          districts: prev.districts.filter((d) => d.stateId !== id),
+          cities: (prev.cities ?? []).filter((c) => !districtIds.includes(c.districtId)),
+        };
+      }),
     [update]
   );
 
@@ -548,11 +594,21 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const editDistrict = useCallback(
-    (id: string, name: string, stateId: string) =>
-      update((prev) => ({
-        ...prev,
-        districts: prev.districts.map((d) => (d.id === id ? { ...d, name, stateId } : d)),
-      })),
+    (id: string, name: string, stateId: string) => {
+      const trimmed = name.trim();
+      update((prev) => {
+        const from = prev.districts.find((d) => d.id === id)?.name;
+        if (from && from !== trimmed) {
+          scheduleListingRelabel({ district: { from, to: trimmed } });
+        }
+        return {
+          ...prev,
+          districts: prev.districts.map((d) =>
+            d.id === id ? { ...d, name: trimmed, stateId } : d
+          ),
+        };
+      });
+    },
     [update]
   );
 
@@ -561,6 +617,52 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
       update((prev) => ({
         ...prev,
         districts: prev.districts.filter((d) => d.id !== id),
+        cities: (prev.cities ?? []).filter((c) => c.districtId !== id),
+      })),
+    [update]
+  );
+
+  const addCity = useCallback(
+    (name: string, districtId: string) =>
+      update((prev) => {
+        const trimmed = name.trim();
+        if (!districtId || !prev.districts.some((d) => d.id === districtId)) return prev;
+        const cities = prev.cities ?? [];
+        if (cities.some((c) => c.districtId === districtId && namesMatch(c.name, trimmed))) {
+          return prev;
+        }
+        return {
+          ...prev,
+          cities: [...cities, { id: newId("ct"), name: trimmed, districtId }],
+        };
+      }),
+    [update]
+  );
+
+  const editCity = useCallback(
+    (id: string, name: string, districtId: string) => {
+      const trimmed = name.trim();
+      update((prev) => {
+        const from = (prev.cities ?? []).find((c) => c.id === id)?.name;
+        if (from && from !== trimmed) {
+          scheduleListingRelabel({ city: { from, to: trimmed } });
+        }
+        return {
+          ...prev,
+          cities: (prev.cities ?? []).map((c) =>
+            c.id === id ? { ...c, name: trimmed, districtId } : c
+          ),
+        };
+      });
+    },
+    [update]
+  );
+
+  const deleteCity = useCallback(
+    (id: string) =>
+      update((prev) => ({
+        ...prev,
+        cities: (prev.cities ?? []).filter((c) => c.id !== id),
       })),
     [update]
   );
@@ -580,10 +682,21 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
 
   const editParent = useCallback(
     (id: string, name: string) =>
-      update((prev) => ({
-        ...prev,
-        parents: prev.parents.map((p) => (p.id === id ? { ...p, name } : p)),
-      })),
+      update((prev) => {
+        const trimmed = name.trim();
+        if (!trimmed) return prev;
+        if (prev.parents.some((p) => p.id !== id && namesMatch(p.name, trimmed))) {
+          return prev;
+        }
+        const from = prev.parents.find((p) => p.id === id)?.name;
+        if (from && from !== trimmed) {
+          scheduleListingRelabel({ parentCategory: { from, to: trimmed } });
+        }
+        return {
+          ...prev,
+          parents: prev.parents.map((p) => (p.id === id ? { ...p, name: trimmed } : p)),
+        };
+      }),
     [update]
   );
 
@@ -629,16 +742,24 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const editCategory = useCallback(
-    (id: string, name: string, parentId: string) =>
-      update((prev) => ({
-        ...prev,
-        categories: prev.categories.map((c) =>
-          c.id === id ? { ...c, name, parentId } : c
-        ),
-        subcategories: prev.subcategories.map((sc) =>
-          sc.categoryId === id ? { ...sc, parentId } : sc
-        ),
-      })),
+    (id: string, name: string, parentId: string) => {
+      const trimmed = name.trim();
+      update((prev) => {
+        const from = prev.categories.find((c) => c.id === id)?.name;
+        if (from && from !== trimmed) {
+          scheduleListingRelabel({ category: { from, to: trimmed } });
+        }
+        return {
+          ...prev,
+          categories: prev.categories.map((c) =>
+            c.id === id ? { ...c, name: trimmed, parentId } : c
+          ),
+          subcategories: prev.subcategories.map((sc) =>
+            sc.categoryId === id ? { ...sc, parentId } : sc
+          ),
+        };
+      });
+    },
     [update]
   );
 
@@ -685,13 +806,18 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
     (id: string, name: string, categoryId: string) =>
       update((prev) => {
         const category = prev.categories.find((c) => c.id === categoryId);
+        const trimmed = name.trim();
+        const from = prev.subcategories.find((sc) => sc.id === id)?.name;
+        if (from && from !== trimmed) {
+          scheduleListingRelabel({ subcategory: { from, to: trimmed } });
+        }
         return {
           ...prev,
           subcategories: prev.subcategories.map((sc) =>
             sc.id === id
               ? {
                   ...sc,
-                  name,
+                  name: trimmed,
                   categoryId,
                   parentId: category?.parentId ?? sc.parentId,
                 }
@@ -734,11 +860,21 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const editExtraFilter = useCallback(
-    (id: string, name: string) =>
-      update((prev) => ({
-        ...prev,
-        extraFilters: prev.extraFilters.map((ef) => (ef.id === id ? { ...ef, name } : ef)),
-      })),
+    (id: string, name: string) => {
+      const trimmed = name.trim();
+      update((prev) => {
+        const from = prev.extraFilters.find((ef) => ef.id === id)?.name;
+        if (from && from !== trimmed) {
+          scheduleListingRelabel({ extraFilter: { from, to: trimmed } });
+        }
+        return {
+          ...prev,
+          extraFilters: prev.extraFilters.map((ef) =>
+            ef.id === id ? { ...ef, name: trimmed } : ef
+          ),
+        };
+      });
+    },
     [update]
   );
 
@@ -779,20 +915,28 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const editFeatureFilter = useCallback(
-    (id: string, name: string, parentId: string, subcategoryId?: string) =>
-      update((prev) => ({
-        ...prev,
-        featureFilters: prev.featureFilters.map((ff) =>
-          ff.id === id
-            ? {
-                ...ff,
-                name,
-                parentId,
-                subcategoryId: subcategoryId || undefined,
-              }
-            : ff
-        ),
-      })),
+    (id: string, name: string, parentId: string, subcategoryId?: string) => {
+      const trimmed = name.trim();
+      update((prev) => {
+        const from = prev.featureFilters.find((ff) => ff.id === id)?.name;
+        if (from && from !== trimmed) {
+          scheduleListingRelabel({ extraFilter: { from, to: trimmed } });
+        }
+        return {
+          ...prev,
+          featureFilters: prev.featureFilters.map((ff) =>
+            ff.id === id
+              ? {
+                  ...ff,
+                  name: trimmed,
+                  parentId,
+                  subcategoryId: subcategoryId || undefined,
+                }
+              : ff
+          ),
+        };
+      });
+    },
     [update]
   );
 
@@ -828,6 +972,15 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
       update((prev) => ({
         ...prev,
         districts: prev.districts.map((d) => (d.id === id ? { ...d, enabled } : d)),
+      })),
+    [update]
+  );
+
+  const setCityEnabled = useCallback(
+    (id: string, enabled: boolean) =>
+      update((prev) => ({
+        ...prev,
+        cities: (prev.cities ?? []).map((c) => (c.id === id ? { ...c, enabled } : c)),
       })),
     [update]
   );
@@ -919,6 +1072,7 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
     <AdminTaxonomyContext.Provider
       value={{
         data,
+        ready,
         addMainTab,
         editMainTab,
         deleteMainTab,
@@ -936,6 +1090,9 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
         addDistrict,
         editDistrict,
         deleteDistrict,
+        addCity,
+        editCity,
+        deleteCity,
         addParent,
         editParent,
         deleteParent,
@@ -957,6 +1114,7 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
         setCountryEnabled,
         setStateEnabled,
         setDistrictEnabled,
+        setCityEnabled,
         setParentEnabled,
         setCategoryEnabled,
         setSubcategoryEnabled,
@@ -978,4 +1136,4 @@ export function useAdminTaxonomy() {
   return ctx;
 }
 
-export type { Country, State, District, ParentCategory, Subcategory };
+export type { City, Country, State, District, ParentCategory, Subcategory };

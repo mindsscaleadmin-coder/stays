@@ -4,10 +4,11 @@ import {
   findHostStaffLogin,
 } from "@/lib/server/host-staff-repo";
 import { getRequestId } from "@/lib/observability/logger";
+import { checkAuthRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
-/** Demo host staff login when credentials live in Postgres (shared DB). */
+/** Host staff login when credentials live in Postgres (shared DB). */
 export async function POST(request: Request) {
   const requestId = getRequestId(request);
 
@@ -15,6 +16,13 @@ export async function POST(request: Request) {
     const body = (await request.json()) as { email?: string; password?: string };
     const email = typeof body.email === "string" ? body.email : "";
     const password = typeof body.password === "string" ? body.password : "";
+    const limited = await checkAuthRateLimit(request, email);
+    if (!limited.success) {
+      return NextResponse.json(
+        { ok: false as const, error: "Too many requests. Please try again later." },
+        { status: 429, headers: { "x-request-id": requestId } }
+      );
+    }
 
     const staffMatch = await findHostStaffLogin(email, password);
     if (staffMatch) {

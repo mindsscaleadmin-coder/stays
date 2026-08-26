@@ -9,7 +9,7 @@ import {
 import { withBookingAuth } from "@/lib/auth/with-booking-auth";
 import { enqueueBookingConfirmedJob } from "@/lib/queue/enqueue";
 
-export const POST = withBookingAuth(async (_request, context, userId) => {
+export const POST = withBookingAuth(async (_request, context, actor) => {
   try {
     await expirePendingBookings();
     const { id } = await context.params;
@@ -19,7 +19,7 @@ export const POST = withBookingAuth(async (_request, context, userId) => {
       if (!existing) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      assertHostOwnsListing(existing, userId);
+      assertHostOwnsListing(existing, actor);
     }
 
     const booking = await acceptBooking(id);

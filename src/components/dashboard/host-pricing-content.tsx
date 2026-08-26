@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowUpRight,
@@ -14,8 +15,6 @@ import {
   ReceiptText,
   Trash2,
   Users,
-  X,
-  Zap,
 } from "lucide-react";
 import { Link, useRouter } from "@/i18n/routing";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
@@ -34,19 +33,10 @@ import {
   useListingSubmissions,
 } from "@/lib/listings/use-listing-submissions";
 import type { ListingRoom, SubmittedListing } from "@/lib/listings/submission-types";
-import { HOST_LISTINGS } from "@/lib/mock/dashboard-data";
 import { useHostPricing } from "@/lib/host/use-host-pricing";
 import { useHostExtraLibrary } from "@/lib/host/use-host-extra-library";
 import { usePlatformConfig } from "@/lib/admin/use-admin-platform-config";
 import { clampNightlyPrice } from "@/lib/admin/platform-config-data";
-import { updateListingStatus } from "@/lib/listings/submission-data";
-import { syncRoomPricesFromListing } from "@/lib/host/host-pricing-data";
-import {
-  defaultFlashDealEndsAt,
-  flashDealEndsAtToIso,
-  flashDealEndsAtToLocalInput,
-  isFlashDealActive,
-} from "@/lib/host/flash-deal-utils";
 import {
   EXTRA_CHARGE_BILLING_LABELS,
   type ExtraChargeBilling,
@@ -55,8 +45,6 @@ import {
   normalizeExtraChargeBilling,
   type ExtraCharge,
 } from "@/lib/host/host-pricing-types";
-
-const DEFAULT_LISTING_COUNTRY = "United Arab Emirates";
 
 const fieldClass =
   "w-full border border-gray-200/90 rounded-xl px-3 py-2.5 text-sm bg-white shadow-sm shadow-gray-100/80 focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-colors disabled:bg-gray-50 disabled:text-gray-400 disabled:shadow-none";
@@ -95,6 +83,75 @@ function commonCatalogId(key: string) {
   return `common:${key}`;
 }
 
+function RateInput({
+  value,
+  onCommit,
+  disabled,
+  placeholder,
+  min = 0,
+  max,
+  currency,
+  currencySymbol,
+  className,
+  commitOnType = true,
+}: {
+  value: number | null | "";
+  onCommit: (raw: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  min?: number;
+  max?: number;
+  currency?: string;
+  currencySymbol?: string;
+  className?: string;
+  commitOnType?: boolean;
+}) {
+  const [draft, setDraft] = useState(value === null || value === "" ? "" : String(value));
+  const focused = useRef(false);
+
+  useEffect(() => {
+    if (focused.current) return;
+    setDraft(value === null || value === "" ? "" : String(value));
+  }, [value]);
+
+  const inputClass = className ?? fieldClass;
+  const input = (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      disabled={disabled}
+      placeholder={placeholder}
+      value={draft}
+      className={currency ? `${inputClass} rounded-s-none border-s-0` : inputClass}
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onBlur={() => {
+        focused.current = false;
+        onCommit(draft);
+      }}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+        if (commitOnType && raw !== "") onCommit(raw);
+      }}
+    />
+  );
+
+  if (!currency) return input;
+
+  return (
+    <div className="flex items-stretch">
+      <div className="inline-flex items-center gap-1.5 rounded-s-xl border border-gray-200/90 border-e-0 bg-gray-50/80 px-3 text-sm text-gray-700 shrink-0">
+        <span className="font-semibold text-gray-900">{currency}</span>
+        {currencySymbol ? <span className="text-gray-400">{currencySymbol}</span> : null}
+      </div>
+      {input}
+    </div>
+  );
+}
+
 export function HostPricingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -103,36 +160,29 @@ export function HostPricingContent() {
   const platformConfig = usePlatformConfig();
   const hostId = resolveHostId(user);
   const hostName = resolveHostName(user);
-  const { all, update, updateRoomPrice, deleteRoom, refresh } = useListingSubmissions();
+  const { all, update, updateRoomPrice, deleteRoom, ready: listingsReady, setStatus } =
+    useListingSubmissions();
   const submissions = filterHostListings(all, hostId ?? "", hostName);
 
   const bounds = platformConfig.features.hostBounds;
   const dynamicPricingOn = platformConfig.features.hostFeatures.dynamicPricing;
-  const allowWeekend = dynamicPricingOn && bounds.allowWeekendPricing;
-  const allowMonthly = dynamicPricingOn && bounds.allowMonthlyPricing;
   const allowSeasonal = dynamicPricingOn && bounds.allowSeasonalPricing;
   const allowDiscounts = dynamicPricingOn && bounds.allowDiscounts;
   const allowExtraCharges = bounds.allowExtraCharges;
 
-  const listingOptions = useMemo(() => {
-    if (submissions.length > 0) {
-      return submissions.map((l) => ({
+  const listingOptions = useMemo(
+    () =>
+      submissions.map((l) => ({
         id: l.id,
         title: l.title,
         country: l.country,
         rooms: l.rooms ?? [],
-      }));
-    }
-    return HOST_LISTINGS.map((l) => ({
-      id: l.id,
-      title: l.title,
-      country: DEFAULT_LISTING_COUNTRY,
-      rooms: [] as ListingRoom[],
-    }));
-  }, [submissions]);
+      })),
+    [submissions]
+  );
 
   const initialListingId =
-    searchParams.get("listing") ?? listingOptions[0]?.id ?? "1";
+    searchParams.get("listing") ?? listingOptions[0]?.id ?? "";
 
   const fromListing = searchParams.get("from") === "listing";
 
@@ -176,18 +226,21 @@ export function HostPricingContent() {
     [submissions, listingId]
   );
 
-  const rooms = selectedListing?.rooms ?? [];
+  const rooms = useMemo(
+    () => selectedListing?.rooms ?? [],
+    [selectedListing]
+  );
 
-  function findCapacityTab(canonicalId: string): FilterTab | null {
+  const findCapacityTab = useCallback((canonicalId: string): FilterTab | null => {
     return (
       taxonomy.mainTabs.find((t) => {
         if (t.enabled === false) return false;
         return t.id === canonicalId || resolvePropertyTabId(t) === canonicalId;
       }) ?? null
     );
-  }
+  }, [taxonomy.mainTabs]);
 
-  function optionsForTab(tab: FilterTab | null, canonicalId?: string) {
+  const optionsForTab = useCallback((tab: FilterTab | null, canonicalId?: string) => {
     if (!tab && !canonicalId) return [];
     const tabId = tab?.id ?? canonicalId!;
     const fromTaxonomy = [...(taxonomy.customItems[tabId] ?? [])]
@@ -198,7 +251,7 @@ export function HostPricingContent() {
     if (fromTaxonomy.length > 0) return fromTaxonomy;
     const defaults = canonicalId ? DEFAULT_CUSTOM_ITEMS[canonicalId] : undefined;
     return defaults ? [...defaults] : [];
-  }
+  }, [taxonomy.customItems]);
 
   function selectedIdForTab(tab: FilterTab | null, options: { id: string; name: string }[]) {
     if (!selectedSubmission || !tab) return "";
@@ -212,23 +265,23 @@ export function HostPricingContent() {
     );
   }
 
-  const bedsTab = useMemo(() => findCapacityTab("beds"), [taxonomy.mainTabs]);
-  const bathsTab = useMemo(() => findCapacityTab("baths"), [taxonomy.mainTabs]);
+  const bedsTab = useMemo(() => findCapacityTab("beds"), [findCapacityTab]);
+  const bathsTab = useMemo(() => findCapacityTab("baths"), [findCapacityTab]);
   const guestsTab = useMemo(
     () => findCapacityTab("guests") ?? ({ id: "guests", label: "Guests" } satisfies FilterTab),
-    [taxonomy.mainTabs]
+    [findCapacityTab]
   );
   const bedsOptions = useMemo(
     () => optionsForTab(bedsTab, "beds"),
-    [bedsTab, taxonomy.customItems]
+    [bedsTab, optionsForTab]
   );
   const bathsOptions = useMemo(
     () => optionsForTab(bathsTab, "baths"),
-    [bathsTab, taxonomy.customItems]
+    [bathsTab, optionsForTab]
   );
   const guestsOptions = useMemo(
     () => optionsForTab(guestsTab, "guests"),
-    [guestsTab, taxonomy.customItems]
+    [guestsTab, optionsForTab]
   );
 
   async function saveListingCustomFilters(
@@ -298,7 +351,7 @@ export function HostPricingContent() {
     }
     if (selectedRoomId && !rooms.some((r) => r.id === selectedRoomId)) {
       setSelectedRoomId(rooms[0]?.id ?? "");
-    } else if (!selectedRoomId && rooms.length === 1) {
+    } else if (!selectedRoomId && rooms.length > 0) {
       setSelectedRoomId(rooms[0].id);
     }
   }, [rooms, searchParams, selectedRoomId]);
@@ -317,7 +370,7 @@ export function HostPricingContent() {
     settings,
     ready,
     save,
-    refresh: refreshPricing,
+    flushSave,
     setRoomPrice,
     addSeasonalPrice,
     removeSeasonalPrice,
@@ -326,17 +379,33 @@ export function HostPricingContent() {
     removeExtraCharge,
   } = useHostPricing(listingId, countryConfig);
 
-  // Keep pricing.roomPrices aligned with listing rooms (multi-room inventory).
-  const roomSyncKey = rooms.map((r) => `${r.id}:${r.price}`).join("|");
+  // Keep shared pricing.roomPrices aligned with listing rooms (once per room set).
+  const roomSyncKey = rooms.map((r) => r.id).join("|");
+  const roomSyncDoneRef = useRef("");
   useEffect(() => {
-    if (!listingId || !roomSyncKey) return;
-    const changed = syncRoomPricesFromListing(
-      listingId,
-      rooms.map((r) => ({ id: r.id, price: r.price })),
-      countryConfig
-    );
-    if (changed) refreshPricing();
-  }, [listingId, roomSyncKey, countryConfig, refreshPricing, rooms]);
+    roomSyncDoneRef.current = "";
+  }, [listingId]);
+  useEffect(() => {
+    if (!settings || !listingId || rooms.length === 0) return;
+    const stamp = `${listingId}:${roomSyncKey}`;
+    if (roomSyncDoneRef.current === stamp) return;
+    const missing = rooms.filter((room) => !settings.roomPrices.some((r) => r.roomId === room.id));
+    const pruned = settings.roomPrices.filter((r) => rooms.some((room) => room.id === r.roomId));
+    roomSyncDoneRef.current = stamp;
+    if (missing.length === 0 && pruned.length === settings.roomPrices.length) return;
+    save({
+      roomPrices: [
+        ...pruned,
+        ...missing.map((room) => ({
+          roomId: room.id,
+          basePrice: Math.max(0, room.price || settings.basePrice),
+          weekendPrice: null,
+          monthlyPrice: null,
+        })),
+      ],
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingId, roomSyncKey, ready]);
 
   function roomRate(room: ListingRoom) {
     const stored = settings?.roomPrices.find((r) => r.roomId === room.id);
@@ -347,24 +416,14 @@ export function HostPricingContent() {
     };
   }
 
+  const roomPriceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   function handleRoomBasePrice(room: ListingRoom, value: string) {
     const price = clampNightlyPrice(Math.max(0, Number(value) || 0));
-    setRoomPrice(room.id, { basePrice: price });
-    updateRoomPrice(listingId, room.id, price);
-  }
-
-  function handleRoomWeekendPrice(room: ListingRoom, value: string) {
-    if (!allowWeekend) return;
-    setRoomPrice(room.id, {
-      weekendPrice: value === "" ? null : clampNightlyPrice(Math.max(0, Number(value) || 0)),
-    });
-  }
-
-  function handleRoomMonthlyPrice(room: ListingRoom, value: string) {
-    if (!allowMonthly) return;
-    setRoomPrice(room.id, {
-      monthlyPrice: value === "" ? null : clampNightlyPrice(Math.max(0, Number(value) || 0)),
-    });
+    setRoomPrice(room.id, { basePrice: price, weekendPrice: null, monthlyPrice: null });
+    if (roomPriceTimer.current) clearTimeout(roomPriceTimer.current);
+    roomPriceTimer.current = setTimeout(() => {
+      void updateRoomPrice(listingId, room.id, price);
+    }, 400);
   }
 
   const [submittingReview, setSubmittingReview] = useState(false);
@@ -375,13 +434,19 @@ export function HostPricingContent() {
   }
 
   async function handleSubmitForReview() {
+    if (!listingId) return;
     setSubmittingReview(true);
     try {
-      updateListingStatus(listingId, "pending");
-      refresh();
+      if (typeof document !== "undefined") {
+        (document.activeElement as HTMLElement | null)?.blur?.();
+      }
+      await Promise.resolve();
+      await flushSave();
+      const ok = await setStatus(listingId, "pending");
+      if (!ok) throw new Error("status");
       router.push("/host/listings?submitted=1");
     } catch {
-      flash("Could not submit for review. Please try again.");
+      flash("Could not save and submit. Please try again.");
       setSubmittingReview(false);
     }
   }
@@ -535,7 +600,10 @@ export function HostPricingContent() {
       flash("Could not remove room.");
       return;
     }
-    if (selectedRoomId === room.id) setSelectedRoomId("");
+    if (selectedRoomId === room.id) {
+      const remaining = rooms.filter((r) => r.id !== room.id);
+      setSelectedRoomId(remaining[0]?.id ?? "");
+    }
     flash(`“${room.name}” removed.`);
   }
 
@@ -563,6 +631,35 @@ export function HostPricingContent() {
         <Power className={`w-3.5 h-3.5 ${enabled ? "text-green-700" : "text-gray-400"}`} />
         {enabled ? "On" : "Off"}
       </button>
+    );
+  }
+
+  if (!listingsReady) {
+    return (
+      <HostDashboardShell>
+        <div className="flex items-center justify-center min-h-[320px]">
+          <Loader2 className="w-8 h-8 animate-spin text-green-600" />
+        </div>
+      </HostDashboardShell>
+    );
+  }
+
+  if (listingOptions.length === 0) {
+    return (
+      <HostDashboardShell>
+        <div className="bg-white rounded-2xl border p-8 text-center max-w-lg">
+          <h2 className="text-lg font-bold text-gray-900 mb-2">No listings yet</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Add a property first. Rates, discounts, and extras are saved on that listing.
+          </p>
+          <Link
+            href="/host/listings/new"
+            className="inline-flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold px-5 py-2.5 rounded-xl"
+          >
+            <Plus className="w-4 h-4" /> Add Property
+          </Link>
+        </div>
+      </HostDashboardShell>
     );
   }
 
@@ -613,35 +710,18 @@ export function HostPricingContent() {
               </span>
               <div className="min-w-0">
                 <h3 className="text-sm font-semibold text-gray-900 truncate">
-                  {selectedRoom
-                    ? `${selectedRoom.name} pricing`
-                    : rooms.length > 0
-                      ? "Property default rate"
-                      : "Base pricing"}
+                  {rooms.length > 0 ? "Room types" : "Base pricing"}
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {rooms.length === 0
                     ? "No rooms yet — this nightly rate is what guests see on the listing and calculator."
-                    : selectedRoom
-                      ? "This room’s rate appears on the listing details page and booking calculator."
-                      : "Fallback rate. Guests choose a room type on the details page; each room uses its own rate."}
+                    : "Each room category has its own nightly rate. Guests pick a room on the listing."}
                 </p>
               </div>
             </div>
-            {selectedRoom && (
-              <button
-                type="button"
-                onClick={() => setSelectedRoomId("")}
-                className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-800 border border-gray-200 hover:bg-gray-50 px-2.5 py-1.5 rounded-lg transition-colors"
-                title="Edit property default instead"
-              >
-                <X className="w-3.5 h-3.5" />
-                Default
-              </button>
-            )}
           </div>
 
-          <div className="flex flex-col lg:flex-row lg:items-end gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
             <label className="block flex-1 min-w-0">
               <span className={labelClass}>Property</span>
               <select
@@ -651,7 +731,7 @@ export function HostPricingContent() {
                   setListingId(nextId);
                   const nextRooms =
                     listingOptions.find((l) => l.id === nextId)?.rooms ?? [];
-                  setSelectedRoomId(nextRooms.length === 1 ? nextRooms[0].id : "");
+                  setSelectedRoomId(nextRooms[0]?.id ?? "");
                 }}
                 className={fieldClass}
               >
@@ -663,140 +743,39 @@ export function HostPricingContent() {
                 ))}
               </select>
             </label>
-            <div className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2.5 text-sm text-gray-700 shrink-0">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                Currency
-              </span>
-              <span className="font-semibold text-gray-900">{settings.currency}</span>
-              <span className="text-gray-400">{countryConfig.currencySymbol}</span>
-            </div>
-          </div>
-
-          {rooms.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50/40 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <p className="text-xs text-amber-900/80">
-                Add room types if this property has multiple units with different rates.
-              </p>
-              <Link
-                href={`/host/listings/${listingId}/rooms/new`}
-                className="shrink-0 inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-4 py-2.5 rounded-xl shadow-sm shadow-green-700/20 transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add room
-              </Link>
-            </div>
-          ) : (
-            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-              <label className="block flex-1 min-w-0">
-                <span className={labelClass}>Room type</span>
-                <select
-                  value={selectedRoomId || ""}
-                  onChange={(e) => setSelectedRoomId(e.target.value)}
-                  className={fieldClass}
-                >
-                  <option value="">Property default (base price)</option>
-                  {rooms.map((room) => {
-                    const rate = roomRate(room);
-                    return (
-                      <option key={room.id} value={room.id}>
-                        {room.name}
-                        {rate.basePrice > 0
-                          ? ` · ${settings.currency} ${rate.basePrice}/night`
-                          : ""}
-                      </option>
-                    );
-                  })}
-                </select>
-                <p className="text-[11px] text-gray-400 mt-1.5">
-                  Guests pick from these room types on the listing details page and price calculator.
-                </p>
-              </label>
-              <Link
-                href={`/host/listings/${listingId}/rooms/new`}
-                className="shrink-0 inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-4 py-2.5 rounded-xl shadow-sm shadow-green-700/20 transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add room
-              </Link>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <label className="block">
+            {rooms.length === 0 && (
+            <label className="block w-full sm:w-64 shrink-0">
               <span className={labelClass}>
-                {selectedRoom ? "Room nightly rate" : "Nightly rate"} ({settings.currency})
+                Base nightly rate
               </span>
-              <input
-                type="number"
+              <RateInput
                 min={bounds.minNightlyPrice || 0}
-                value={
-                  selectedRoom
-                    ? roomRate(selectedRoom).basePrice
-                    : settings.basePrice
-                }
-                onChange={(e) => {
-                  if (selectedRoom) {
-                    handleRoomBasePrice(selectedRoom, e.target.value);
-                  } else {
-                    save({ basePrice: clampNightlyPrice(Math.max(0, Number(e.target.value) || 0)) });
-                  }
+                currency={settings.currency}
+                currencySymbol={countryConfig.currencySymbol}
+                value={settings.basePrice}
+                onCommit={(raw) => {
+                  save({
+                    basePrice: clampNightlyPrice(Math.max(0, Number(raw) || 0)),
+                    weekendPrice: null,
+                    monthlyPrice: null,
+                  });
                 }}
-                className={fieldClass}
               />
             </label>
-            <label className="block">
-              <span className={labelClass}>Weekend rate (Fri–Sat)</span>
-              <input
-                type="number"
-                min={0}
-                disabled={!allowWeekend}
-                value={
-                  selectedRoom
-                    ? roomRate(selectedRoom).weekendPrice ?? ""
-                    : settings.weekendPrice ?? ""
-                }
-                onChange={(e) => {
-                  if (!allowWeekend) return;
-                  if (selectedRoom) {
-                    handleRoomWeekendPrice(selectedRoom, e.target.value);
-                  } else {
-                    const v = e.target.value;
-                    save({
-                      weekendPrice:
-                        v === "" ? null : clampNightlyPrice(Math.max(0, Number(v) || 0)),
-                    });
-                  }
-                }}
-                placeholder={allowWeekend ? "Same as base" : "Disabled by admin"}
-                className={fieldClass}
-              />
-            </label>
-            <label className="block">
-              <span className={labelClass}>Monthly rate (28+ nights)</span>
-              <input
-                type="number"
-                min={0}
-                disabled={!allowMonthly}
-                value={
-                  selectedRoom
-                    ? roomRate(selectedRoom).monthlyPrice ?? ""
-                    : settings.monthlyPrice ?? ""
-                }
-                onChange={(e) => {
-                  if (!allowMonthly) return;
-                  if (selectedRoom) {
-                    handleRoomMonthlyPrice(selectedRoom, e.target.value);
-                  } else {
-                    const v = e.target.value;
-                    save({
-                      monthlyPrice:
-                        v === "" ? null : clampNightlyPrice(Math.max(0, Number(v) || 0)),
-                    });
-                  }
-                }}
-                placeholder={allowMonthly ? "Same as base" : "Disabled by admin"}
-                className={fieldClass}
-              />
-            </label>
+            )}
           </div>
+
+          {rooms.length === 0 && (() => {
+            const nightly = settings.basePrice;
+            if (!nightly) return null;
+            return (
+              <p className="text-xs text-gray-500">
+                Guests see {settings.currency} {Math.round(nightly).toLocaleString()}/night
+                for the whole property until you add room types. Add weekly, monthly, or date
+                discounts in the sections below — they apply automatically at checkout.
+              </p>
+            );
+          })()}
 
           {(bedsTab || bathsTab || guestsTab) && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-gray-100">
@@ -857,6 +836,56 @@ export function HostPricingContent() {
               </label>
             </div>
           )}
+
+          {rooms.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50/40 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <p className="text-xs text-amber-900/80">
+                Add rooms if this property has more than one unit. Each room can be a different category with its own rate.
+              </p>
+              <Link
+                href={`/host/listings/${listingId}/rooms/new`}
+                className="shrink-0 inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-4 py-2.5 rounded-xl shadow-sm shadow-green-700/20 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add room
+              </Link>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+              <label className="block flex-1 min-w-0">
+                <span className={labelClass}>Room</span>
+                <select
+                  value={selectedRoomId || rooms[0]?.id || ""}
+                  onChange={(e) => {
+                    if (e.target.value) setSelectedRoomId(e.target.value);
+                  }}
+                  className={fieldClass}
+                >
+                  {rooms.map((room) => {
+                    const rate = roomRate(room);
+                    return (
+                      <option key={room.id} value={room.id}>
+                        {room.typeName && room.typeName !== room.name
+                          ? `${room.name} · ${room.typeName}`
+                          : room.name}
+                        {rate.basePrice > 0
+                          ? ` · ${settings.currency} ${rate.basePrice}/night`
+                          : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+                <p className="text-[11px] text-gray-400 mt-1.5">
+                  Guests pick from these room types on the listing details page and price calculator.
+                </p>
+              </label>
+              <Link
+                href={`/host/listings/${listingId}/rooms/new`}
+                className="shrink-0 inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-4 py-2.5 rounded-xl shadow-sm shadow-green-700/20 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add room
+              </Link>
+            </div>
+          )}
         </section>
 
         {rooms.length > 0 && (
@@ -871,7 +900,7 @@ export function HostPricingContent() {
                     Added rooms ({rooms.length})
                   </h3>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Select a room to edit its rates above.
+                    Each row has its own nightly rate. Select a room to edit discounts below.
                   </p>
                 </div>
               </div>
@@ -891,50 +920,45 @@ export function HostPricingContent() {
                   >
                     <button
                       type="button"
-                      onClick={() => setSelectedRoomId(isActive ? "" : room.id)}
-                      className="flex-1 min-w-0 text-left"
+                      onClick={() => setSelectedRoomId(room.id)}
+                      className="flex-1 min-w-0 text-left flex items-center gap-3"
                     >
-                      <p className="text-sm font-semibold text-gray-900 truncate">{room.name}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {room.capacity} guests · {room.beds} beds · {room.baths} baths
-                      </p>
+                      <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-gray-100 border border-gray-200/80 shrink-0">
+                        {room.img ? (
+                          <Image
+                            src={room.img}
+                            alt=""
+                            fill
+                            className="object-cover"
+                            sizes="56px"
+                            unoptimized
+                          />
+                        ) : (
+                          <span className="absolute inset-0 flex items-center justify-center text-gray-400">
+                            <BedDouble className="w-5 h-5" />
+                          </span>
+                        )}
+                      </div>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold text-gray-900 truncate">{room.name}</span>
+                        <span className="block text-xs text-gray-500 mt-0.5">
+                          {room.typeName && room.typeName !== room.name ? `${room.typeName} · ` : ""}
+                          {room.capacity} guests · {room.beds} beds · {room.baths} baths
+                        </span>
+                      </span>
                     </button>
-                    <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                    <div
+                      className="flex items-center gap-2 flex-wrap sm:flex-nowrap"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <label className="block">
-                        <span className="sr-only">Nightly rate</span>
-                        <input
-                          type="number"
+                        <span className="sr-only">Nightly rate ({settings.currency})</span>
+                        <RateInput
                           min={bounds.minNightlyPrice || 0}
                           value={rate.basePrice}
-                          onChange={(e) => handleRoomBasePrice(room, e.target.value)}
-                          className="w-24 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400 bg-white"
-                          title={`Nightly (${settings.currency})`}
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="sr-only">Weekend rate</span>
-                        <input
-                          type="number"
-                          min={0}
-                          disabled={!allowWeekend}
-                          value={rate.weekendPrice ?? ""}
-                          onChange={(e) => handleRoomWeekendPrice(room, e.target.value)}
-                          placeholder={allowWeekend ? "Wknd" : "Off"}
-                          className="w-24 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400 disabled:bg-gray-50 disabled:text-gray-400 bg-white"
-                          title="Weekend rate"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="sr-only">Monthly rate</span>
-                        <input
-                          type="number"
-                          min={0}
-                          disabled={!allowMonthly}
-                          value={rate.monthlyPrice ?? ""}
-                          onChange={(e) => handleRoomMonthlyPrice(room, e.target.value)}
-                          placeholder={allowMonthly ? "Mo" : "Off"}
-                          className="w-24 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400 disabled:bg-gray-50 disabled:text-gray-400 bg-white"
-                          title="Monthly rate (28+ nights)"
+                          commitOnType={false}
+                          onCommit={(raw) => handleRoomBasePrice(room, raw)}
+                          className="w-28 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400 bg-white"
                         />
                       </label>
                       <button
@@ -966,7 +990,15 @@ export function HostPricingContent() {
               <SectionToggle
                 enabled={settings.seasonalEnabled}
                 label="seasonal pricing"
-                onToggle={() => save({ seasonalEnabled: !settings.seasonalEnabled })}
+                onToggle={() => {
+                  const on = !settings.seasonalEnabled;
+                  save({ seasonalEnabled: on }, { immediate: true });
+                  flash(
+                    on
+                      ? "Seasonal pricing is on. Guests see those rates on the listing."
+                      : "Seasonal pricing is off. Guests only see the base nightly rate."
+                  );
+                }}
               />
             )}
           </div>
@@ -1074,7 +1106,15 @@ export function HostPricingContent() {
               <SectionToggle
                 enabled={settings.discountsEnabled}
                 label="discounts"
-                onToggle={() => save({ discountsEnabled: !settings.discountsEnabled })}
+                onToggle={() => {
+                  const on = !settings.discountsEnabled;
+                  save({ discountsEnabled: on }, { immediate: true });
+                  flash(
+                    on
+                      ? "Discounts are on. Guests see them on the listing and at checkout."
+                      : "Discounts are off. They no longer apply at checkout."
+                  );
+                }}
               />
             )}
           </div>
@@ -1090,72 +1130,71 @@ export function HostPricingContent() {
           ) : (
           <>
           <p className="text-xs text-gray-500 leading-relaxed">
-            Applied on the base or room nightly rate when no seasonal rate is active and the stay
-            is not already using a dedicated monthly rate (28+ nights).
+            Applied on the base or room nightly rate when no seasonal rate is active.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <label className="block">
               <span className={labelClass}>Weekly stay discount (%)</span>
-              <input
-                type="number"
+              <RateInput
                 min={0}
                 max={100}
                 value={settings.weeklyDiscountPct}
-                onChange={(e) => save({ weeklyDiscountPct: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })}
-                className={fieldClass}
+                onCommit={(raw) =>
+                  save({ weeklyDiscountPct: Math.min(100, Math.max(0, Number(raw) || 0)) })
+                }
               />
             </label>
             <label className="block">
               <span className={labelClass}>Monthly stay discount (%)</span>
-              <input
-                type="number"
+              <RateInput
                 min={0}
                 max={100}
                 value={settings.monthlyDiscountPct}
-                onChange={(e) => save({ monthlyDiscountPct: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })}
-                className={fieldClass}
+                onCommit={(raw) =>
+                  save({ monthlyDiscountPct: Math.min(100, Math.max(0, Number(raw) || 0)) })
+                }
               />
             </label>
             <label className="block">
               <span className={labelClass}>Early bird discount (%)</span>
-              <input
-                type="number"
+              <RateInput
                 min={0}
                 max={100}
                 value={settings.earlyBirdDiscountPct}
-                onChange={(e) => save({ earlyBirdDiscountPct: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })}
-                className={fieldClass}
+                onCommit={(raw) =>
+                  save({ earlyBirdDiscountPct: Math.min(100, Math.max(0, Number(raw) || 0)) })
+                }
               />
             </label>
             <label className="block">
               <span className={labelClass}>Early bird — days ahead</span>
-              <input
-                type="number"
+              <RateInput
                 min={1}
                 value={settings.earlyBirdDaysAhead}
-                onChange={(e) => save({ earlyBirdDaysAhead: Math.max(1, Number(e.target.value) || 1) })}
-                className={fieldClass}
+                onCommit={(raw) =>
+                  save({ earlyBirdDaysAhead: Math.max(1, Number(raw) || 1) })
+                }
               />
             </label>
             <label className="block">
               <span className={labelClass}>Last-minute discount (%)</span>
-              <input
-                type="number"
+              <RateInput
                 min={0}
                 max={100}
                 value={settings.lastMinuteDiscountPct}
-                onChange={(e) => save({ lastMinuteDiscountPct: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })}
-                className={fieldClass}
+                onCommit={(raw) =>
+                  save({ lastMinuteDiscountPct: Math.min(100, Math.max(0, Number(raw) || 0)) })
+                }
               />
             </label>
             <label className="block">
               <span className={labelClass}>Last-minute — within N days</span>
-              <input
-                type="number"
+              <RateInput
                 min={1}
                 value={settings.lastMinuteDaysAhead}
-                onChange={(e) => save({ lastMinuteDaysAhead: Math.max(1, Number(e.target.value) || 1) })}
-                className={fieldClass}
+                onCommit={(raw) =>
+                  save({ lastMinuteDaysAhead: Math.max(1, Number(raw) || 1) })
+                }
               />
             </label>
           </div>
@@ -1164,107 +1203,6 @@ export function HostPricingContent() {
             Early bird and last-minute apply based on how far ahead the guest books. These stack with
             the base price only when seasonal pricing is not covering those dates.
           </p>
-
-          <div className="rounded-xl border border-red-100 bg-red-50/40 p-4 space-y-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-2 min-w-0">
-                <Zap className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">Last flash deal</p>
-                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
-                    Time-boxed promo on the homepage Flash Deals section. Guests get this discount
-                    until it ends.
-                  </p>
-                </div>
-              </div>
-              <SectionToggle
-                enabled={settings.flashDealEnabled}
-                label="flash deal"
-                onToggle={() => {
-                  const turningOn = !settings.flashDealEnabled;
-                  save({
-                    flashDealEnabled: turningOn,
-                    flashDealEndsAt: turningOn
-                      ? settings.flashDealEndsAt ??
-                        flashDealEndsAtToIso(defaultFlashDealEndsAt(48))
-                      : settings.flashDealEndsAt,
-                    flashDealDiscountPct:
-                      settings.flashDealDiscountPct > 0
-                        ? settings.flashDealDiscountPct
-                        : settings.lastMinuteDiscountPct,
-                  });
-                  flash(
-                    turningOn
-                      ? "Flash deal enabled — set discount and end time."
-                      : "Flash deal turned off."
-                  );
-                }}
-              />
-            </div>
-
-            {settings.flashDealEnabled && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <label className="block">
-                  <span className={labelClass}>Flash discount (%)</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={settings.flashDealDiscountPct}
-                    onChange={(e) =>
-                      save({
-                        flashDealDiscountPct: Math.min(
-                          100,
-                          Math.max(1, Number(e.target.value) || 0)
-                        ),
-                      })
-                    }
-                    className={fieldClass}
-                  />
-                </label>
-                <label className="block">
-                  <span className={labelClass}>Ends at</span>
-                  <input
-                    type="datetime-local"
-                    value={flashDealEndsAtToLocalInput(settings.flashDealEndsAt)}
-                    min={flashDealEndsAtToLocalInput(new Date().toISOString())}
-                    onChange={(e) =>
-                      save({ flashDealEndsAt: flashDealEndsAtToIso(e.target.value) })
-                    }
-                    className={fieldClass}
-                  />
-                </label>
-                <div className="sm:col-span-2 flex flex-wrap items-center gap-2 text-xs">
-                  {isFlashDealActive(settings) ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500 text-white font-semibold px-2.5 py-1">
-                      Live on homepage · −{settings.flashDealDiscountPct}%
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-200 text-gray-600 font-medium px-2.5 py-1">
-                      Not live — set a future end time
-                    </span>
-                  )}
-                  <span className="text-gray-500">
-                    Deal nightly ≈ {settings.currency}{" "}
-                    {Math.round(
-                      settings.basePrice * (1 - Math.min(100, settings.flashDealDiscountPct) / 100)
-                    ).toLocaleString()}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      save({
-                        flashDealEndsAt: flashDealEndsAtToIso(defaultFlashDealEndsAt(48)),
-                      })
-                    }
-                    className="text-red-700 font-semibold hover:underline"
-                  >
-                    Set end +48h
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
           </>
           )}
         </section>
@@ -1304,7 +1242,15 @@ export function HostPricingContent() {
                 <SectionToggle
                   enabled={settings.extraChargesEnabled}
                   label="extra charges"
-                  onToggle={() => save({ extraChargesEnabled: !settings.extraChargesEnabled })}
+                  onToggle={() => {
+                    const on = !settings.extraChargesEnabled;
+                    save({ extraChargesEnabled: on }, { immediate: true });
+                    flash(
+                      on
+                        ? "Extra charges are on. Guests can add them on the listing and at checkout."
+                        : "Extra charges are off. Guests will not see extras or extra-guest fees."
+                    );
+                  }}
                 />
               )}
             </div>
@@ -1679,7 +1625,7 @@ export function HostPricingContent() {
               disabled={submittingReview}
               className="bg-green-700 hover:bg-green-800 disabled:opacity-60 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition-colors"
             >
-              {submittingReview ? "Submitting…" : "Submit for Review"}
+              {submittingReview ? "Saving & submitting…" : "Save & submit"}
             </button>
             <button
               type="button"
@@ -1691,8 +1637,8 @@ export function HostPricingContent() {
             </button>
           </div>
           <p className="text-xs text-gray-400">
-            Submit for Review saves pricing and sends the listing to the admin approval queue.
-            Cancel returns to {fromListing ? "the listing form" : "My Listings"}.
+            Save & submit writes the rate and discounts, then sends the listing to the admin
+            approval queue. Cancel returns to {fromListing ? "the listing form" : "My Listings"}.
           </p>
         </div>
       </div>

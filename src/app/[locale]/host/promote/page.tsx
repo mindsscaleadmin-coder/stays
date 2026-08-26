@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { setRequestLocale } from "next-intl/server";
 import { HostPromoteContent } from "@/components/dashboard/host-promote-content";
 
@@ -8,5 +9,9 @@ export default async function HostPromotePage({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  return <HostPromoteContent />;
+  return (
+    <Suspense>
+      <HostPromoteContent />
+    </Suspense>
+  );
 }

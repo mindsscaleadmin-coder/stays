@@ -4,7 +4,6 @@ import type {
   ListingPromotionKind,
 } from "./host-promotions-types";
 import { isSharedDbEnabled } from "@/lib/shared-db";
-import { setCachedPromotedIds } from "@/lib/listings/promotions-cache";
 
 export function shouldUseSharedPromotions() {
   return isSharedDbEnabled();
@@ -29,24 +28,24 @@ export async function purchasePromotionViaApi(input: {
   kind: ListingPromotionKind;
   durationDays: ListingPromotionDurationDays;
   listingTitle?: string;
-}): Promise<ListingPromotion | null> {
+}): Promise<{ promotion: ListingPromotion; checkoutUrl?: string } | null> {
   const res = await fetch("/api/promotions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "purchase", ...input }),
   });
   if (!res.ok) return null;
+  const data = (await res.json()) as { promotion: ListingPromotion; checkoutUrl?: string };
+  return { promotion: data.promotion, checkoutUrl: data.checkoutUrl };
+}
+
+export async function confirmPromotionViaApi(promotionId: string, sessionId: string) {
+  const res = await fetch("/api/promotions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "confirm", promotionId, sessionId }),
+  });
+  if (!res.ok) return null;
   const data = (await res.json()) as { promotion: ListingPromotion };
-  const promo = data.promotion;
-
-  setCachedPromotedIds(
-    "featured",
-    promo.kind === "featured" && promo.status === "active" ? [promo.listingId] : []
-  );
-  setCachedPromotedIds(
-    "trending",
-    promo.kind === "trending" && promo.status === "active" ? [promo.listingId] : []
-  );
-
-  return promo;
+  return data.promotion;
 }

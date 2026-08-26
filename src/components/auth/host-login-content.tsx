@@ -1,19 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Link, useRouter } from "@/i18n/routing";
+import { Link } from "@/i18n/routing";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/components/providers/auth-provider";
 import { canManageListings } from "@/lib/auth/roles";
+import { goInternal, safeInternalPath } from "@/lib/auth/safe-next";
 import { HostAuthShell, HostAuthInput } from "./host-auth-shell";
 
 export function HostLoginContent() {
   const t = useTranslations("hostAuth");
-  const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/host";
+  const next = safeInternalPath(searchParams.get("next"), "/host");
   const { signInHostWithEmail, isDemo, loading, user } = useAuth();
 
   const [email, setEmail] = useState("");
@@ -23,9 +23,9 @@ export function HostLoginContent() {
 
   useEffect(() => {
     if (!loading && user && canManageListings(user.roles)) {
-      router.push(next);
+      goInternal(next);
     }
-  }, [loading, user, router, next]);
+  }, [loading, user, next]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -37,7 +37,7 @@ export function HostLoginContent() {
       setError(result.error);
       return;
     }
-    router.push(next);
+    goInternal(next);
   }
 
   const redirecting = !loading && !!user && canManageListings(user.roles);
@@ -111,9 +111,9 @@ export function HostLoginContent() {
       </form>
 
       <p className="mt-6 text-center text-xs text-gray-400">
-        <Link href="/" className="hover:text-gray-600 hover:underline">
+        <a href="/" className="hover:text-gray-600 hover:underline">
           {t("backToSite")}
-        </Link>
+        </a>
       </p>
     </HostAuthShell>
   );

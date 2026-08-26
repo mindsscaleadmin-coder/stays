@@ -15,7 +15,8 @@ export const DASHBOARD_SIDEBAR_WIDTH_PX = 272;
  * instead of spanning full width over it.
  */
 export function isDashboardChromePath(pathname: string): boolean {
-  const path = pathname.split("?")[0] || "";
+  const raw = pathname.split("?")[0] || "";
+  const path = raw.replace(/^\/(en)(?=\/|$)/, "") || "/";
   if (AUTH_PUBLIC_PREFIXES.some((p) => path === p || path.endsWith(p))) {
     return false;
   }

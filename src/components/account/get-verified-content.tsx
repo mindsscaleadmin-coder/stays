@@ -7,42 +7,28 @@ import { useTranslations } from "next-intl";
 import { useAuth } from "@/components/providers/auth-provider";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { GUEST_NAV } from "@/lib/guest/guest-nav";
-
-const VERIFY_STORAGE_KEY = "farm-stays-verification-requests";
-
-type VerifyStatus = "none" | "pending" | "verified";
-
-function loadStatus(userId: string): VerifyStatus {
-  if (typeof window === "undefined") return "none";
-  try {
-    const raw = localStorage.getItem(VERIFY_STORAGE_KEY);
-    if (!raw) return "none";
-    const map = JSON.parse(raw) as Record<string, VerifyStatus>;
-    return map[userId] ?? "none";
-  } catch {
-    return "none";
-  }
-}
-
-function saveStatus(userId: string, status: VerifyStatus) {
-  if (typeof window === "undefined") return;
-  try {
-    const raw = localStorage.getItem(VERIFY_STORAGE_KEY);
-    const map = raw ? (JSON.parse(raw) as Record<string, VerifyStatus>) : {};
-    map[userId] = status;
-    localStorage.setItem(VERIFY_STORAGE_KEY, JSON.stringify(map));
-  } catch {
-    // ignore
-  }
-}
+import {
+  fetchGuestVerificationFromApi,
+  shouldUseSharedGuestVerification,
+  submitGuestVerificationToApi,
+} from "@/lib/guest/guest-verification-api";
+import {
+  getGuestVerificationStatus,
+  submitGuestVerification,
+} from "@/lib/guest/guest-verification-data";
+import type {
+  GuestIdDocumentType,
+  GuestVerificationStatus,
+} from "@/lib/guest/guest-verification-types";
 
 export function GetVerifiedContent() {
   const t = useTranslations("account");
   const router = useRouter();
   const { user, loading, isHost } = useAuth();
-  const [status, setStatus] = useState<VerifyStatus>("none");
-  const [idType, setIdType] = useState("emirates_id");
+  const [status, setStatus] = useState<GuestVerificationStatus>("none");
+  const [idType, setIdType] = useState<GuestIdDocumentType>("emirates_id");
   const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (loading) return;
@@ -56,14 +42,36 @@ export function GetVerifiedContent() {
   }, [loading, user, isHost, router]);
 
   useEffect(() => {
-    if (user) setStatus(loadStatus(user.id));
+    if (!user) return;
+    if (shouldUseSharedGuestVerification()) {
+      void fetchGuestVerificationFromApi(user.id)
+        .then((request) => setStatus(request?.status ?? "none"))
+        .catch(() => setStatus(getGuestVerificationStatus(user.id)));
+      return;
+    }
+    setStatus(getGuestVerificationStatus(user.id));
   }, [user]);
 
   async function submitVerification() {
     if (!user) return;
-    await new Promise((r) => setTimeout(r, 400));
-    saveStatus(user.id, "pending");
-    setStatus("pending");
+    setSubmitting(true);
+    const local = submitGuestVerification({
+      userId: user.id,
+      idType,
+      notes,
+    });
+    try {
+      if (shouldUseSharedGuestVerification()) {
+        const saved = await submitGuestVerificationToApi(local);
+        setStatus(saved.status);
+      } else {
+        setStatus(local.status);
+      }
+    } catch {
+      setStatus(local.status);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   if (loading || !user || isHost) {
@@ -103,7 +111,13 @@ export function GetVerifiedContent() {
             </div>
           )}
 
-          {status === "none" && (
+          {status === "rejected" && (
+            <div className="bg-red-50 border border-red-200 text-red-800 text-sm rounded-xl px-4 py-3">
+              Documents were not accepted. You can submit again below.
+            </div>
+          )}
+
+          {(status === "none" || status === "rejected") && (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -117,7 +131,7 @@ export function GetVerifiedContent() {
                 </span>
                 <select
                   value={idType}
-                  onChange={(e) => setIdType(e.target.value)}
+                  onChange={(e) => setIdType(e.target.value as GuestIdDocumentType)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
                   <option value="emirates_id">{t("idEmirates")}</option>
@@ -147,9 +161,10 @@ export function GetVerifiedContent() {
 
               <button
                 type="submit"
-                className="w-full bg-green-700 hover:bg-green-800 text-white font-semibold py-2.5 rounded-xl transition-colors"
+                disabled={submitting}
+                className="w-full bg-green-700 hover:bg-green-800 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl transition-colors"
               >
-                {t("getVerifiedSubmit")}
+                {submitting ? "Submitting…" : t("getVerifiedSubmit")}
               </button>
             </form>
           )}

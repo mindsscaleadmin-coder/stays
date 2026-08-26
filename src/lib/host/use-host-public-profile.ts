@@ -28,6 +28,16 @@ export function useHostPublicProfile(
   const [ready, setReady] = useState(false);
   const shared = shouldUseSharedHostProfile();
 
+  const applyLocal = useCallback(() => {
+    if (!hostId) {
+      setData(null);
+      setReady(true);
+      return;
+    }
+    setData(loadHostPublicProfile(hostId, fallbackName));
+    setReady(true);
+  }, [hostId, fallbackName]);
+
   const refresh = useCallback(async () => {
     if (!hostId) {
       setData(null);
@@ -38,7 +48,10 @@ export function useHostPublicProfile(
     if (shared) {
       try {
         const fromApi = await fetchHostProfileFromApi(hostId);
-        const profile = fromApi ?? loadHostPublicProfile(hostId, fallbackName);
+        const local = loadHostPublicProfile(hostId, fallbackName);
+        const profile = fromApi
+          ? { ...fromApi, logoUrl: local.logoUrl || fromApi.logoUrl, logoFileName: local.logoFileName || fromApi.logoFileName, logoBytes: local.logoBytes ?? fromApi.logoBytes, logoWidth: local.logoWidth ?? fromApi.logoWidth, logoHeight: local.logoHeight ?? fromApi.logoHeight }
+          : local;
         syncInstantBookLocal(profile);
         setData(profile);
       } catch {
@@ -53,31 +66,33 @@ export function useHostPublicProfile(
   useEffect(() => {
     void refresh();
     function onStorage(e: StorageEvent) {
-      if (e.key === "farm-stays-host-profiles") void refresh();
+      if (e.key === "farm-stays-host-profiles") applyLocal();
     }
-    window.addEventListener(HOST_PROFILES_SYNC_EVENT, refresh);
+    window.addEventListener(HOST_PROFILES_SYNC_EVENT, applyLocal);
     window.addEventListener("storage", onStorage);
     return () => {
-      window.removeEventListener(HOST_PROFILES_SYNC_EVENT, refresh);
+      window.removeEventListener(HOST_PROFILES_SYNC_EVENT, applyLocal);
       window.removeEventListener("storage", onStorage);
     };
-  }, [refresh]);
+  }, [refresh, applyLocal]);
 
   async function persist(next: HostPublicProfile) {
     syncInstantBookLocal(next);
+    const savedLocal = saveHostPublicProfile(next.hostId, next);
+    setData(savedLocal);
     if (shared) {
       try {
         const { hostId: id, ...input } = next;
         const saved = await saveHostProfileToApi(id, input);
-        setData(saved);
-        syncInstantBookLocal(saved);
-        window.dispatchEvent(new Event(HOST_PROFILES_SYNC_EVENT));
-        return saved;
+        const merged = saved.logoUrl ? saved : { ...saved, logoUrl: next.logoUrl, logoFileName: next.logoFileName, logoBytes: next.logoBytes, logoWidth: next.logoWidth, logoHeight: next.logoHeight };
+        saveHostPublicProfile(id, merged);
+        setData(merged);
+        syncInstantBookLocal(merged);
       } catch {
-        return saveHostPublicProfile(next.hostId, next);
+        // keep the local write — sidebar already updated
       }
     }
-    return saveHostPublicProfile(next.hostId, next);
+    return savedLocal;
   }
 
   function patch(partial: Partial<HostPublicProfile>) {

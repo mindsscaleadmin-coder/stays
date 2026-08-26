@@ -1,5 +1,5 @@
 import type { Country as TaxonomyCountry } from "@/lib/admin/taxonomy-types";
-import type { Country as PlatformCountry } from "@/lib/mock/countries";
+import { ALL_COUNTRIES, type Country as PlatformCountry } from "@/lib/mock/countries";
 
 /** Common listing country name aliases → ISO code for lookup. */
 const COUNTRY_NAME_ALIASES: Record<string, string> = {
@@ -108,7 +108,32 @@ export function resolveCountryPricingConfig(
   return countryPricingConfig(match);
 }
 
-/** Map taxonomy country to marketplace country shape used by the header switcher. */
+const EXTRA_MARKETPLACE_DEFAULTS: PlatformCountry[] = [
+  {
+    code: "IN",
+    name: "India",
+    flag: "🇮🇳",
+    currency: "INR",
+    currencySymbol: "₹",
+    exchangeRateToAED: 0.043,
+    dialCode: "+91",
+    enabled: true,
+    comingSoon: false,
+  },
+];
+
+/** Fill empty New country fields from a known code or English name. */
+export function suggestCountryMarketplace(query?: string): PlatformCountry | null {
+  const q = query?.trim().toLowerCase();
+  if (!q) return null;
+  const list = [...ALL_COUNTRIES, ...EXTRA_MARKETPLACE_DEFAULTS];
+  return (
+    list.find((c) => c.code.toLowerCase() === q) ??
+    list.find((c) => c.name.toLowerCase() === q) ??
+    null
+  );
+}
+
 export function toPlatformCountry(c: TaxonomyCountry): PlatformCountry {
   return {
     code: (c.code ?? c.id).toUpperCase(),

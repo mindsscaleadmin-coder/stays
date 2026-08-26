@@ -7,7 +7,6 @@ import {
   ImageIcon,
   KeyRound,
   List,
-  Megaphone,
   MessageSquare,
   ReceiptText,
   type LucideIcon,
@@ -46,12 +45,6 @@ export const ADMIN_SETTINGS_NAV: AdminSettingsNavItem[] = [
     href: "/admin/settings/extra-charges",
     description: "Catalog of add-on fees for stays",
     icon: ReceiptText,
-  },
-  {
-    label: "Promote",
-    href: "/admin/settings/promote",
-    description: "Trending & Featured package prices",
-    icon: Megaphone,
   },
   {
     label: "Reviews",

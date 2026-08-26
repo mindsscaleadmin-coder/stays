@@ -1,8 +1,8 @@
 "use client";
 
 import { Shield } from "lucide-react";
-import { Link } from "@/i18n/routing";
 import type { ReactNode } from "react";
+import { Link } from "@/i18n/routing";
 
 interface AdminAuthShellProps {
   title: string;
@@ -16,7 +16,7 @@ export function AdminAuthShell({ title, subtitle, children, footer }: AdminAuthS
     <div className="min-h-[calc(100vh-200px)] flex items-center justify-center px-4 py-12 bg-gradient-to-b from-slate-50 to-gray-100">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link href="/admin/login" className="inline-flex items-center gap-2 mb-6">
+          <Link href="/" className="inline-flex items-center gap-2 mb-6">
             <div className="w-10 h-10 bg-slate-800 rounded-xl flex items-center justify-center">
               <Shield className="w-5 h-5 text-white" />
             </div>

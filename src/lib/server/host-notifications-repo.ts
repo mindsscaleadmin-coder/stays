@@ -6,6 +6,12 @@ import type {
   HostNotificationPrefs,
   HostNotificationsData,
 } from "@/lib/host/host-notifications-types";
+import {
+  isAllHostsAudience,
+  listingMatchesAudience,
+  normalizeAnnouncementAudience,
+  type AnnouncementAudience,
+} from "@/lib/admin/announcement-audience";
 
 type StoredNotifications = Omit<HostNotificationsData, "hostId">;
 
@@ -109,11 +115,54 @@ export async function collectNotificationHostIds(): Promise<string[]> {
   return Array.from(ids);
 }
 
+async function collectHostIdsForAudience(
+  audience?: AnnouncementAudience
+): Promise<string[]> {
+  const next = normalizeAnnouncementAudience(audience);
+  if (isAllHostsAudience(next)) return collectNotificationHostIds();
+
+  const listings = await prisma.listing.findMany({
+    where: { status: { not: "rejected" } },
+    select: {
+      hostId: true,
+      country: true,
+      parentCategory: true,
+      category: true,
+    },
+  });
+
+  const ids = new Set<string>();
+  for (const listing of listings) {
+    if (listingMatchesAudience(listing, next)) ids.add(listing.hostId);
+  }
+  return Array.from(ids);
+}
+
+export async function pushHostAlert(
+  hostId: string,
+  alert: Omit<HostNotificationAlert, "id" | "date" | "read"> &
+    Partial<Pick<HostNotificationAlert, "id" | "date" | "read">>
+): Promise<HostNotificationAlert> {
+  const data = await getHostNotifications(hostId);
+  const nextAlert: HostNotificationAlert = {
+    id: alert.id ?? `n-${alert.type}-${Date.now()}-${hostId}`,
+    type: alert.type,
+    title: alert.title,
+    message: alert.message,
+    date: alert.date ?? new Date().toISOString(),
+    read: alert.read ?? false,
+    href: alert.href,
+  };
+  await persist({ ...data, alerts: [nextAlert, ...data.alerts] });
+  return nextAlert;
+}
+
 export async function pushPolicyAlertToAllHosts(
   title: string,
-  message: string
+  message: string,
+  audience?: AnnouncementAudience
 ): Promise<number> {
-  const hostIds = await collectNotificationHostIds();
+  const hostIds = await collectHostIdsForAudience(audience);
   const date = new Date().toISOString();
   const alertId = `n-policy-${Date.now()}`;
 

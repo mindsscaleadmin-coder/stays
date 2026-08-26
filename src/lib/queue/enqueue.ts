@@ -5,14 +5,24 @@ export async function enqueueWelcomeEmailJob(input: {
   email: string;
   fullName?: string;
 }) {
-  return safeAddJob("welcome-email", input);
+  const queued = await safeAddJob("welcome-email", input);
+  if (!queued) {
+    const { deliverWelcomeEmail } = await import("@/lib/email/jobs");
+    await deliverWelcomeEmail(input).catch(() => null);
+  }
+  return queued;
 }
 
 export async function enqueueBookingConfirmedJob(input: {
   bookingId: string;
   guestId: string;
 }) {
-  return safeAddJob("booking-confirmed", input);
+  const queued = await safeAddJob("booking-confirmed", input);
+  if (!queued) {
+    const { deliverBookingConfirmedEmail } = await import("@/lib/email/jobs");
+    await deliverBookingConfirmedEmail(input.bookingId).catch(() => null);
+  }
+  return queued;
 }
 
 export async function enqueueAuditLogJob(input: {

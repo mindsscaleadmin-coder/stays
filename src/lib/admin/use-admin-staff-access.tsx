@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
   canAccessAdminPath,
@@ -14,44 +22,35 @@ import {
   shouldUseSharedAdminStaff,
 } from "@/lib/admin/staff-api";
 import type { StaffMember, StaffPermission } from "@/lib/admin/staff-types";
-import { ALL_STAFF_PERMISSIONS, STAFF_ROLE_LABELS, effectivePermissions } from "@/lib/admin/staff-types";
+import { STAFF_ROLE_LABELS, effectivePermissions } from "@/lib/admin/staff-types";
 
-function virtualSuperAdmin(email: string): StaffMember {
-  const normalized = email.trim().toLowerCase();
-  return {
-    id: `virtual-${normalized}`,
-    name: normalized.split("@")[0] || "Super Admin",
-    email: normalized,
-    role: "admin",
-    permissions: [...ALL_STAFF_PERMISSIONS],
-    active: true,
-    createdAt: new Date().toISOString(),
-  };
-}
-
-export function useAdminStaffAccess() {
+function useAdminStaffAccessState() {
   const { user, isAdmin } = useAuth();
   const [tick, setTick] = useState(0);
   const [apiStaff, setApiStaff] = useState<StaffMember | null | undefined>(undefined);
   const shared = shouldUseSharedAdminStaff();
+  const email = user?.email;
 
   useEffect(() => {
     const refresh = () => setTick((t) => t + 1);
+    function onStorage(e: StorageEvent) {
+      if (e.key === "farm-stays-admin-staff") refresh();
+    }
     window.addEventListener(STAFF_SYNC_EVENT, refresh);
-    window.addEventListener("storage", refresh);
+    window.addEventListener("storage", onStorage);
     return () => {
       window.removeEventListener(STAFF_SYNC_EVENT, refresh);
-      window.removeEventListener("storage", refresh);
+      window.removeEventListener("storage", onStorage);
     };
   }, []);
 
   useEffect(() => {
-    if (!shared || !user || !isAdmin) {
+    if (!shared || !email || !isAdmin) {
       setApiStaff(undefined);
       return;
     }
     let cancelled = false;
-    void fetchAdminStaffByEmailFromApi(user.email)
+    void fetchAdminStaffByEmailFromApi(email)
       .then((member) => {
         if (cancelled) return;
         if (member && !member.active) {
@@ -59,10 +58,18 @@ export function useAdminStaffAccess() {
           return;
         }
         if (member) {
-          setApiStaff({ ...member, permissions: effectivePermissions(member) });
+          const next = { ...member, permissions: effectivePermissions(member) };
+          setApiStaff((prev) =>
+            prev &&
+            prev.id === next.id &&
+            prev.role === next.role &&
+            prev.active === next.active
+              ? prev
+              : next
+          );
           return;
         }
-        setApiStaff(virtualSuperAdmin(user.email));
+        setApiStaff(undefined);
       })
       .catch(() => {
         if (!cancelled) setApiStaff(undefined);
@@ -70,14 +77,16 @@ export function useAdminStaffAccess() {
     return () => {
       cancelled = true;
     };
-  }, [shared, user, isAdmin, tick]);
+  }, [shared, email, isAdmin, tick]);
 
   const staff: StaffMember | null = useMemo(() => {
-    void tick;
     if (!user || !isAdmin) return null;
-    if (shared && apiStaff !== undefined) return apiStaff;
+    if (shared && apiStaff === null) return null;
+    if (shared && apiStaff) return apiStaff;
     return resolveStaffForAdminEmail(user.email);
-  }, [user, isAdmin, tick, shared, apiStaff]);
+  }, [user, isAdmin, shared, apiStaff]);
+
+  const ready = !isAdmin || !shared || apiStaff !== undefined || !!staff;
 
   const can = useCallback(
     (permission: StaffPermission) => staffHasPermission(staff, permission),
@@ -93,10 +102,30 @@ export function useAdminStaffAccess() {
 
   return {
     staff,
+    ready,
     roleLabel: staff ? STAFF_ROLE_LABELS[staff.role] : null,
     isSuperAdmin: staff?.role === "admin",
     can,
     canAccessPath,
     homePath,
   };
+}
+
+type AdminStaffAccessValue = ReturnType<typeof useAdminStaffAccessState>;
+
+const AdminStaffAccessContext = createContext<AdminStaffAccessValue | null>(null);
+
+export function AdminStaffAccessProvider({ children }: { children: ReactNode }) {
+  const value = useAdminStaffAccessState();
+  return (
+    <AdminStaffAccessContext.Provider value={value}>{children}</AdminStaffAccessContext.Provider>
+  );
+}
+
+export function useAdminStaffAccess() {
+  const ctx = useContext(AdminStaffAccessContext);
+  if (!ctx) {
+    throw new Error("useAdminStaffAccess must be used within AdminStaffAccessProvider");
+  }
+  return ctx;
 }

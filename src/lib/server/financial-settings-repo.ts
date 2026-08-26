@@ -32,7 +32,12 @@ export async function updatePayoutStateInDb(
       [payoutId]: { ...state, reviewedAt: new Date().toISOString() },
     },
   };
-  return saveFinancialSettingsToDb(next);
+  const saved = await saveFinancialSettingsToDb(next);
+  if (state.adminStatus === "paid") {
+    const { markPayoutBatchPaid } = await import("@/lib/server/host-accounts-repo");
+    await markPayoutBatchPaid(payoutId);
+  }
+  return saved;
 }
 
 export async function updateCommissionSettingsInDb(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { Link, useRouter } from "@/i18n/routing";
 import { Calendar, Loader2, Lock, Users } from "lucide-react";
@@ -11,7 +11,7 @@ import {
   type BookingCartLine,
 } from "@/lib/guest/booking-cart";
 import { quoteCartLine, quoteCartTotal } from "@/lib/guest/cart-quote";
-import { mirrorGuestBookingToHost } from "@/lib/booking/mirror-to-host";
+import { useCartPricing } from "@/lib/guest/use-cart-pricing";
 import { formatMoney } from "@/lib/currency";
 import { resolveCatalogListingHost } from "@/lib/listings/catalog-listing-hosts";
 
@@ -21,7 +21,7 @@ export function CartCheckoutContent() {
   const [lines, setLines] = useState<BookingCartLine[]>([]);
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState("");
+  const [paymentMode, setPaymentMode] = useState<"stripe" | "demo">("demo");
 
   useEffect(() => {
     setLines(loadBookingCart());
@@ -33,40 +33,48 @@ export function CartCheckoutContent() {
     }
   }, [loading, user, router]);
 
-  const { quotes, total, currency } = useMemo(() => quoteCartTotal(lines), [lines]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/payments/mode")
+      .then((res) => res.json())
+      .then((data: { mode?: string }) => {
+        if (!cancelled && data.mode === "stripe") setPaymentMode("stripe");
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const pricingByListing = useCartPricing(lines);
+  const { quotes, total, currency } = useMemo(
+    () => quoteCartTotal(lines, pricingByListing),
+    [lines, pricingByListing]
+  );
   const quoteById = useMemo(
     () => new Map(quotes.map((q) => [q.lineId, q])),
     [quotes]
   );
 
-  const payOne = useCallback(
-    async (line: BookingCartLine) => {
-      if (!user) throw new Error("Sign in required");
-      const quote = quoteCartLine(line);
-      if (!quote) throw new Error(`Invalid dates for ${line.title}`);
+  async function handlePayAll() {
+    if (!user || lines.length === 0) return;
+    setPaying(true);
+    setError(null);
 
-      const catalogHost = resolveCatalogListingHost(line.listingId);
-      const res = await fetch("/api/bookings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+    try {
+      const payloadLines = lines.map((line) => {
+        const quote = quoteCartLine(line, pricingByListing[line.listingId]);
+        if (!quote) throw new Error(`Invalid dates for ${line.title}`);
+        const catalogHost = resolveCatalogListingHost(line.listingId);
+        return {
           listingId: line.listingId,
           checkIn: line.checkIn,
           checkOut: line.checkOut,
           guestCount: line.guests,
-          nightlyRate: quote.nightlyRate,
-          accommodation: quote.accommodation,
-          experiencesTotal: quote.experiencesTotal,
-          extrasTotal: quote.extrasTotal,
-          taxAmount: quote.taxAmount,
           currency: quote.currency,
           roomIds: line.rooms,
           experienceIds: line.experienceIds,
           extraIds: line.extraIds,
-          guestId: user.id,
-          guestName: user.fullName,
-          guestEmail: user.email,
-          demoPay: true,
           listing: {
             id: line.listingId,
             title: line.title,
@@ -78,83 +86,43 @@ export function CartCheckoutContent() {
             instantBook: line.instantBook,
             currency: quote.currency,
           },
-        }),
+        };
       });
 
-      const data = await res.json();
+      const res = await fetch("/api/bookings/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lines: payloadLines,
+          guestId: user.id,
+          guestName: user.fullName,
+          guestEmail: user.email,
+          demoPay: true,
+        }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        mode?: string;
+        checkoutUrl?: string;
+        paid?: boolean;
+        bookingIds?: string[];
+      };
       if (!res.ok) {
-        throw new Error(data.error || `Could not book ${line.title}`);
+        throw new Error(data.error || "Could not book cart");
       }
 
       if (data.mode === "stripe" && data.checkoutUrl) {
-        // Multi-cart + Stripe single session not wired — fall through to demo for remaining
-        // or redirect only when cart has one item
-        if (lines.length === 1) {
-          window.location.href = data.checkoutUrl as string;
-          return null;
+        window.location.href = data.checkoutUrl;
+        return;
+      }
+
+      const bookingIds = data.bookingIds ?? [];
+      if (data.mode === "demo" && !data.paid) {
+        for (const id of bookingIds) {
+          const payRes = await fetch(`/api/bookings/${id}/demo-pay`, { method: "POST" });
+          const payData = await payRes.json();
+          if (!payRes.ok) throw new Error(payData.error || "Payment failed");
         }
-        throw new Error(
-          "Stripe checkout supports one stay at a time for now. Remove other items or use demo pay."
-        );
-      }
-
-      const booking = data.booking as {
-        id: string;
-        status: string;
-        paymentStatus: string;
-        totalPrice: number;
-      };
-
-      let paymentStatus = booking.paymentStatus;
-      let status = booking.status;
-      if (data.mode === "demo" && !data.paid && booking.id) {
-        const payRes = await fetch(`/api/bookings/${booking.id}/demo-pay`, {
-          method: "POST",
-        });
-        const payData = await payRes.json();
-        if (!payRes.ok) throw new Error(payData.error || "Payment failed");
-        paymentStatus = payData.booking.paymentStatus;
-        status = payData.booking.status;
-      }
-
-      mirrorGuestBookingToHost({
-        id: booking.id,
-        listingId: line.listingId,
-        property: line.title,
-        propertyLocation: line.location,
-        guest: user.fullName,
-        guestEmail: user.email,
-        guestPhone: user.phone,
-        guestId: user.id,
-        checkIn: line.checkIn,
-        checkOut: line.checkOut,
-        guests: line.guests,
-        total: booking.totalPrice ?? quote.total,
-        currency: quote.currency,
-        nightlyRate: quote.nightlyRate,
-        status: status === "confirmed" ? "confirmed" : "pending",
-        paymentStatus: paymentStatus === "paid" ? "Paid" : paymentStatus,
-        hostId: catalogHost?.hostId,
-        img: line.img,
-      });
-
-      return booking.id;
-    },
-    [user, lines.length]
-  );
-
-  async function handlePayAll() {
-    if (!user || lines.length === 0) return;
-    setPaying(true);
-    setError(null);
-
-    try {
-      const bookingIds: string[] = [];
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        setProgress(`Booking ${i + 1} of ${lines.length}: ${line.title}`);
-        const id = await payOne(line);
-        if (id) bookingIds.push(id);
       }
 
       clearBookingCart();
@@ -166,7 +134,6 @@ export function CartCheckoutContent() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setPaying(false);
-      setProgress("");
     }
   }
 
@@ -196,7 +163,7 @@ export function CartCheckoutContent() {
           Checkout cart
         </h1>
         <p className="text-sm text-gray-500 mb-8">
-          Each stay becomes its own booking · one payment step for all
+          Each stay becomes its own booking · one payment for all
         </p>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -242,12 +209,6 @@ export function CartCheckoutContent() {
                 </div>
               );
             })}
-
-            <div className="bg-white rounded-2xl border border-gray-200 p-5">
-              <h2 className="text-sm font-bold text-gray-900 mb-3">Guest</h2>
-              <p className="text-sm text-gray-800">{user.fullName}</p>
-              <p className="text-sm text-gray-500">{user.email}</p>
-            </div>
           </div>
 
           <div className="lg:col-span-2">
@@ -267,13 +228,10 @@ export function CartCheckoutContent() {
                   {error}
                 </p>
               )}
-              {progress && (
-                <p className="text-xs text-gray-500 mb-3">{progress}</p>
-              )}
 
               <button
                 type="button"
-                disabled={paying}
+                disabled={paying || quotes.length !== lines.length}
                 onClick={() => void handlePayAll()}
                 className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-800 disabled:opacity-60 text-white font-bold py-3.5 rounded-xl text-sm"
               >
@@ -287,6 +245,11 @@ export function CartCheckoutContent() {
                   </>
                 )}
               </button>
+              <p className="mt-3 text-[11px] text-gray-400 text-center leading-relaxed">
+                {paymentMode === "stripe"
+                  ? "You will be redirected to Stripe Checkout for every stay in this cart."
+                  : "Demo mode: payment is simulated and each stay is written to the host calendar."}
+              </p>
               <Link
                 href="/cart"
                 className="block text-center text-sm text-gray-500 mt-3 hover:text-gray-800"

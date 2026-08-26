@@ -28,11 +28,14 @@ model User {
   hostNotifications HostNotifications?
   hostAddons        HostAddons?
   hostAnalytics     HostAnalytics?
+  hostAccounts      HostAccounts?
 
   @@index([createdAt])
 }
 
 /// Full listing document stored as JSON so the existing UI shape is preserved.
+/// Filter fields are also columns so public search can query without parsing payload.
+/// country/state/district names stay denormalized; countryId/locationId are the future source of truth.
 model Listing {
   id            String         @id
   hostId        String
@@ -41,8 +44,25 @@ model Listing {
   status        String         @default("pending")
   /// Full SubmittedListing JSON
   payload       String
+  country       String         @default("")
+  state         String         @default("")
+  district      String         @default("")
+  parentCategory String        @default("")
+  category      String         @default("")
+  subcategory   String         @default("")
   maxGuests     Int            @default(4)
   pricePerNight Float?
+  /// Normalized geo — nullable until taxonomy import maps existing rows.
+  countryId         String?
+  countryRef        Country?   @relation("ListingCountry", fields: [countryId], references: [id], onDelete: Restrict)
+  locationId        String?
+  location          Location?  @relation("ListingLocation", fields: [locationId], references: [id], onDelete: Restrict)
+  latitude          Decimal?   @db.Decimal(10, 7)
+  longitude         Decimal?   @db.Decimal(10, 7)
+  address           String?
+  postalCode        String?
+  timezone          String?
+  showExactLocation Boolean    @default(false)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   bookings      Booking[]
@@ -57,6 +77,12 @@ model Listing {
   @@index([hostId])
   @@index([status])
   @@index([featured])
+  @@index([status, country])
+  @@index([status, parentCategory])
+  @@index([country, state, district])
+  @@index([parentCategory, category, subcategory])
+  @@index([countryId, status])
+  @@index([locationId, status])
 }
 
 model Availability {
@@ -107,6 +133,22 @@ model Booking {
   refundPercent Int?
   refundAmount  Float?
   stripeSessionId String?
+  stripeRefundId  String?
+  /// pending | checked_in | checked_out
+  checkInStatus String    @default("pending")
+  checkedInAt   DateTime?
+  checkedOutAt  DateTime?
+  /// none | open | resolved
+  disputeStatus      String    @default("none")
+  disputeSummary     String?
+  disputeGuestClaim  String?
+  disputeHostResponse String?
+  disputeResolution  String?
+  disputeOpenedAt    DateTime?
+  disputeResolvedAt  DateTime?
+  noShow             Boolean   @default(false)
+  /// JSON array of BookingAuditEntry
+  auditLog           String    @default("[]")
   createdAt     DateTime  @default(now())
   messages      BookingMessage[]
 
@@ -214,7 +256,7 @@ model HostStaff {
   /// JSON array of HostStaffPermission strings
   permissions String
   active      Boolean  @default(true)
-  /// Demo-only plain password; omit from API responses
+  /// scrypt hash (legacy plaintext upgraded on next login)
   password    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -248,6 +290,14 @@ model HostAnalytics {
   updatedAt DateTime @updatedAt
 }
 
+/// Host payout account (bank/UPI). Transactions are derived from Booking.
+model HostAccounts {
+  hostId    String   @id
+  host      User     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  payload   String
+  updatedAt DateTime @updatedAt
+}
+
 /// Platform admin console team (Super Admin / sub-admin / support)
 model PlatformStaff {
   id          String   @id @default(cuid())
@@ -258,7 +308,7 @@ model PlatformStaff {
   /// JSON array of StaffPermission strings
   permissions String
   active      Boolean  @default(true)
-  /// Demo-only plain password; omit from API list responses
+  /// scrypt hash (legacy plaintext upgraded on next login)
   password    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -281,4 +331,101 @@ model Review {
   createdAt DateTime @default(now())
 
   @@index([listingId, status])
+}
+
+/// Marketplace country — currency, tax, launch flags. Not a Location row.
+model Country {
+  id                        String     @id @default(cuid())
+  name                      String
+  officialName              String?
+  iso2                      String     @unique
+  iso3                      String?
+  numericCode               String?
+  phoneCode                 String?
+  currencyCode              String     @default("AED")
+  currencySymbol            String?
+  /// AED per 1 unit of this currency (existing marketplace rule)
+  exchangeRateToAed         Float      @default(1)
+  defaultLanguage           String     @default("en")
+  timezone                  String?
+  latitude                  Decimal?   @db.Decimal(10, 7)
+  longitude                 Decimal?   @db.Decimal(10, 7)
+  taxPct                    Float?
+  taxLabel                  String?
+  flag                      String?
+  isActive                  Boolean    @default(true)
+  isLaunchCountry           Boolean    @default(false)
+  comingSoon                Boolean    @default(false)
+  bookingEnabled            Boolean    @default(true)
+  propertyPublishingEnabled Boolean    @default(true)
+  /// Preserve taxonomy JSON id (c1, c2, …) for matching
+  legacyTaxonomyId          String?    @unique
+  createdAt                 DateTime   @default(now())
+  updatedAt                 DateTime   @updatedAt
+  locations                 Location[]
+  listings                  Listing[]  @relation("ListingCountry")
+
+  @@index([isActive, isLaunchCountry])
+}
+
+/// Hierarchical admin/geo node under a Country. Arbitrary depth via parentId.
+model Location {
+  id               String     @id @default(cuid())
+  countryId        String
+  country          Country    @relation(fields: [countryId], references: [id], onDelete: Restrict)
+  parentId         String?
+  parent           Location?  @relation("LocationTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children         Location[] @relation("LocationTree")
+  name             String
+  normalizedName   String
+  slug             String
+  /// string type: state | emirate | region | district | city | area | …
+  type             String
+  level            Int
+  code             String?
+  latitude         Decimal?   @db.Decimal(10, 7)
+  longitude        Decimal?   @db.Decimal(10, 7)
+  timezone         String?
+  isActive         Boolean    @default(true)
+  sortOrder        Int        @default(0)
+  legacyTaxonomyId String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  aliases          LocationAlias[]
+  translations     LocationTranslation[]
+  listings         Listing[]  @relation("ListingLocation")
+
+  @@index([countryId, parentId])
+  @@index([countryId, type])
+  @@index([countryId, slug])
+  @@index([normalizedName])
+  @@index([isActive])
+  @@index([legacyTaxonomyId])
+}
+
+model LocationAlias {
+  id              String   @id @default(cuid())
+  locationId      String
+  location        Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  alias           String
+  normalizedAlias String
+  languageCode    String   @default("en")
+  createdAt       DateTime @default(now())
+
+  @@index([normalizedAlias])
+  @@index([locationId])
+  @@unique([locationId, normalizedAlias, languageCode])
+}
+
+model LocationTranslation {
+  id           String   @id @default(cuid())
+  locationId   String
+  location     Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  languageCode String
+  name         String
+  slug         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([locationId, languageCode])
 }

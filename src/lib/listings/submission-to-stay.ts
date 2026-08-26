@@ -1,5 +1,6 @@
 import type { Stay } from "@/lib/mock/data";
 import { isInstantBookingEffective } from "@/lib/admin/platform-config-data";
+import { currencyForCountryName } from "@/lib/currency";
 import type { SubmittedListing } from "./submission-types";
 
 const DEFAULT_IMG =
@@ -11,6 +12,17 @@ function parseCount(label: string, value: string, fallback: number): number {
   const fromLabel = label.match(/\d+/);
   if (fromLabel) return Number(fromLabel[0]);
   return fallback;
+}
+
+export function nightlyFromListing(listing: SubmittedListing): number {
+  if (listing.pricePerNight != null && listing.pricePerNight > 0) {
+    return listing.pricePerNight;
+  }
+  const roomPrices = (listing.rooms ?? [])
+    .map((r) => r.price)
+    .filter((price) => price > 0);
+  if (roomPrices.length > 0) return Math.min(...roomPrices);
+  return 0;
 }
 
 export function submissionToStay(listing: SubmittedListing): Stay {
@@ -36,26 +48,42 @@ export function submissionToStay(listing: SubmittedListing): Stay {
           ? "experience"
           : "farmstay";
 
+  const basePrice = nightlyFromListing(listing);
+  const flashPct = listing.flashDealDiscountPct ?? 0;
+  const flashEnds = listing.flashDealEndsAt
+    ? new Date(listing.flashDealEndsAt).getTime()
+    : NaN;
+  const flashLive =
+    flashPct > 0 && !Number.isNaN(flashEnds) && flashEnds > Date.now();
+  const dealPrice = flashLive ? Math.round(basePrice * (1 - Math.min(100, flashPct) / 100)) : basePrice;
+
   return {
     id: listing.id,
+    hostId: listing.hostId,
     name: listing.title,
-    location: `${listing.district}, ${listing.state}, ${listing.country}`,
-    price: 800,
-    rating: listing.status === "approved" ? 4.8 : 0,
-    reviews: 0,
+    location: [listing.city, listing.district, listing.state, listing.country]
+      .filter((part, index, parts) => part && parts.indexOf(part) === index)
+      .join(", "),
+    price: dealPrice,
+    rating: listing.guestReviewCount ? listing.guestRating ?? 0 : 0,
+    reviews: listing.guestReviewCount ?? 0,
     guests: Math.max(beds * 2, 2),
     beds,
     baths,
     badge: listing.featured
       ? "Featured"
-      : listing.status === "approved"
-        ? "Live"
-        : "Preview",
+      : listing.trending
+        ? "Trending"
+        : listing.status === "approved"
+          ? "Live"
+          : "Preview",
     badgeColor: listing.featured
-      ? "bg-purple-600"
-      : listing.status === "approved"
-        ? "bg-green-600"
-        : "bg-amber-500",
+      ? "bg-green-600"
+      : listing.trending
+        ? "bg-amber-500"
+        : listing.status === "approved"
+          ? "bg-green-600"
+          : "bg-amber-500",
     img: listing.photoUrls[0] ?? DEFAULT_IMG,
     category: listing.category || listing.subcategory,
     subcategory: listing.subcategory,
@@ -63,6 +91,12 @@ export function submissionToStay(listing: SubmittedListing): Stay {
     parentCategory: listing.parentCategory,
     photoCount: Math.max(listing.photoUrls?.length ?? listing.photoCount ?? 1, 1),
     postedAt: listing.submittedAt,
+    originalPrice: flashLive && basePrice > dealPrice ? basePrice : undefined,
+    priceNote: flashLive ? `Flash −${Math.min(100, flashPct)}%` : undefined,
+    flashDealEndsAt: flashLive ? listing.flashDealEndsAt ?? undefined : undefined,
+    flashDealDiscountPct: flashLive ? Math.min(100, flashPct) : undefined,
+    flashDealCurrency: flashLive ? listing.flashDealCurrency : undefined,
+    currency: listing.flashDealCurrency || currencyForCountryName(listing.country),
     instantBook: typeof window !== "undefined" ? isInstantBookingEffective() : false,
     amenities:
       (() => {

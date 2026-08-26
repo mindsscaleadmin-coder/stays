@@ -6,6 +6,11 @@ set -euo pipefail
 if command -v ulimit >/dev/null 2>&1; then
   ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true
 fi
+# Webpack-only fallback. Leave unset so the watcher does not rebuild every ~250ms.
+# Set WATCHPACK_POLLING=1 if macOS hits EMFILE and routes start 404ing.
+if [ -n "${WATCHPACK_POLLING:-}" ]; then
+  export WATCHPACK_POLLING
+fi
 
 # Pinokio/miniconda Node (common on this machine)
 if [ -x "/Users/user/pinokio/bin/miniconda/bin/node" ]; then
@@ -115,13 +120,27 @@ if command -v pgrep >/dev/null 2>&1; then
   fi
 fi
 
-# Stale or partially-deleted .next output causes MODULE_NOT_FOUND 500s
-# (e.g. ./vendor-chunks/@supabase.js, ./276.js).
-if [ -d ".next" ]; then
+# Wiping .next on every boot forces a 40s+ first compile. Use
+# `npm run dev:clean` or NEXT_CLEAN=1 when the cache is corrupted.
+if [ "${NEXT_CLEAN:-}" = "1" ] && [ -d ".next" ]; then
+  echo "Clearing .next cache (NEXT_CLEAN=1)..."
   chmod -R u+w .next 2>/dev/null || true
   rm -rf .next
 fi
 
 ensure_local_postgres
 
-exec npx next dev -p 3000 "$@"
+# Compile common routes so the first browser click is not a cold compile.
+(
+  for _ in $(seq 1 40); do
+    if curl -sS -o /dev/null --max-time 2 "http://127.0.0.1:3000/" 2>/dev/null; then
+      break
+    fi
+    sleep 0.25
+  done
+  for path in / /login /host/login /listings /contact /host /account; do
+    curl -sS -o /dev/null --max-time 60 "http://127.0.0.1:3000${path}" || true
+  done
+) >/dev/null 2>&1 &
+
+exec npx next dev --turbo -p 3000 "$@"
