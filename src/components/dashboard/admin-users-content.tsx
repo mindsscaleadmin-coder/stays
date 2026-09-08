@@ -602,7 +602,7 @@ export function AdminUsersContent() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              <div className="grid grid-cols-7 gap-2 sm:gap-3 min-w-0">
                 <FilterField label="Joined from">
                   <input
                     type="date"

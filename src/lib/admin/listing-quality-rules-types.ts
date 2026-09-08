@@ -1,5 +1,7 @@
 export type ListingQualityForm = "details" | "manage";
 
+export type ListingQualityMode = "stay" | "experience" | "event";
+
 export type ListingQualityFieldKind = "required" | "minLength" | "minCount";
 
 export type ListingQualityFieldId =
@@ -21,6 +23,9 @@ export type ListingQualityFieldId =
   | "farmActivities"
   | "livestockCrops"
   | "rooms"
+  | "meetingPoint"
+  | "requirements"
+  | "itinerary"
   | "custom";
 
 export interface ListingQualityFieldDef {
@@ -30,6 +35,8 @@ export interface ListingQualityFieldDef {
   kind: ListingQualityFieldKind;
   defaultMin?: number;
   minLabel?: string;
+  /** When set, rule only applies to these listing modes. Omit = every mode. */
+  modes?: ListingQualityMode[];
 }
 
 export interface ListingQualityRuleItem {
@@ -47,6 +54,14 @@ export interface ListingQualityRules {
   items: ListingQualityRuleItem[];
 }
 
+/** Platform rules keyed by parent category id (Stays, Experiences, Events, …). */
+export interface ListingQualityRulesStore {
+  /** Used when a parent has no override yet. */
+  fallback: ListingQualityRules;
+  /** Per-parent overrides keyed by taxonomy parent id. */
+  byParentId: Record<string, ListingQualityRules>;
+}
+
 /** Pre-items shape still present in some browsers. */
 export interface LegacyListingQualityRules {
   minPhotos?: number;
@@ -59,4 +74,6 @@ export interface LegacyListingQualityRules {
   requireAmenities?: boolean;
   minAmenities?: number;
   items?: ListingQualityRuleItem[];
+  fallback?: ListingQualityRules;
+  byParentId?: Record<string, ListingQualityRules>;
 }

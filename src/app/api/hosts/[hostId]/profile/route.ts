@@ -5,10 +5,11 @@ import {
   requireHostSelfOrAdmin,
 } from "@/lib/auth/listing-access";
 import { AuthError } from "@/lib/auth/session";
-import { BookingAccessError } from "@/lib/auth/booking-access";
+import { BookingAccessError, isDemoApiMode } from "@/lib/auth/booking-access";
 import { getRequestId } from "@/lib/observability/logger";
 import type { HostPublicProfileInput } from "@/lib/host/host-profile-types";
 import { defaultHostPublicProfile } from "@/lib/host/host-profile-data";
+import { canAccessAdmin } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,8 @@ export async function PATCH(
 
   try {
     const { hostId } = await context.params;
-    await requireHostSelfOrAdmin(hostId);
+    const actor = await requireHostSelfOrAdmin(hostId);
+    const admin = !actor || canAccessAdmin(actor.roles) || isDemoApiMode();
 
     const body = (await request.json()) as Partial<HostPublicProfileInput>;
     const current = (await getHostProfile(hostId)) ?? defaultHostPublicProfile(hostId);
@@ -50,6 +52,9 @@ export async function PATCH(
       logoWidth: body.logoWidth ?? current.logoWidth,
       logoHeight: body.logoHeight ?? current.logoHeight,
       instantBookEnabled: true,
+      ...(admin && body.eventsSubscriptionExpiresAt !== undefined
+        ? { eventsSubscriptionExpiresAt: body.eventsSubscriptionExpiresAt }
+        : {}),
     });
 
     return NextResponse.json(

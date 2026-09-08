@@ -11,7 +11,7 @@ import { stayNightDates } from "@/lib/booking/stay-night-dates";
 import { getStripe, isStripeConfigured } from "@/lib/stripe/server";
 import { expireEndedFlashDeals } from "@/lib/server/listing-pricing-repo";
 import { withAudit } from "@/lib/booking/booking-audit";
-import { releaseBookingNights } from "@/lib/booking/booking-nights";
+import { releaseBookingNights, releaseExperienceSlotCapacity } from "@/lib/booking/booking-nights";
 import { BASE_CURRENCY } from "@/lib/currency";
 
 type Tx = Prisma.TransactionClient;
@@ -90,6 +90,7 @@ export async function acceptBooking(bookingId: string) {
         },
       });
       await releaseBookingNights(tx, bookingId);
+      await releaseExperienceSlotCapacity(tx, booking);
       throw new BookingError("This request has expired", "UNAVAILABLE");
     }
 
@@ -150,6 +151,7 @@ export async function declineBooking(bookingId: string, reason?: string) {
     });
 
     await releaseBookingNights(tx, bookingId);
+    await releaseExperienceSlotCapacity(tx, booking);
 
     return { booking: updated, evaluation };
   }).then(async (result) => {
@@ -242,6 +244,7 @@ export async function cancelBooking(input: {
     }
 
     await releaseBookingNights(tx, input.bookingId);
+    await releaseExperienceSlotCapacity(tx, booking);
 
     return next;
   });
@@ -336,6 +339,7 @@ export async function expirePendingBookings(
         await unblockDates(tx, booking.listingId, booking.checkIn, booking.checkOut);
       }
       await releaseBookingNights(tx, booking.id);
+      await releaseExperienceSlotCapacity(tx, booking);
       return next;
     });
 

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { getSubmissionById } from "@/lib/listings/submission-data";
 import { useListingQualityRules } from "@/components/providers/listing-quality-rules-provider";
 import { useListingTags } from "@/components/providers/listing-tags-provider";
@@ -40,6 +41,7 @@ import {
   listingTitleWordCount,
 } from "@/lib/listings/listing-title";
 import { RichTextEditor } from "@/components/dashboard/rich-text-editor";
+import { getListingMode } from "@/lib/listings/listing-mode";
 
 export function HostListingManageContent({ listingId }: { listingId: string }) {
   const router = useRouter();
@@ -49,7 +51,8 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
   const { all, update, deleteRoom, ready } = useListingSubmissions();
   const hostListings = filterHostListings(all, hostId ?? "", hostName);
   const { farmTypeOptions, activityOptions, amenityOptions } = useListingTags();
-  const { rules: qualityRules } = useListingQualityRules();
+  const { rulesForParent } = useListingQualityRules();
+  const { data: taxonomy } = useAdminTaxonomy();
 
   const listing = useMemo(
     () => hostListings.find((l) => l.id === listingId) ?? getSubmissionById(listingId) ?? null,
@@ -62,10 +65,26 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
   const [farmType, setFarmType] = useState("");
   const [farmActivities, setFarmActivities] = useState<string[]>([]);
   const [livestockCrops, setLivestockCrops] = useState("");
+  const [meetingPoint, setMeetingPoint] = useState("");
+  const [requirements, setRequirements] = useState("");
+  const [licenseNumber, setLicenseNumber] = useState("");
+  const [groupSizeMin, setGroupSizeMin] = useState(1);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+
+  // Mode from persisted listing so it cannot flap mid-edit.
+  const mode = getListingMode(
+    listing
+      ? {
+          parentCategory: listing.parentCategory,
+          type: listing.type,
+          category: listing.category,
+        }
+      : null
+  );
+  const isExperience = mode === "experience";
 
   useEffect(() => {
     if (!listing) {
@@ -78,6 +97,10 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
     setFarmType(listing.farmType ?? "");
     setFarmActivities(listing.farmActivities ?? []);
     setLivestockCrops(listing.livestockCrops ?? "");
+    setMeetingPoint(listing.meetingPoint ?? "");
+    setRequirements(listing.requirements ?? "");
+    setLicenseNumber(listing.licenseNumber ?? "");
+    setGroupSizeMin(listing.groupSizeMin ?? 1);
     setHydrated(true);
   }, [listing]);
 
@@ -98,6 +121,16 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
     );
   }
 
+  const qualityRules = useMemo(
+    () =>
+      rulesForParent(
+        undefined,
+        listing?.parentCategory,
+        taxonomy.parents
+      ),
+    [rulesForParent, listing?.parentCategory, taxonomy.parents]
+  );
+
   const qualityInput = useMemo(
     () =>
       qualityInputFromListing({
@@ -108,18 +141,32 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
         amenities,
         farmActivities,
         livestockCrops,
+        meetingPoint,
+        requirements,
+        listingMode: mode,
       }),
-    [title, description, listing, farmType, amenities, farmActivities, livestockCrops]
+    [
+      title,
+      description,
+      listing,
+      farmType,
+      amenities,
+      farmActivities,
+      livestockCrops,
+      meetingPoint,
+      requirements,
+      mode,
+    ]
   );
 
   const qualityChecklist = useMemo(
-    () => buildQualityChecklist(qualityInput, qualityRules),
-    [qualityInput, qualityRules]
+    () => buildQualityChecklist(qualityInput, qualityRules, { listingMode: mode }),
+    [qualityInput, qualityRules, mode]
   );
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    if (!listing) return;
+    if (!listing || submitting) return;
     setError("");
 
     const qualityError = validateListingQuality(
@@ -131,8 +178,12 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
         amenities,
         farmActivities,
         livestockCrops,
+        meetingPoint,
+        requirements,
+        listingMode: mode,
       }),
-      qualityRules
+      qualityRules,
+      { listingMode: mode }
     );
     if (qualityError) {
       setError(qualityError);
@@ -141,29 +192,45 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
 
     setSubmitting(true);
 
-    const ok = await update(listing.id, {
-      title: clampListingTitle(title).trim(),
-      description: description.trim(),
-      country: listing.country,
-      state: listing.state,
-      district: listing.district,
-      parentCategory: listing.parentCategory,
-      category: listing.category,
-      subcategory: listing.subcategory,
-      type: listing.type,
-      city: listing.city,
-      customFilters: listing.customFilters,
-      advancedFilters: listing.advancedFilters,
-      photoUrls: listing.photoUrls,
-      photoTags: listing.photoTags,
-      photoCount: listing.photoCount,
-      highlightIds: listing.highlightIds,
-      featureIconIds: listing.featureIconIds,
-      amenities,
-      farmType: farmType.trim() || undefined,
-      farmActivities,
-      livestockCrops: livestockCrops.trim() || undefined,
-    });
+    const modeFields = isExperience
+      ? {
+          meetingPoint: meetingPoint.trim(),
+          requirements: requirements.trim(),
+          licenseNumber: licenseNumber.trim() || undefined,
+          groupSizeMin: Math.max(1, groupSizeMin),
+        }
+      : {
+          farmType: farmType.trim() || undefined,
+          farmActivities,
+          livestockCrops: livestockCrops.trim() || undefined,
+        };
+
+    let ok = false;
+    try {
+      ok = await update(listing.id, {
+        title: clampListingTitle(title).trim(),
+        description: description.trim(),
+        country: listing.country,
+        state: listing.state,
+        district: listing.district,
+        parentCategory: listing.parentCategory,
+        category: listing.category,
+        subcategory: listing.subcategory,
+        type: listing.type,
+        city: listing.city,
+        customFilters: listing.customFilters,
+        advancedFilters: listing.advancedFilters,
+        photoUrls: listing.photoUrls,
+        photoTags: listing.photoTags,
+        photoCount: listing.photoCount,
+        highlightIds: listing.highlightIds,
+        featureIconIds: listing.featureIconIds,
+        amenities,
+        ...modeFields,
+      });
+    } catch {
+      ok = false;
+    }
 
     setSubmitting(false);
     if (!ok) {
@@ -221,7 +288,9 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
                 {listing.status}
               </span>
               <span className="text-xs text-gray-400">
-                {rooms.length} room{rooms.length === 1 ? "" : "s"} · {listing.photoCount} photos
+                {isExperience
+                  ? `${listing.photoCount} photos`
+                  : `${rooms.length} room${rooms.length === 1 ? "" : "s"} · ${listing.photoCount} photos`}
               </span>
             </div>
           </div>
@@ -250,7 +319,9 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Pencil className="w-4 h-4 text-green-700" />
-              <h3 className="text-sm font-semibold text-gray-900">Property details</h3>
+              <h3 className="text-sm font-semibold text-gray-900">
+                {isExperience ? "Experience details" : "Property details"}
+              </h3>
             </div>
             <Link
               href={`/host/listings/${listing.id}/edit`}
@@ -326,114 +397,178 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
           </div>
         </section>
 
-        <section className="bg-white rounded-2xl border p-5 space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <BedDouble className="w-4 h-4 text-green-700" />
-              <h3 className="text-sm font-semibold text-gray-900">Room / unit inventory</h3>
+        {!isExperience && (
+          <section className="bg-white rounded-2xl border p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <BedDouble className="w-4 h-4 text-green-700" />
+                <h3 className="text-sm font-semibold text-gray-900">Room / unit inventory</h3>
+              </div>
+              <Link
+                href={`/host/listings/${listing.id}/rooms/new`}
+                className="inline-flex items-center gap-1 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add room
+              </Link>
             </div>
-            <Link
-              href={`/host/listings/${listing.id}/rooms/new`}
-              className="inline-flex items-center gap-1 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg"
-            >
-              <Plus className="w-3.5 h-3.5" /> Add room
-            </Link>
-          </div>
-          {rooms.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No rooms or cottages yet. Add units if you offer multiple accommodations on one
-              property.
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {rooms.map((room) => (
-                <li
-                  key={room.id}
-                  className="flex items-center gap-3 border border-gray-100 rounded-xl p-3 bg-gray-50/50"
-                >
-                  <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-gray-100 shrink-0">
-                    {room.img ? (
-                      <Image src={room.img} alt={room.name} fill className="object-cover" unoptimized />
-                    ) : null}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 truncate">{room.name}</p>
-                    <p className="text-xs text-gray-500">
-                      {room.price}/night · {room.capacity} guests · {room.beds} beds ·{" "}
-                      {room.baths} baths
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!confirm(`Remove "${room.name}"?`)) return;
-                      await deleteRoom(listing.id, room.id);
-                      flash("Room removed.");
-                    }}
-                    className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
-                    aria-label={`Remove ${room.name}`}
+            {rooms.length === 0 ? (
+              <p className="text-sm text-gray-500">
+                No rooms or cottages yet. Add units if you offer multiple accommodations on one
+                property.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {rooms.map((room) => (
+                  <li
+                    key={room.id}
+                    className="flex items-center gap-3 border border-gray-100 rounded-xl p-3 bg-gray-50/50"
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                    <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-gray-100 shrink-0">
+                      {room.img ? (
+                        <Image src={room.img} alt={room.name} fill className="object-cover" unoptimized />
+                      ) : null}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{room.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {room.price}/night · {room.capacity} guests · {room.beds} beds ·{" "}
+                        {room.baths} baths
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!confirm(`Remove "${room.name}"?`)) return;
+                        await deleteRoom(listing.id, room.id);
+                        flash("Room removed.");
+                      }}
+                      className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50"
+                      aria-label={`Remove ${room.name}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
 
-        <section className="bg-white rounded-2xl border p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <Leaf className="w-4 h-4 text-green-700" />
-            <h3 className="text-sm font-semibold text-gray-900">Farm-specific info</h3>
-          </div>
-          <label className="block">
-            <span className="text-xs font-medium text-gray-600 mb-1 block">Type of farm</span>
-            <select
-              value={farmType}
-              onChange={(e) => setFarmType(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
-            >
-              <option value="">Select farm type</option>
-              {farmTypeOptions.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div>
-            <span className="text-xs font-medium text-gray-600 mb-2 block">Activities offered</span>
-            <div className="flex flex-wrap gap-2">
-              {activityOptions.map((activity) => (
-                <button
-                  key={activity}
-                  type="button"
-                  onClick={() => toggleActivity(activity)}
-                  className={cn(
-                    "text-xs font-medium px-3 py-1.5 rounded-full border transition-colors",
-                    farmActivities.includes(activity)
-                      ? "bg-green-700 border-green-700 text-white"
-                      : "border-gray-200 text-gray-600 hover:border-green-300"
-                  )}
-                >
-                  {activity}
-                </button>
-              ))}
+        {!isExperience && (
+          <section className="bg-white rounded-2xl border p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <Leaf className="w-4 h-4 text-green-700" />
+              <h3 className="text-sm font-semibold text-gray-900">Farm-specific info</h3>
             </div>
-          </div>
-          <label className="block">
-            <span className="text-xs font-medium text-gray-600 mb-1 block">
-              Livestock & crops on site
-            </span>
-            <textarea
-              value={livestockCrops}
-              onChange={(e) => setLivestockCrops(e.target.value)}
-              rows={3}
-              placeholder="e.g. Goats, chickens, date palms, organic vegetables…"
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-green-500"
-            />
-          </label>
-        </section>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-600 mb-1 block">Type of farm</span>
+              <select
+                value={farmType}
+                onChange={(e) => setFarmType(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              >
+                <option value="">Select farm type</option>
+                {farmTypeOptions.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div>
+              <span className="text-xs font-medium text-gray-600 mb-2 block">Activities offered</span>
+              <div className="flex flex-wrap gap-2">
+                {activityOptions.map((activity) => (
+                  <button
+                    key={activity}
+                    type="button"
+                    onClick={() => toggleActivity(activity)}
+                    className={cn(
+                      "text-xs font-medium px-3 py-1.5 rounded-full border transition-colors",
+                      farmActivities.includes(activity)
+                        ? "bg-green-700 border-green-700 text-white"
+                        : "border-gray-200 text-gray-600 hover:border-green-300"
+                    )}
+                  >
+                    {activity}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-600 mb-1 block">
+                Livestock &amp; crops on site
+              </span>
+              <textarea
+                value={livestockCrops}
+                onChange={(e) => setLivestockCrops(e.target.value)}
+                rows={3}
+                placeholder="e.g. Goats, chickens, date palms, organic vegetables…"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </label>
+          </section>
+        )}
+
+        {isExperience && (
+          <section className="bg-white rounded-2xl border p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-green-700" />
+              <h3 className="text-sm font-semibold text-gray-900">Experience logistics</h3>
+            </div>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-600 mb-1 block">
+                Meeting point / pickup
+              </span>
+              <textarea
+                value={meetingPoint}
+                onChange={(e) => setMeetingPoint(e.target.value)}
+                rows={2}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="Hotel lobby pickup within 30 minutes of agreed time"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-600 mb-1 block">
+                Requirements / safety
+              </span>
+              <textarea
+                value={requirements}
+                onChange={(e) => setRequirements(e.target.value)}
+                rows={3}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="Age limits, clothing advice, health notes…"
+              />
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-xs font-medium text-gray-600 mb-1 block">
+                  License / certification
+                </span>
+                <input
+                  value={licenseNumber}
+                  onChange={(e) => setLicenseNumber(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="DCT license number"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-gray-600 mb-1 block">Min group size</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={groupSizeMin}
+                  onChange={(e) => setGroupSizeMin(Math.max(1, Number(e.target.value) || 1))}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </label>
+            </div>
+            <p className="text-xs text-gray-400">
+              Itinerary steps are edited from the full listing editor.
+            </p>
+          </section>
+        )}
 
         {/* Pricing link */}
         <section className="bg-white rounded-2xl border p-5 space-y-3">
@@ -442,14 +577,16 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
             <h3 className="text-sm font-semibold text-gray-900">Pricing</h3>
           </div>
           <p className="text-sm text-gray-500">
-            Base rates, weekend &amp; seasonal pricing, discounts, and extra charges are managed
-            here. Currency and tax follow the listing&apos;s country from Admin → Countries.
+            {isExperience
+              ? "Session times, capacity, and per-person or per-group rates are managed here. Currency and tax follow the listing's country from Admin → Countries."
+              : "Base rates, weekend & seasonal pricing, discounts, and extra charges are managed here. Currency and tax follow the listing's country from Admin → Countries."}
           </p>
           <Link
-            href="/host/pricing"
+            href={`/host/pricing?listing=${encodeURIComponent(listing.id)}`}
             className="inline-flex items-center gap-1.5 text-sm bg-green-700 hover:bg-green-800 text-white px-4 py-2 rounded-xl font-semibold transition-colors"
           >
-            <BadgeDollarSign className="w-4 h-4" /> Manage pricing
+            <BadgeDollarSign className="w-4 h-4" />{" "}
+            {isExperience ? "Manage session pricing" : "Manage pricing"}
           </Link>
         </section>
 

@@ -20,6 +20,8 @@ export interface HostPublicProfile {
   logoHeight?: number;
   /** @deprecated Bookings always confirm instantly; kept for stored profile shape. */
   instantBookEnabled?: boolean;
+  /** ISO datetime — Event listings stay public until this date. Hosts cannot self-set. */
+  eventsSubscriptionExpiresAt?: string;
 }
 
 export type HostPublicProfileInput = Omit<HostPublicProfile, "hostId">;

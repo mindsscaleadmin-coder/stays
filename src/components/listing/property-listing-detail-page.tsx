@@ -107,7 +107,9 @@ import type { StayReview } from "@/lib/booking/stay-reviews-types";
 import { addToBookingCart, loadBookingCart } from "@/lib/guest/booking-cart";
 import { readStayDatesFromSearch, readStayPartyFromSearch } from "@/lib/guest/stay-search-dates";
 import { ExperienceBookingCard } from "@/components/listing/experience-booking-card";
+import { EventListingDetailContent } from "@/components/listing/event-listing-detail-content";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
+import { isEventListing } from "@/lib/booking/is-event-listing";
 import {
   guestPartyFromRoom,
   mergeGuestPartyLimits,
@@ -268,6 +270,13 @@ export function PropertyListingDetailPage({
     parentCategory: stay.parentCategory,
     type: stay.type,
   });
+  const isEvent = isEventListing({
+    parentCategory: stay.parentCategory,
+    type: stay.type,
+    category: stay.category,
+  });
+  const breadcrumbParent = stay.parentCategory?.trim() ?? "";
+  const breadcrumbCategory = breadcrumbParent ? (stay.category?.trim() ?? "") : "";
   const { listings: catalogListings } = usePublicListings();
   const [showFeatured, setShowFeatured] = useState(() =>
     /featured|premium/i.test(stay.badge ?? "")
@@ -807,11 +816,26 @@ export function PropertyListingDetailPage({
 
   const similar = useMemo(
     () => {
-      const base = catalogListings.filter((s) => s.id !== stay.id).slice(0, 4);
+      const base = catalogListings
+        .filter((s) => s.id !== stay.id)
+        .filter((s) =>
+          isEvent
+            ? isEventListing({
+                parentCategory: s.parentCategory,
+                type: s.type,
+                category: s.category,
+              })
+            : !isEventListing({
+                parentCategory: s.parentCategory,
+                type: s.type,
+                category: s.category,
+              })
+        )
+        .slice(0, 4);
       if (!reviewsReady) return base;
       return base.map((s) => applyGuestReviewRatings(s));
     },
-    [stay.id, reviewsReady, catalogListings]
+    [stay.id, reviewsReady, catalogListings, isEvent]
   );
   const priceCurrency =
     pricingSettings?.currency ?? extrasCurrency ?? countryPricing.currency;
@@ -1174,9 +1198,27 @@ export function PropertyListingDetailPage({
             {t("breadcrumbHome")}
           </Link>
           <ChevronRight className="w-3 h-3" />
-          <Link href="/listings" className="hover:text-green-700 transition-colors">
-            {t("breadcrumbStays")}
+          <Link
+            href={
+              breadcrumbParent
+                ? `/listings?parent=${encodeURIComponent(breadcrumbParent)}`
+                : "/listings"
+            }
+            className="hover:text-green-700 transition-colors"
+          >
+            {breadcrumbParent || t("breadcrumbStays")}
           </Link>
+          {breadcrumbCategory && (
+            <>
+              <ChevronRight className="w-3 h-3" />
+              <Link
+                href={`/listings?parent=${encodeURIComponent(breadcrumbParent)}&category=${encodeURIComponent(breadcrumbCategory)}`}
+                className="hover:text-green-700 transition-colors"
+              >
+                {breadcrumbCategory}
+              </Link>
+            </>
+          )}
           <ChevronRight className="w-3 h-3" />
           <span className="text-gray-400">{stayLocation.split(",")[0]}</span>
           <ChevronRight className="w-3 h-3" />
@@ -1184,6 +1226,35 @@ export function PropertyListingDetailPage({
         </div>
       </div>
 
+      {isEvent ? (
+        <EventListingDetailContent
+          stay={ratedStay}
+          description={aboutText}
+          highlights={highlights}
+          amenities={displayAmenities}
+          features={featureIcons}
+          reviews={publishedReviews}
+          reviewsReady={reviewsReady}
+          rating={ratedStay.rating}
+          reviewCount={ratedStay.reviews}
+          spaces={displayRooms.map((room) => ({
+            id: (room as { id?: string }).id,
+            name: room.name,
+            desc: room.desc,
+            price: roomNightly(room),
+            capacity: room.capacity,
+            img: room.img,
+          }))}
+          mapEmbedUrl={mapEmbedUrl}
+          policies={displayPolicies}
+          offers={hostOffers}
+          money={money}
+          featured={showFeatured}
+          wishlist={wishlist}
+          onToggleWishlist={() => setWishlist((saved) => !saved)}
+          onShare={() => void copyShareLink()}
+        />
+      ) : (
       <div className="max-w-7xl mx-auto px-4 pt-5 pb-12">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Main column — 8 cols */}
@@ -2643,7 +2714,7 @@ export function PropertyListingDetailPage({
               </div>
               )}
 
-              {!isExperience && hostOffers.length > 0 && (
+              {!isExperience && !isEvent && hostOffers.length > 0 && (
               <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4">
                 <h3 className="font-semibold text-gray-800 text-sm mb-3 flex items-center gap-2">
                   <Tag className="w-4 h-4 text-orange-500" /> {t("specialOffers")}
@@ -2740,14 +2811,19 @@ export function PropertyListingDetailPage({
           </div>
         </div>
       </div>
+      )}
 
       {/* Similar properties — above footer */}
       <section className="border-t border-gray-200 bg-white mt-2">
         <div className="max-w-7xl mx-auto px-4 py-10">
           <div className="flex items-center justify-between mb-5">
             <div>
-              <h2 className="text-xl font-bold text-gray-900 font-display">{t("similarTitle")}</h2>
-              <p className="text-gray-500 text-sm mt-0.5">{t("similarSubtitle")}</p>
+              <h2 className="text-xl font-bold text-gray-900 font-display">
+                {isEvent ? "Similar event venues" : t("similarTitle")}
+              </h2>
+              <p className="text-gray-500 text-sm mt-0.5">
+                {isEvent ? "Explore more venues for your next event" : t("similarSubtitle")}
+              </p>
             </div>
             <Link href="/listings" className="text-green-700 text-sm font-semibold flex items-center gap-1">
               {tc("viewAll")} <ChevronRight className="w-4 h-4" />
@@ -2777,10 +2853,12 @@ export function PropertyListingDetailPage({
                     {s.location}
                   </div>
                   <div className="flex items-center justify-between">
+                    {!isEvent && (
                     <div>
                       <span className="text-green-700 font-bold">{money(s.price)}</span>
                       <span className="text-gray-400 text-xs"> {tc("perNight")}</span>
                     </div>
+                    )}
                     <div className="flex items-center gap-1">
                       <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
                       <span className="text-xs font-semibold text-gray-700">{s.rating}</span>
@@ -2790,7 +2868,7 @@ export function PropertyListingDetailPage({
                     href={`/listing/${s.id}`}
                     className="mt-3 block w-full bg-green-700 hover:bg-green-800 text-white text-sm font-semibold py-2 rounded-xl transition-colors text-center"
                   >
-                    {tc("bookNow")}
+                    {isEvent ? "View venue" : tc("bookNow")}
                   </Link>
                 </div>
               </div>
@@ -2798,6 +2876,7 @@ export function PropertyListingDetailPage({
           </div>
         </div>
       </section>
+      {!isEvent && (
       <div className="lg:hidden fixed bottom-0 inset-x-0 z-50 border-t border-gray-200 bg-white/95 backdrop-blur-md px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
         <div className="min-w-0">
           <p className="text-base font-bold text-gray-900 tabular-nums leading-tight">
@@ -2812,6 +2891,7 @@ export function PropertyListingDetailPage({
           {tc("checkAvailability")}
         </a>
       </div>
+      )}
     </div>
   );
 }

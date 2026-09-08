@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronRight,
@@ -11,17 +11,22 @@ import {
 import { useListingSettings } from "@/components/providers/listing-settings-provider";
 import {
   getListingFeatureIcon,
-  LISTING_FEATURE_ICON_OPTIONS,
   MAX_LISTING_FEATURE_ICONS,
 } from "@/lib/listings/listing-feature-icons";
+import {
+  resolveListingSettingsForTaxonomy,
+  type ListingTaxonomyScope,
+} from "@/lib/admin/listing-settings-scope";
 import { cn } from "@/lib/utils";
 
 export function ListingFeatureIconsField({
   selectedIds,
   onChange,
+  taxonomy,
 }: {
   selectedIds: string[];
   onChange: (ids: string[]) => void;
+  taxonomy?: ListingTaxonomyScope;
 }) {
   const { enabledFeatureIcons, ready } = useListingSettings();
   const [open, setOpen] = useState(false);
@@ -29,28 +34,52 @@ export function ListingFeatureIconsField({
   const [query, setQuery] = useState("");
   const [limitMsg, setLimitMsg] = useState("");
 
+  const scopedIcons = useMemo(
+    () =>
+      resolveListingSettingsForTaxonomy(enabledFeatureIcons, taxonomy ?? {}),
+    [enabledFeatureIcons, taxonomy]
+  );
+
+  const scopedIdSet = useMemo(
+    () => new Set(scopedIcons.map((f) => f.id)),
+    [scopedIcons]
+  );
+
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  useEffect(() => {
+    const current = selectedIdsRef.current;
+    const next = current.filter((id) => scopedIdSet.has(id));
+    if (next.length !== current.length) {
+      onChangeRef.current(next);
+    }
+  }, [scopedIdSet]);
+
   useEffect(() => {
     if (open) {
-      setDraftIds(selectedIds);
+      setDraftIds(selectedIds.filter((id) => scopedIdSet.has(id)));
       setQuery("");
       setLimitMsg("");
     }
-  }, [open, selectedIds]);
+  }, [open, selectedIds, scopedIdSet]);
 
   const selectedItems = useMemo(
-    () => enabledFeatureIcons.filter((f) => selectedIds.includes(f.id)),
-    [enabledFeatureIcons, selectedIds]
+    () => scopedIcons.filter((f) => selectedIds.includes(f.id)),
+    [scopedIcons, selectedIds]
   );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return enabledFeatureIcons;
-    return enabledFeatureIcons.filter(
+    if (!q) return scopedIcons;
+    return scopedIcons.filter(
       (f) =>
         f.label.toLowerCase().includes(q) ||
         f.iconKey.toLowerCase().includes(q)
     );
-  }, [enabledFeatureIcons, query]);
+  }, [scopedIcons, query]);
 
   function toggleDraft(id: string) {
     setLimitMsg("");
@@ -78,12 +107,14 @@ export function ListingFeatureIconsField({
     );
   }
 
-  if (enabledFeatureIcons.length === 0) {
+  if (scopedIcons.length === 0) {
     return (
       <div className="pt-2.5 border-t border-gray-100">
         <h4 className="text-sm font-semibold text-gray-900 mb-2">Feature icons</h4>
         <p className="text-sm text-gray-400">
-          No icons configured yet. Ask an admin to add options under Settings → Listing.
+          {taxonomy?.parentId
+            ? "No feature icons for this parent / category / subcategory yet."
+            : "No icons configured yet. Ask an admin to add options under Settings → Listing."}
         </p>
       </div>
     );

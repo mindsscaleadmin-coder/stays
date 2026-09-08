@@ -33,7 +33,7 @@ import {
   buildQualityChecklist,
   validateListingQuality,
 } from "@/lib/listings/listing-quality-validation";
-import { isExperienceListing } from "@/lib/booking/is-experience-listing";
+import { getListingMode, toListingQualityMode } from "@/lib/listings/listing-mode";
 import {
   defaultExperienceSessions,
 } from "@/lib/booking/experience-session-types";
@@ -53,7 +53,7 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
   const router = useRouter();
   const { user } = useAuth();
   const { data: taxonomy } = useAdminTaxonomy();
-  const { rules: qualityRules } = useListingQualityRules();
+  const { rulesForParent, ready: qualityReady } = useListingQualityRules();
   const { all, submit, update } = useListingSubmissions();
   const hostId = resolveHostId(user);
   const hostName = resolveHostName(user);
@@ -100,10 +100,26 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
     [taxonomy, filterValues]
   );
 
-  const isExperience = isExperienceListing({
+  const draftMode = getListingMode({
     parentCategory: draftLabels.parentCategory,
     type: draftLabels.type,
+    category: draftLabels.category,
   });
+  const isExperience = draftMode === "experience";
+  const isEvent = draftMode === "event";
+
+  const wasExperienceRef = useRef(isExperience);
+  // Clear experience-only fields only when host switches away from Experiences.
+  useEffect(() => {
+    if (wasExperienceRef.current && !isExperience) {
+      setMeetingPoint("");
+      setRequirements("");
+      setLicenseNumber("");
+      setGroupSizeMin(1);
+      setItinerary([{ step: 1, title: "", description: "" }]);
+    }
+    wasExperienceRef.current = isExperience;
+  }, [isExperience]);
 
   const qualityInput = useMemo(
     () => ({
@@ -116,19 +132,54 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
       parentCategory: draftLabels.parentCategory,
       category: draftLabels.category,
       subcategory: draftLabels.subcategory,
+      type: draftLabels.type,
+      listingMode: draftMode,
       highlightCount: filterValues.highlightIds.length,
       featureIconCount: filterValues.featureIconIds.length,
       advancedCount: filterValues.advancedIds.length,
       mapEmbedUrl: mapEmbedPreview ?? "",
       customSelections: filterValues.customSelections,
       customFilters: draftLabels.customFilters,
+      meetingPoint,
+      requirements,
+      itineraryCount: itinerary.filter((s) => s.title.trim()).length,
     }),
-    [title, description, photos.length, draftLabels, filterValues, mapEmbedPreview]
+    [
+      title,
+      description,
+      photos.length,
+      draftLabels,
+      filterValues,
+      mapEmbedPreview,
+      draftMode,
+      meetingPoint,
+      requirements,
+      itinerary,
+    ]
+  );
+
+  const qualityRules = useMemo(
+    () =>
+      rulesForParent(
+        filterValues.parentId,
+        draftLabels.parentCategory,
+        taxonomy.parents
+      ),
+    [
+      rulesForParent,
+      filterValues.parentId,
+      draftLabels.parentCategory,
+      taxonomy.parents,
+    ]
   );
 
   const qualityChecklist = useMemo(
-    () => buildQualityChecklist(qualityInput, qualityRules, { form: "details" }),
-    [qualityInput, qualityRules]
+    () =>
+      buildQualityChecklist(qualityInput, qualityRules, {
+        form: "details",
+        listingMode: draftMode,
+      }),
+    [qualityInput, qualityRules, draftMode]
   );
 
   photosRef.current = photos;
@@ -214,6 +265,11 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
       return;
     }
 
+    const listingMode = toListingQualityMode({
+      parentCategory: labels.parentCategory,
+      type: labels.type,
+      category: labels.category,
+    });
     const qualityError = validateListingQuality(
       {
         title: title.trim(),
@@ -225,15 +281,23 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         parentCategory: labels.parentCategory,
         category: labels.category,
         subcategory: labels.subcategory,
+        type: labels.type,
+        listingMode,
         highlightCount: filterValues.highlightIds.length,
         featureIconCount: filterValues.featureIconIds.length,
         advancedCount: filterValues.advancedIds.length,
         mapEmbedUrl: mapEmbedUrl ?? "",
         customSelections: filterValues.customSelections,
         customFilters: labels.customFilters,
+        meetingPoint,
+        requirements,
+        itineraryCount: itinerary.filter((s) => s.title.trim()).length,
       },
       qualityRules,
-      { form: "details" }
+      {
+        form: "details",
+        listingMode,
+      }
     );
     if (qualityError) {
       setError(qualityError);
@@ -265,10 +329,7 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         highlightIds: filterValues.highlightIds,
         featureIconIds: filterValues.featureIconIds.slice(0, 4),
         mapEmbedUrl: mapEmbedUrl || "",
-        ...(isExperienceListing({
-          parentCategory: labels.parentCategory,
-          type: labels.type,
-        })
+        ...(isExperience
           ? {
               meetingPoint: meetingPoint.trim(),
               requirements: requirements.trim(),
@@ -317,16 +378,11 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         )
         .map((l) => l.id);
 
-      seedPricingFromListingForm({
+      await seedPricingFromListingForm({
         listingId: savedId,
         country: countryConfig,
         similarListingIds,
-        seedSessions: isExperienceListing({
-          parentCategory: labels.parentCategory,
-          type: labels.type,
-        })
-          ? defaultExperienceSessions()
-          : undefined,
+        seedSessions: isExperience ? defaultExperienceSessions() : undefined,
       });
 
       router.push(`/host/pricing?listing=${encodeURIComponent(savedId)}&from=listing`);
@@ -365,16 +421,39 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
       <div className="space-y-6 max-w-2xl">
         <div>
           <h2 className="text-xl font-bold text-gray-900 font-display">
-            {isEdit ? "Edit Listing" : "New listing"}
+            {isEdit
+              ? isExperience
+                ? "Edit experience"
+                : "Edit listing"
+              : isExperience
+                ? "New experience"
+                : "New listing"}
           </h2>
           <p className="text-gray-500 text-sm mt-1">
             {isEdit
               ? wasLive
-                ? "Update details, then continue to Pricing. Live listings stay pending until admin re-approves."
-                : "Update details, then continue to Pricing."
-              : "Step 1 of 2 — listing details. Next opens Pricing."}
+                ? isExperience
+                  ? "Update experience details, then continue to session pricing. Live listings stay pending until admin re-approves."
+                  : "Update details, then continue to Pricing. Live listings stay pending until admin re-approves."
+                : isExperience
+                  ? "Update experience details, then continue to session pricing."
+                  : "Update details, then continue to Pricing."
+              : isExperience
+                ? "Step 1 of 2 — experience details. Next opens session pricing."
+                : "Step 1 of 2 — listing details. Next opens Pricing."}
           </p>
+          {filterValues.parentId ? null : (
+            <p className="text-xs text-amber-700 mt-2">
+              Choose a parent category below — the form adapts for Experiences vs Stays.
+            </p>
+          )}
         </div>
+        {isEvent && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-950 text-sm rounded-xl px-4 py-3">
+            Events listings appear in the Events section after a yearly subscription. Guests
+            contact you directly — we do not take a booking fee.
+          </div>
+        )}
 
         {isEdit && wasLive && (
           <div className="bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-xl px-4 py-3">
@@ -406,7 +485,9 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
               onChange={(e) => setTitle(clampListingTitle(e.target.value))}
               maxLength={LISTING_TITLE_MAX_CHARS}
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-              placeholder="Green Valley Farmhouse"
+              placeholder={
+                isExperience ? "Sunrise desert safari" : "Green Valley Farmhouse"
+              }
             />
             <p className="text-xs text-gray-400 mt-1">
               Short titles stay on one line on the listing page.
@@ -423,137 +504,18 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
               rows={8}
               value={description}
               onChange={setDescription}
-              placeholder="Describe your property..."
+              placeholder={
+                isExperience
+                  ? "Describe what guests will do, see, and take away…"
+                  : "Describe your property..."
+              }
             />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between gap-3 mb-1.5">
-              <label className="block text-sm font-medium text-gray-700">
-                Photos
-              </label>
-              <span className="text-xs text-gray-400">
-                {photos.length}/{MAX_PHOTOS} uploaded
-              </span>
-            </div>
-
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files) addFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
-
-            {photos.length === 0 ? (
-              <div
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOver(true);
-                }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOver(false);
-                  if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
-                }}
-                onClick={() => inputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
-                  dragOver
-                    ? "border-green-500 bg-green-50"
-                    : "border-amber-300 bg-amber-50/40"
-                }`}
-              >
-                <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-sm font-medium text-gray-700">
-                  Click to upload or drag and drop
-                </p>
-                <p className="text-xs text-gray-400 mt-1">
-                  PNG, JPG, WEBP — up to {MAX_PHOTOS} photos
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-wrap items-center gap-2 mb-3">
-                  <button
-                    type="button"
-                    onClick={() => setManagerOpen(true)}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                    Manage photos
-                  </button>
-                  {photos.length < MAX_PHOTOS && (
-                    <button
-                      type="button"
-                      onClick={() => inputRef.current?.click()}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium border border-gray-200 hover:border-green-400 text-gray-600 px-3 py-1.5 rounded-lg"
-                    >
-                      <ImagePlus className="w-3.5 h-3.5" />
-                      Upload more
-                    </button>
-                  )}
-                  <p className="text-xs text-gray-400">
-                    First photo is the cover. Tag rooms and rearrange in Manage photos.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {photos.map((photo, index) => (
-                    <button
-                      key={photo.id}
-                      type="button"
-                      onClick={() => setManagerOpen(true)}
-                      className="relative group aspect-[4/3] rounded-xl overflow-hidden border bg-gray-100 text-start"
-                    >
-                      <Image
-                        src={photo.src}
-                        alt={`Listing photo ${index + 1}`}
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                      {index === 0 && (
-                        <span className="absolute top-2 start-2 bg-green-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          Cover
-                        </span>
-                      )}
-                      {photo.tag ? (
-                        <span className="absolute bottom-2 start-2 end-2 truncate bg-black/65 text-white text-[10px] font-medium px-2 py-0.5 rounded-full text-center">
-                          {photo.tag}
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
-
-                  {photos.length < MAX_PHOTOS && (
-                    <button
-                      type="button"
-                      onClick={() => inputRef.current?.click()}
-                      className="aspect-[4/3] rounded-xl border-2 border-dashed border-gray-200 hover:border-green-400 hover:bg-green-50 flex flex-col items-center justify-center gap-1 text-gray-500 transition-colors"
-                    >
-                      <ImagePlus className="w-6 h-6" />
-                      <span className="text-xs font-medium">Add more</span>
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
           </div>
 
           <ListingFilterFields values={filterValues} onChange={setFilterValues} />
 
           {isExperience && (
-            <div className="space-y-4 border border-green-100 rounded-xl p-4 bg-green-50/40">
+            <div className="space-y-4 border border-gray-200 rounded-xl p-4 bg-white">
               <div>
                 <p className="text-sm font-semibold text-gray-900">Experience details</p>
                 <p className="text-xs text-gray-500 mt-0.5">
@@ -656,6 +618,131 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
             </div>
           )}
 
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-1.5">
+              <label className="block text-sm font-medium text-gray-700">
+                Photos
+              </label>
+              <span className="text-xs text-gray-400">
+                {photos.length}/{MAX_PHOTOS} uploaded
+              </span>
+            </div>
+
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files) addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+
+            {photos.length === 0 ? (
+              <div
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+                }}
+                onClick={() => inputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
+                  dragOver
+                    ? "border-green-500 bg-green-50"
+                    : "border-amber-300 bg-amber-50/40"
+                }`}
+              >
+                <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                <p className="text-sm font-medium text-gray-700">
+                  Click to upload or drag and drop
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  PNG, JPG, WEBP — up to {MAX_PHOTOS} photos
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setManagerOpen(true)}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    Manage photos
+                  </button>
+                  {photos.length < MAX_PHOTOS && (
+                    <button
+                      type="button"
+                      onClick={() => inputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium border border-gray-200 hover:border-green-400 text-gray-600 px-3 py-1.5 rounded-lg"
+                    >
+                      <ImagePlus className="w-3.5 h-3.5" />
+                      Upload more
+                    </button>
+                  )}
+                  <p className="text-xs text-gray-400">
+                    {isExperience
+                      ? "First photo is the cover. Add activity and location photos in Manage photos."
+                      : "First photo is the cover. Tag rooms and rearrange in Manage photos."}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {photos.map((photo, index) => (
+                    <button
+                      key={photo.id}
+                      type="button"
+                      onClick={() => setManagerOpen(true)}
+                      className="relative group aspect-[4/3] rounded-xl overflow-hidden border bg-gray-100 text-start"
+                    >
+                      <Image
+                        src={photo.src}
+                        alt={`Listing photo ${index + 1}`}
+                        fill
+                        className="object-cover"
+                        unoptimized
+                      />
+                      {index === 0 && (
+                        <span className="absolute top-2 start-2 bg-green-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          Cover
+                        </span>
+                      )}
+                      {photo.tag ? (
+                        <span className="absolute bottom-2 start-2 end-2 truncate bg-black/65 text-white text-[10px] font-medium px-2 py-0.5 rounded-full text-center">
+                          {photo.tag}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+
+                  {photos.length < MAX_PHOTOS && (
+                    <button
+                      type="button"
+                      onClick={() => inputRef.current?.click()}
+                      className="aspect-[4/3] rounded-xl border-2 border-dashed border-gray-200 hover:border-green-400 hover:bg-green-50 flex flex-col items-center justify-center gap-1 text-gray-500 transition-colors"
+                    >
+                      <ImagePlus className="w-6 h-6" />
+                      <span className="text-xs font-medium">Add more</span>
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
           <div className="space-y-3 border border-gray-100 rounded-xl p-4 bg-gray-50/60">
             <div className="flex items-start gap-2">
               <MapPin className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
@@ -707,17 +794,23 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
               type="submit"
               disabled={
                 submitting ||
+                !qualityReady ||
                 (isEdit && !hydrated) ||
                 qualityChecklist.some((i) => i.required && !i.passed)
               }
               className="bg-green-700 hover:bg-green-800 disabled:opacity-60 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition-colors"
             >
-              {submitting ? "Saving…" : "Next"}
+              {submitting
+                ? "Saving…"
+                : isExperience
+                  ? "Next: Session pricing"
+                  : "Next: Pricing"}
             </button>
           </div>
           <p className="text-xs text-gray-400">
-            Next saves this listing and opens Pricing. Currency and tax come from the
-            selected country; rates copy from a similar listing when available.
+            {isExperience
+              ? "Saves this experience and opens session pricing. Currency and tax come from the selected country."
+              : "Next saves this listing and opens Pricing. Currency and tax come from the selected country; rates copy from a similar listing when available."}
           </p>
         </form>
       </div>

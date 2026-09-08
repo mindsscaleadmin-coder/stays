@@ -29,6 +29,11 @@ import {
 import { getSeedListings } from "@/lib/listings/listing-seeds";
 import { attachPricingToListings } from "@/lib/server/listing-pricing-repo";
 import { attachPublicListingMeta } from "@/lib/listings/attach-public-listing-meta";
+import {
+  eventsDirectoryFreeForPublicCatalog,
+  listingVisibleOnPublicCatalog,
+} from "@/lib/listings/public-listings-server";
+import { listEventSubscribedHostIds } from "@/lib/server/host-profile-repo";
 import { setListingFeaturedInDb } from "@/lib/listings/promotions-repo";
 import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError, isDemoApiMode } from "@/lib/auth/booking-access";
@@ -122,10 +127,21 @@ export async function GET(request: Request) {
             pageSize: pagination.pageSize,
           };
 
-    const listings = await attachPublicListingMeta(
+    let listings = await attachPublicListingMeta(
       await attachPricingToListings(pageResult.listings)
     );
-    const total = pageResult.total > 0 ? pageResult.total : listings.length;
+    let total = pageResult.total > 0 ? pageResult.total : listings.length;
+    if (publicCatalog) {
+      const freeDirectory = await eventsDirectoryFreeForPublicCatalog();
+      const subscribed = freeDirectory
+        ? new Set<string>()
+        : new Set(await listEventSubscribedHostIds());
+      const visible = listings.filter((listing) =>
+        listingVisibleOnPublicCatalog(listing, subscribed, freeDirectory)
+      );
+      total = Math.max(0, total - (listings.length - visible.length));
+      listings = visible;
+    }
 
     const publicApproved =
       filters.status === "approved" &&

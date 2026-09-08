@@ -2,6 +2,12 @@ export interface ListingHighlight {
   id: string;
   label: string;
   enabled: boolean;
+  /** Empty = all parents. */
+  parentId?: string;
+  /** Empty = all categories under parent. */
+  categoryId?: string;
+  /** Empty = all subcategories under category. */
+  subcategoryId?: string;
 }
 
 export interface ListingFeatureIcon {
@@ -9,6 +15,12 @@ export interface ListingFeatureIcon {
   label: string;
   iconKey: string;
   enabled: boolean;
+  /** Empty = all parents. */
+  parentId?: string;
+  /** Empty = all categories under parent. */
+  categoryId?: string;
+  /** Empty = all subcategories under category. */
+  subcategoryId?: string;
 }
 
 export interface ListingSettings {

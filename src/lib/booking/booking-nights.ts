@@ -23,3 +23,20 @@ export async function reserveBookingNights(
 export async function releaseBookingNights(tx: Tx, bookingId: string): Promise<void> {
   await tx.bookingNight.deleteMany({ where: { bookingId } });
 }
+
+/** Return experience slot spots when a session booking is cancelled/declined/expired. */
+export async function releaseExperienceSlotCapacity(
+  tx: Tx,
+  booking: { experienceSlotId: string | null; guestCount: number }
+): Promise<void> {
+  if (!booking.experienceSlotId || booking.guestCount <= 0) return;
+  const slot = await tx.experienceSlot.findUnique({
+    where: { id: booking.experienceSlotId },
+  });
+  if (!slot) return;
+  const nextCount = Math.max(0, slot.bookedCount - booking.guestCount);
+  await tx.experienceSlot.update({
+    where: { id: slot.id },
+    data: { bookedCount: nextCount },
+  });
+}

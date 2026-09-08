@@ -269,22 +269,31 @@ export function HostDailyOpsPanel() {
         <section className="bg-white rounded-2xl border p-5 space-y-3">
           <h4 className="text-sm font-semibold text-gray-900">Get more listings live</h4>
           <p className="text-xs text-gray-500">
-            Finish these so guests can find and pay for a stay — that’s what fills this board.
+            Each row says what’s wrong and exactly what to change.
           </p>
           <ul className="space-y-2">
             {goLive.map((task) => (
               <li key={task.id}>
                 <Link
                   href={task.href}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 px-3.5 py-3 hover:border-green-300 hover:bg-green-50/40"
+                  className="flex items-start justify-between gap-3 rounded-xl border border-gray-100 px-3.5 py-3 hover:border-green-300 hover:bg-green-50/40"
                 >
-                  <span className="min-w-0">
+                  <span className="min-w-0 space-y-1">
                     <span className="block text-sm font-medium text-gray-900 truncate">
                       {task.title}
                     </span>
-                    <span className="block text-xs text-gray-500 mt-0.5">{task.detail}</span>
+                    <span className="block text-xs text-gray-600">
+                      <span className="font-semibold text-gray-800">What’s wrong: </span>
+                      {task.detail}
+                    </span>
+                    <span className="block text-xs text-green-800">
+                      <span className="font-semibold">Change: </span>
+                      {task.fix}
+                    </span>
                   </span>
-                  <span className="text-xs font-semibold text-green-700 shrink-0">Fix</span>
+                  <span className="text-xs font-semibold text-green-700 shrink-0 pt-0.5">
+                    {task.cta ?? "Fix"}
+                  </span>
                 </Link>
               </li>
             ))}

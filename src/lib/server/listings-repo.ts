@@ -98,8 +98,38 @@ function listingSearchWhere(filters: ListingSearchFilters): Prisma.ListingWhereI
 
   equalsInsensitive("state", filters.state);
   equalsInsensitive("district", filters.district);
-  equalsInsensitive("parentCategory", filters.parentCategory);
-  equalsInsensitive("category", filters.category);
+
+  const parentCategory = filters.parentCategory?.trim();
+  if (parentCategory && /^events?$/i.test(parentCategory)) {
+    and.push({
+      OR: [
+        { parentCategory: { equals: parentCategory, mode: "insensitive" } },
+        { parentCategory: { equals: "Venues", mode: "insensitive" } },
+        { parentCategory: { equals: "Venue", mode: "insensitive" } },
+      ],
+    });
+  } else {
+    equalsInsensitive("parentCategory", filters.parentCategory);
+  }
+
+  const category = filters.category?.trim();
+  if (category && /^venue$/i.test(category)) {
+    and.push({
+      OR: [
+        { category: { equals: "Venue", mode: "insensitive" } },
+        { category: { equals: "Wedding Venues", mode: "insensitive" } },
+        { category: { equals: "Party Lawns", mode: "insensitive" } },
+        { category: { equals: "Corporate Retreats", mode: "insensitive" } },
+        { category: { equals: "Private Events", mode: "insensitive" } },
+        { category: { equals: "Farmhouse Gatherings", mode: "insensitive" } },
+        { category: { equals: "Outdoor Lawns", mode: "insensitive" } },
+        { category: { equals: "Desert Venues", mode: "insensitive" } },
+      ],
+    });
+  } else {
+    equalsInsensitive("category", filters.category);
+  }
+
   equalsInsensitive("subcategory", filters.subcategory);
 
   const q = filters.q?.trim();

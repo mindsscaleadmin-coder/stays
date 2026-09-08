@@ -23,7 +23,6 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
 import {
   resolvePropertyTabId,
-  DEFAULT_CUSTOM_ITEMS,
   type FilterTab,
 } from "@/lib/admin/taxonomy-types";
 import {
@@ -50,11 +49,16 @@ import {
   normalizeExtraChargeBilling,
   type ExtraCharge,
 } from "@/lib/host/host-pricing-types";
-import { isExperienceListing } from "@/lib/booking/is-experience-listing";
+import { getListingMode, toListingQualityMode } from "@/lib/listings/listing-mode";
 import {
   defaultExperienceSessions,
   type ExperienceSessionTemplate,
 } from "@/lib/booking/experience-session-types";
+import { useListingQualityRules } from "@/components/providers/listing-quality-rules-provider";
+import {
+  qualityInputFromListing,
+  validateListingQuality,
+} from "@/lib/listings/listing-quality-validation";
 
 const fieldClass =
   "w-full border border-gray-200/90 rounded-xl px-3 py-2.5 text-sm bg-white shadow-sm shadow-gray-100/80 focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-colors disabled:bg-gray-50 disabled:text-gray-400 disabled:shadow-none";
@@ -167,12 +171,18 @@ export function HostPricingContent() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { data: taxonomy } = useAdminTaxonomy();
+  const { rulesForParent } = useListingQualityRules();
   const platformConfig = usePlatformConfig();
   const hostId = resolveHostId(user);
   const hostName = resolveHostName(user);
   const { all, update, updateRoomPrice, deleteRoom, ready: listingsReady, setStatus } =
     useListingSubmissions();
-  const submissions = filterHostListings(all, hostId ?? "", hostName);
+  // Memoized: an unstable array here re-ran the listing/room selection effects on
+  // every render and reloaded pricing over edits in progress.
+  const submissions = useMemo(
+    () => filterHostListings(all, hostId ?? "", hostName),
+    [all, hostId, hostName]
+  );
 
   const bounds = platformConfig.features.hostBounds;
   const dynamicPricingOn = platformConfig.features.hostFeatures.dynamicPricing;
@@ -236,10 +246,17 @@ export function HostPricingContent() {
     [submissions, listingId]
   );
 
-  const isExperience = isExperienceListing({
-    parentCategory: selectedSubmission?.parentCategory,
-    type: selectedSubmission?.type,
-  });
+  const isExperience =
+    getListingMode({
+      parentCategory: selectedSubmission?.parentCategory,
+      type: selectedSubmission?.type,
+    }) === "experience";
+  const isEvent =
+    getListingMode({
+      parentCategory: selectedSubmission?.parentCategory,
+      type: selectedSubmission?.type,
+      category: selectedSubmission?.category,
+    }) === "event";
 
   const rooms = useMemo(
     () => selectedListing?.rooms ?? [],
@@ -255,44 +272,9 @@ export function HostPricingContent() {
     );
   }, [taxonomy.mainTabs]);
 
-  const optionsForTab = useCallback((tab: FilterTab | null, canonicalId?: string) => {
-    if (!tab && !canonicalId) return [];
-    const tabId = tab?.id ?? canonicalId!;
-    const fromTaxonomy = [...(taxonomy.customItems[tabId] ?? [])]
-      .filter((i) => i.enabled !== false)
-      .sort((a, b) =>
-        a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
-      );
-    if (fromTaxonomy.length > 0) return fromTaxonomy;
-    const defaults = canonicalId ? DEFAULT_CUSTOM_ITEMS[canonicalId] : undefined;
-    return defaults ? [...defaults] : [];
-  }, [taxonomy.customItems]);
-
-  function selectedIdForTab(tab: FilterTab | null, options: { id: string; name: string }[]) {
-    if (!selectedSubmission || !tab) return "";
-    const saved = (selectedSubmission.customFilters ?? []).find(
-      (f) => f.label === tab.label || (tab.id === "guests" && /^guests?$/i.test(f.label))
-    );
-    if (!saved?.value) return "";
-    return (
-      options.find((o) => o.name.toLowerCase() === saved.value.trim().toLowerCase())?.id ??
-      ""
-    );
-  }
-
-  const bedsTab = useMemo(() => findCapacityTab("beds"), [findCapacityTab]);
-  const bathsTab = useMemo(() => findCapacityTab("baths"), [findCapacityTab]);
   const guestsTab = useMemo(
     () => findCapacityTab("guests") ?? ({ id: "guests", label: "Guests" } satisfies FilterTab),
     [findCapacityTab]
-  );
-  const bedsOptions = useMemo(
-    () => optionsForTab(bedsTab, "beds"),
-    [bedsTab, optionsForTab]
-  );
-  const bathsOptions = useMemo(
-    () => optionsForTab(bathsTab, "baths"),
-    [bathsTab, optionsForTab]
   );
 
   async function saveListingCustomFilters(
@@ -300,7 +282,23 @@ export function HostPricingContent() {
     customFilters: { label: string; value: string }[],
     successMessage: string
   ) {
-    const ok = await update(listing.id, {
+    try {
+      await saveListingCustomFiltersInner(listing, customFilters);
+      flash(successMessage);
+    } catch (error) {
+      flash(
+        error instanceof Error
+          ? `Could not save guest capacity: ${error.message}`
+          : "Could not save guest capacity."
+      );
+    }
+  }
+
+  async function saveListingCustomFiltersInner(
+    listing: SubmittedListing,
+    customFilters: { label: string; value: string }[]
+  ) {
+    await update(listing.id, {
       title: listing.title,
       description: listing.description,
       country: listing.country,
@@ -325,38 +323,51 @@ export function HostPricingContent() {
       houseRules: listing.houseRules,
       cancellationPolicyId: listing.cancellationPolicyId,
     });
-    if (ok) flash(successMessage);
   }
 
-  async function handleCustomTabChange(tab: FilterTab | null, itemId: string) {
-    if (!selectedSubmission || !tab) return;
-    const options = optionsForTab(tab);
-    const item = options.find((o) => o.id === itemId);
-    const without = (selectedSubmission.customFilters ?? []).filter(
-      (f) => f.label !== tab.label
-    );
-    const customFilters = item
-      ? [...without, { label: tab.label, value: item.name }]
-      : without;
-    await saveListingCustomFilters(
-      selectedSubmission,
-      customFilters,
-      item ? `${tab.label} set to “${item.name}”.` : `${tab.label} cleared.`
-    );
-  }
+  // `all` is refetched after every listing write, so a listing can drop out of
+  // this host's set for a tick. Re-applying `?listing=` on each render also
+  // reverted the Property dropdown, and falling back to the first option loaded
+  // pricing for the wrong listing and threw away unsaved edits.
+  const appliedUrlListingRef = useRef<string | null>(null);
+  const listingSelectionValidRef = useRef(false);
 
   useEffect(() => {
+    if (!listingsReady) return;
     const fromUrl = searchParams.get("listing");
-    if (fromUrl && listingOptions.some((l) => l.id === fromUrl)) {
+
+    if (
+      fromUrl &&
+      appliedUrlListingRef.current !== fromUrl &&
+      listingOptions.some((l) => l.id === fromUrl)
+    ) {
+      appliedUrlListingRef.current = fromUrl;
+      listingSelectionValidRef.current = true;
       setListingId(fromUrl);
-    } else if (!listingOptions.some((l) => l.id === listingId) && listingOptions[0]) {
+      return;
+    }
+
+    if (listingOptions.some((l) => l.id === listingId)) {
+      listingSelectionValidRef.current = true;
+      return;
+    }
+
+    if (!listingSelectionValidRef.current && listingOptions[0]) {
       setListingId(listingOptions[0].id);
     }
-  }, [listingId, listingOptions, searchParams]);
+  }, [listingId, listingOptions, listingsReady, searchParams]);
+
+  // Applied once per `?room=` value so picking another room in the list sticks.
+  const appliedUrlRoomRef = useRef<string | null>(null);
 
   useEffect(() => {
     const fromUrl = searchParams.get("room");
-    if (fromUrl && rooms.some((r) => r.id === fromUrl)) {
+    if (
+      fromUrl &&
+      appliedUrlRoomRef.current !== fromUrl &&
+      rooms.some((r) => r.id === fromUrl)
+    ) {
+      appliedUrlRoomRef.current = fromUrl;
       setSelectedRoomId(fromUrl);
       return;
     }
@@ -380,6 +391,7 @@ export function HostPricingContent() {
   const {
     settings,
     ready,
+    saveError,
     save,
     flushSave,
     setRoomPrice,
@@ -395,6 +407,19 @@ export function HostPricingContent() {
     if (raw?.length) return raw;
     return isExperience ? defaultExperienceSessions() : [];
   }, [settings?.sessions, isExperience]);
+
+  // Persist Morning/Evening defaults so guests see sessions (UI overlay alone is not enough).
+  const sessionSeedRef = useRef("");
+  useEffect(() => {
+    sessionSeedRef.current = "";
+  }, [listingId]);
+  useEffect(() => {
+    if (!ready || !settings || !isExperience || !listingId) return;
+    if ((settings.sessions?.length ?? 0) > 0) return;
+    if (sessionSeedRef.current === listingId) return;
+    sessionSeedRef.current = listingId;
+    save({ sessions: defaultExperienceSessions() }, { immediate: true });
+  }, [ready, settings, isExperience, listingId, save]);
 
   function updateSession(
     key: string,
@@ -481,13 +506,54 @@ export function HostPricingContent() {
 
   const [submittingReview, setSubmittingReview] = useState(false);
 
-  function flash(text: string) {
+  function flash(text: string, ms = 2500) {
     setMessage(text);
-    setTimeout(() => setMessage(""), 2500);
+    setTimeout(() => setMessage(""), ms);
   }
 
   async function handleSubmitForReview() {
-    if (!listingId) return;
+    if (!listingId) {
+      flash("Select a listing before submitting.");
+      return;
+    }
+
+    if (selectedSubmission) {
+      const listingMode = toListingQualityMode({
+        parentCategory: selectedSubmission.parentCategory,
+        type: selectedSubmission.type,
+        category: selectedSubmission.category,
+      });
+      const qualityRules = rulesForParent(
+        undefined,
+        selectedSubmission.parentCategory,
+        taxonomy.parents
+      );
+      // Pricing is step 2 of the create flow, so only the details-form rules can
+      // be met yet. Manage-form rules (rooms, amenities, farm info) are enforced
+      // on the manage screen and shown to admin in the review queue.
+      const qualityError = validateListingQuality(
+        qualityInputFromListing({
+          ...selectedSubmission,
+          listingMode,
+        }),
+        qualityRules,
+        { listingMode, form: "details" }
+      );
+      if (qualityError) {
+        flash(`Finish listing quality requirements first: ${qualityError}`, 8000);
+        return;
+      }
+      if (listingMode === "experience") {
+        const liveSessions = settings?.sessions?.length
+          ? settings.sessions
+          : sessions;
+        if (!liveSessions.length) {
+          flash("Add at least one experience session before submitting.", 8000);
+          return;
+        }
+      }
+    }
+
     setSubmittingReview(true);
     try {
       if (typeof document !== "undefined") {
@@ -498,8 +564,13 @@ export function HostPricingContent() {
       const ok = await setStatus(listingId, "pending");
       if (!ok) throw new Error("status");
       router.push("/host/listings?submitted=1");
-    } catch {
-      flash("Could not save and submit. Please try again.");
+    } catch (error) {
+      flash(
+        error instanceof Error && error.message !== "status"
+          ? `Could not save and submit: ${error.message}`
+          : "Could not save and submit. Please try again.",
+        8000
+      );
       setSubmittingReview(false);
     }
   }
@@ -736,21 +807,36 @@ export function HostPricingContent() {
           />
           <div className="relative">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-green-700/80 mb-1.5">
-              Host tools
+              {fromListing
+                ? isExperience
+                  ? "Step 2 of 2 — Session pricing"
+                  : "Step 2 of 2 — Pricing"
+                : "Host tools"}
             </p>
             <h2 className="text-xl sm:text-2xl font-bold text-gray-900 font-display tracking-tight">
-              Pricing
+              {isExperience ? "Session pricing" : "Pricing"}
             </h2>
             <p className="text-gray-600 text-sm mt-1.5 max-w-2xl leading-relaxed">
-              Set rates, discounts, and extra charges. Currency and tax follow the listing&apos;s
-              country from Admin → Countries.
+              {isExperience
+                ? "Set session times, capacity, and per-person or per-group rates. Currency and tax follow the listing's country from Admin → Countries."
+                : isEvent
+                  ? "Optional display rates for your venue. Guests contact you directly — we do not charge these on the platform."
+                  : "Set rates, discounts, and extra charges. Currency and tax follow the listing's country from Admin → Countries."}
             </p>
           </div>
         </div>
 
-        {message && (
-          <div className="bg-green-50 border border-green-200 text-green-800 text-sm rounded-xl px-4 py-3 shadow-sm shadow-green-100/50">
-            {message}
+        {saveError && (
+          <div className="bg-red-50 border border-red-200 text-red-800 text-sm rounded-xl px-4 py-3 shadow-sm shadow-red-100/50">
+            Pricing did not save: {saveError}. Your changes are kept in this
+            browser — fix the issue and edit any field to retry.
+          </div>
+        )}
+
+        {isEvent && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-950 text-sm rounded-xl px-4 py-3">
+            Events listings are a yearly-subscription directory. Guests contact you
+            directly — these rates are not charged on this platform.
           </div>
         )}
 
@@ -778,7 +864,7 @@ export function HostPricingContent() {
                 </p>
               </div>
             </div>
-            {!isExperience && (
+            {!isExperience && !isEvent && (
             <Link
               href={`/host/listings/${listingId}/rooms/new`}
               className="shrink-0 inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-4 py-2.5 rounded-xl shadow-sm shadow-green-700/20 transition-colors"
@@ -790,7 +876,7 @@ export function HostPricingContent() {
 
           <div className="flex flex-col sm:flex-row sm:items-end gap-3">
             <label className="block flex-1 min-w-0">
-              <span className={labelClass}>Property</span>
+              <span className={labelClass}>{isExperience ? "Listing" : "Property"}</span>
               <select
                 value={listingId}
                 onChange={(e) => {
@@ -834,98 +920,204 @@ export function HostPricingContent() {
 
           {isExperience && (
             <div className="space-y-3 pt-2">
-              {sessions.map((session) => (
-                <div
-                  key={session.key}
-                  className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <input
-                      value={session.label}
-                      onChange={(e) => updateSession(session.key, { label: e.target.value })}
-                      className={`${fieldClass} max-w-xs font-semibold`}
-                      placeholder="Morning"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeSession(session.key)}
-                      className="text-xs text-red-600 hover:text-red-700 inline-flex items-center gap-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" /> Remove
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <label className="block">
-                      <span className={labelClass}>Start</span>
+              {sessions.map((session) => {
+                const party =
+                  session.priceMode === "per_person"
+                    ? readGuestPartyFromFilters(
+                        selectedSubmission?.customFilters,
+                        session.capacity || 2
+                      )
+                    : null;
+                const saveParty = (next: NonNullable<typeof party>) => {
+                  if (!selectedSubmission || !guestsTab) return;
+                  void saveListingCustomFilters(
+                    selectedSubmission,
+                    writeGuestPartyFilters(
+                      selectedSubmission.customFilters ?? [],
+                      next,
+                      guestsTab.label
+                    ),
+                    "Guest capacity updated."
+                  );
+                  updateSession(session.key, {
+                    capacity: Math.max(1, next.total),
+                  });
+                };
+
+                return (
+                  <div
+                    key={session.key}
+                    className="rounded-2xl border border-gray-200/90 bg-white p-4 sm:p-5 space-y-4 shadow-sm shadow-gray-100/50"
+                  >
+                    <div className="flex items-center justify-between gap-3">
                       <input
-                        type="time"
-                        value={session.startTime}
+                        value={session.label}
                         onChange={(e) =>
-                          updateSession(session.key, { startTime: e.target.value })
+                          updateSession(session.key, { label: e.target.value })
                         }
-                        className={fieldClass}
+                        className={`${fieldClass} max-w-sm font-semibold`}
+                        placeholder="Morning"
+                        aria-label="Session name"
                       />
-                    </label>
-                    <label className="block">
-                      <span className={labelClass}>End</span>
-                      <input
-                        type="time"
-                        value={session.endTime}
-                        onChange={(e) =>
-                          updateSession(session.key, { endTime: e.target.value })
-                        }
-                        className={fieldClass}
-                      />
-                    </label>
-                    <label className="block">
-                      <span className={labelClass}>Capacity</span>
-                      <input
-                        type="number"
-                        min={1}
-                        value={session.capacity}
-                        onChange={(e) =>
-                          updateSession(session.key, {
-                            capacity: Math.max(1, Number(e.target.value) || 1),
-                          })
-                        }
-                        className={fieldClass}
-                      />
-                    </label>
-                    <label className="block">
-                      <span className={labelClass}>Price mode</span>
-                      <select
-                        value={session.priceMode}
-                        onChange={(e) =>
-                          updateSession(session.key, {
-                            priceMode: e.target.value as "per_person" | "per_group",
-                          })
-                        }
-                        className={fieldClass}
+                      <button
+                        type="button"
+                        onClick={() => removeSession(session.key)}
+                        className="shrink-0 text-xs font-medium text-red-600 hover:text-red-700 inline-flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-red-50"
                       >
-                        <option value="per_person">Per person</option>
-                        <option value="per_group">Per group</option>
-                      </select>
-                    </label>
+                        <Trash2 className="w-3.5 h-3.5" /> Remove
+                      </button>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <div className="grid grid-cols-5 gap-2 sm:gap-3 min-w-[36rem] lg:min-w-0">
+                        <label className="block min-w-0 cursor-pointer">
+                          <span className={labelClass}>Start</span>
+                          <input
+                            type="time"
+                            value={session.startTime}
+                            onChange={(e) =>
+                              updateSession(session.key, { startTime: e.target.value })
+                            }
+                            onClick={openNativeDatePicker}
+                            className={`${fieldClass} cursor-pointer relative [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0`}
+                          />
+                        </label>
+                        <label className="block min-w-0 cursor-pointer">
+                          <span className={labelClass}>End</span>
+                          <input
+                            type="time"
+                            value={session.endTime}
+                            onChange={(e) =>
+                              updateSession(session.key, { endTime: e.target.value })
+                            }
+                            onClick={openNativeDatePicker}
+                            className={`${fieldClass} cursor-pointer relative [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0`}
+                          />
+                        </label>
+                        <label className="block min-w-0">
+                          <span className={labelClass}>Price mode</span>
+                          <select
+                            value={session.priceMode}
+                            onChange={(e) => {
+                              const priceMode = e.target.value as "per_person" | "per_group";
+                              const nextParty = readGuestPartyFromFilters(
+                                selectedSubmission?.customFilters,
+                                session.capacity
+                              );
+                              updateSession(session.key, {
+                                priceMode,
+                                ...(priceMode === "per_person"
+                                  ? { capacity: Math.max(1, nextParty.total) }
+                                  : {}),
+                              });
+                            }}
+                            className={fieldClass}
+                          >
+                            <option value="per_person">Per person</option>
+                            <option value="per_group">Per group</option>
+                          </select>
+                        </label>
+                        <label className="block min-w-0">
+                          <span className={labelClass}>Capacity</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={session.capacity}
+                            onChange={(e) => {
+                              const capacity = Math.max(1, Number(e.target.value) || 1);
+                              updateSession(session.key, { capacity });
+                              if (session.priceMode === "per_person" && party) {
+                                saveParty({
+                                  ...party,
+                                  total: capacity,
+                                  adults: Math.min(party.adults, capacity),
+                                  children: Math.min(party.children, capacity),
+                                });
+                              }
+                            }}
+                            className={fieldClass}
+                          />
+                        </label>
+                        <label className="block min-w-0">
+                          <span className={labelClass}>
+                            Price ({settings.currency}
+                            {session.priceMode === "per_person" ? "/person" : "/group"})
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={session.price}
+                            onChange={(e) =>
+                              updateSession(session.key, {
+                                price: Math.max(0, Number(e.target.value) || 0),
+                              })
+                            }
+                            className={fieldClass}
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    {session.priceMode === "per_person" && party && guestsTab ? (
+                      <div className="rounded-xl border border-gray-100 bg-gray-50/70 p-3 sm:p-4 space-y-3">
+                        <div>
+                          <p className="text-xs font-semibold text-gray-800">
+                            {guestsTab.label} mix
+                          </p>
+                          <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">
+                            Caps within Capacity above. Infants are separate and do not count
+                            toward the total.
+                          </p>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 sm:gap-3 max-w-xl">
+                          {(
+                            [
+                              { key: "adults" as const, label: "Max adults", min: 0 },
+                              { key: "children" as const, label: "Max children", min: 0 },
+                              {
+                                key: "infants" as const,
+                                label: "Max infants",
+                                min: 0,
+                                absMax: 10,
+                              },
+                            ] as const
+                          ).map((row) => {
+                            const max = row.key === "infants" ? row.absMax : party.total;
+                            const options: number[] = [];
+                            for (let n = row.min; n <= max; n++) options.push(n);
+                            return (
+                              <label key={row.key} className="block min-w-0">
+                                <span className="block text-[10px] font-medium text-gray-500 mb-1.5">
+                                  {row.label}
+                                </span>
+                                <select
+                                  id={`session-${session.key}-guests-${row.key}`}
+                                  value={String(Math.min(party[row.key], max))}
+                                  disabled={!selectedSubmission}
+                                  onChange={(e) => {
+                                    const value = Math.max(
+                                      row.min,
+                                      Math.min(max, Number(e.target.value) || row.min)
+                                    );
+                                    saveParty({ ...party, [row.key]: value });
+                                  }}
+                                  className={fieldClass}
+                                >
+                                  {options.map((n) => (
+                                    <option key={n} value={n}>
+                                      {n}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                  <label className="block max-w-xs">
-                    <span className={labelClass}>
-                      Price ({settings.currency}
-                      {session.priceMode === "per_person" ? " / person" : " / group"})
-                    </span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={session.price}
-                      onChange={(e) =>
-                        updateSession(session.key, {
-                          price: Math.max(0, Number(e.target.value) || 0),
-                        })
-                      }
-                      className={fieldClass}
-                    />
-                  </label>
-                </div>
-              ))}
+                );
+              })}
               <button
                 type="button"
                 onClick={addSession}
@@ -933,15 +1125,6 @@ export function HostPricingContent() {
               >
                 <Plus className="w-4 h-4" /> Add session
               </button>
-              {sessions.length > 0 && !settings.sessions?.length && (
-                <button
-                  type="button"
-                  onClick={() => save({ sessions }, { immediate: true })}
-                  className="ms-3 text-sm font-medium text-gray-600 underline"
-                >
-                  Save default Morning / Evening
-                </button>
-              )}
             </div>
           )}
 
@@ -957,147 +1140,106 @@ export function HostPricingContent() {
             );
           })()}
 
-          {(bedsTab || bathsTab || guestsTab) && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-4 border-t border-gray-100">
-              {bedsTab && (
-                <label className="block">
-                  <span className={labelClass}>{bedsTab.label}</span>
-                  <select
-                    id="listing-beds"
-                    value={selectedIdForTab(bedsTab, bedsOptions)}
-                    onChange={(e) => void handleCustomTabChange(bedsTab, e.target.value)}
-                    disabled={!selectedSubmission || bedsOptions.length === 0}
-                    className={fieldClass}
-                  >
-                    <option value="">Select beds</option>
-                    {bedsOptions.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {bathsTab && (
-                <label className="block">
-                  <span className={labelClass}>{bathsTab.label}</span>
-                  <select
-                    id="listing-baths"
-                    value={selectedIdForTab(bathsTab, bathsOptions)}
-                    onChange={(e) => void handleCustomTabChange(bathsTab, e.target.value)}
-                    disabled={!selectedSubmission || bathsOptions.length === 0}
-                    className={fieldClass}
-                  >
-                    <option value="">Select baths</option>
-                    {bathsOptions.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <div className="sm:col-span-1">
+          {(() => {
+            // Stays only — for experiences, Guests lives inside each per-person session card.
+            if (isExperience || !guestsTab) return null;
+
+            const party = readGuestPartyFromFilters(
+              selectedSubmission?.customFilters,
+              2
+            );
+            const saveParty = (next: typeof party) => {
+              if (!selectedSubmission) return;
+              void saveListingCustomFilters(
+                selectedSubmission,
+                writeGuestPartyFilters(
+                  selectedSubmission.customFilters ?? [],
+                  next,
+                  guestsTab.label
+                ),
+                "Guest capacity updated."
+              );
+            };
+
+            return (
+              <div className="pt-4 border-t border-gray-100 max-w-md">
                 <span className={labelClass}>{guestsTab.label}</span>
                 <p className="text-[11px] text-gray-500 mb-2">
                   Total is the paying guest limit (adults + children). Guests pick the mix;
                   infants are separate and do not count toward the total.
                 </p>
-                {(() => {
-                  const party = readGuestPartyFromFilters(
-                    selectedSubmission?.customFilters,
-                    2
-                  );
-                  const saveParty = (next: typeof party) => {
-                    if (!selectedSubmission) return;
-                    void saveListingCustomFilters(
-                      selectedSubmission,
-                      writeGuestPartyFilters(
-                        selectedSubmission.customFilters ?? [],
-                        next,
-                        guestsTab.label
-                      ),
-                      "Guest capacity updated."
-                    );
-                  };
-                  return (
-                    <div className="space-y-2">
-                      <label className="block">
-                        <span className="block text-[10px] font-medium text-gray-500 mb-1">
-                          Total guests
-                        </span>
-                        <select
-                          id="listing-guests-total"
-                          value={String(party.total)}
-                          disabled={!selectedSubmission}
-                          onChange={(e) => {
-                            const total = Math.max(1, Number(e.target.value) || 1);
-                            saveParty({
-                              ...party,
-                              total,
-                              adults: Math.min(party.adults, total),
-                              children: Math.min(party.children, total),
-                            });
-                          }}
-                          className={fieldClass}
-                        >
-                          {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => (
-                            <option key={n} value={n}>
-                              {n}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {(
-                          [
-                            { key: "adults" as const, label: "Max adults", min: 0 },
-                            { key: "children" as const, label: "Max children", min: 0 },
-                            { key: "infants" as const, label: "Max infants", min: 0, absMax: 10 },
-                          ] as const
-                        ).map((row) => {
-                          const max =
-                            row.key === "infants"
-                              ? row.absMax
-                              : party.total;
-                          const options: number[] = [];
-                          for (let n = row.min; n <= max; n++) options.push(n);
-                          return (
-                            <label key={row.key} className="block">
-                              <span className="block text-[10px] font-medium text-gray-500 mb-1">
-                                {row.label}
-                              </span>
-                              <select
-                                id={`listing-guests-${row.key}`}
-                                value={String(Math.min(party[row.key], max))}
-                                disabled={!selectedSubmission}
-                                onChange={(e) => {
-                                  const value = Math.max(
-                                    row.min,
-                                    Math.min(max, Number(e.target.value) || row.min)
-                                  );
-                                  saveParty({ ...party, [row.key]: value });
-                                }}
-                                className={fieldClass}
-                              >
-                                {options.map((n) => (
-                                  <option key={n} value={n}>
-                                    {n}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })()}
+                <div className="space-y-2">
+                  <label className="block">
+                    <span className="block text-[10px] font-medium text-gray-500 mb-1">
+                      Total guests
+                    </span>
+                    <select
+                      id="listing-guests-total"
+                      value={String(party.total)}
+                      disabled={!selectedSubmission}
+                      onChange={(e) => {
+                        const total = Math.max(1, Number(e.target.value) || 1);
+                        saveParty({
+                          ...party,
+                          total,
+                          adults: Math.min(party.adults, total),
+                          children: Math.min(party.children, total),
+                        });
+                      }}
+                      className={fieldClass}
+                    >
+                      {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(
+                      [
+                        { key: "adults" as const, label: "Max adults", min: 0 },
+                        { key: "children" as const, label: "Max children", min: 0 },
+                        { key: "infants" as const, label: "Max infants", min: 0, absMax: 10 },
+                      ] as const
+                    ).map((row) => {
+                      const max = row.key === "infants" ? row.absMax : party.total;
+                      const options: number[] = [];
+                      for (let n = row.min; n <= max; n++) options.push(n);
+                      return (
+                        <label key={row.key} className="block">
+                          <span className="block text-[10px] font-medium text-gray-500 mb-1">
+                            {row.label}
+                          </span>
+                          <select
+                            id={`listing-guests-${row.key}`}
+                            value={String(Math.min(party[row.key], max))}
+                            disabled={!selectedSubmission}
+                            onChange={(e) => {
+                              const value = Math.max(
+                                row.min,
+                                Math.min(max, Number(e.target.value) || row.min)
+                              );
+                              saveParty({ ...party, [row.key]: value });
+                            }}
+                            className={fieldClass}
+                          >
+                            {options.map((n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
-          {rooms.length === 0 ? (
+          {!isExperience && rooms.length === 0 ? (
             <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50/40 px-4 py-3">
               <p className="text-xs text-amber-900/80">
                 Add rooms if this property has more than one unit. Each room can be a different category with its own rate.
@@ -1106,7 +1248,7 @@ export function HostPricingContent() {
           ) : null}
         </section>
 
-        {rooms.length > 0 && (
+        {!isExperience && rooms.length > 0 && (
           <section className={sectionClass}>
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
@@ -1205,7 +1347,8 @@ export function HostPricingContent() {
           </section>
         )}
 
-        {/* Seasonal pricing */}
+        {/* Seasonal pricing — nightly-rate concept, not for session or event directory pricing */}
+        {!isExperience && !isEvent && (
         <section className={sectionClass}>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -1322,8 +1465,10 @@ export function HostPricingContent() {
           </>
           )}
         </section>
+        )}
 
-        {/* Discounts */}
+        {/* Discounts — stay/experience checkout only */}
+        {!isEvent && (
         <section className={sectionClass}>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -1436,8 +1581,10 @@ export function HostPricingContent() {
           </>
           )}
         </section>
+        )}
 
-        {/* Extra charges */}
+        {/* Extra charges — stay/experience checkout only */}
+        {!isEvent && (
         <section className={`${sectionClass} !space-y-5`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex items-start gap-3">
@@ -1497,6 +1644,7 @@ export function HostPricingContent() {
           ) : (
           <>
           {/* Simple common stay extras */}
+          {!isExperience && (
           <div className="rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/80">
               <p className="text-sm font-semibold text-gray-900">Extra bed & breakfast</p>
@@ -1551,6 +1699,7 @@ export function HostPricingContent() {
               })}
             </ul>
           </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="rounded-xl border border-gray-200 overflow-hidden">
@@ -1774,6 +1923,7 @@ export function HostPricingContent() {
             </label>
           </form>
 
+          {!isExperience && (
           <div className="border-t border-gray-100 pt-4">
             <div className="flex items-center gap-2 mb-3">
               <Users className="w-4 h-4 text-gray-400" />
@@ -1812,11 +1962,14 @@ export function HostPricingContent() {
               </label>
             </div>
           </div>
+          )}
           </>
           )}
         </section>
+        )}
 
-        {/* Tax */}
+        {/* Tax — checkout only; Events are enquire-only */}
+        {!isEvent && (
         <section className="bg-white rounded-2xl border p-5 space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -1846,8 +1999,18 @@ export function HostPricingContent() {
             </div>
           </div>
         </section>
+        )}
 
         <div className="bg-white rounded-2xl border p-5 space-y-3">
+          {message && (
+            <p
+              role="status"
+              aria-live="polite"
+              className="bg-amber-50 border border-amber-200 text-amber-950 text-sm rounded-xl px-4 py-3"
+            >
+              {message}
+            </p>
+          )}
           <div className="flex flex-wrap gap-3">
             <button
               type="button"

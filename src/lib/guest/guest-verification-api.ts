@@ -28,3 +28,18 @@ export async function submitGuestVerificationToApi(
   const data = (await res.json()) as { request: GuestVerificationRequest };
   return data.request;
 }
+
+export async function reviewGuestVerificationToApi(
+  userId: string,
+  status: "verified" | "rejected",
+  reviewNote?: string
+): Promise<GuestVerificationRequest> {
+  const res = await fetch(`/api/guests/${encodeURIComponent(userId)}/verification`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, reviewNote }),
+  });
+  if (!res.ok) throw new Error("Failed to review verification");
+  const data = (await res.json()) as { request: GuestVerificationRequest };
+  return data.request;
+}

@@ -54,6 +54,34 @@ stop_port() {
   fi
 }
 
+# A dev server that released port 3000 but did not exit keeps watching this repo
+# and rewrites .next under the new server, which then 500s with
+# "module factory is not available ... deleted in an HMR update".
+# stop_port only targets the port listener, so reap the whole tree by repo path.
+stop_stale_dev_servers() {
+  if ! command -v pgrep >/dev/null 2>&1; then
+    return
+  fi
+
+  local pids
+  pids=$(pgrep -f "$PWD/node_modules/.bin/next dev" 2>/dev/null || true)
+  if [ -z "$pids" ]; then
+    return
+  fi
+
+  echo "Reaping stale Next.js dev server(s) for this repo: $pids"
+  for pid in $pids; do
+    # next-server runs as a child; kill it before the parent orphans it.
+    pkill -9 -P "$pid" 2>/dev/null || true
+    kill -9 "$pid" 2>/dev/null || true
+  done
+
+  # The `npm exec next dev` wrapper holds no watcher but lingers otherwise.
+  # Safe here: our own wrapper is `npm run dev`, and next dev starts later.
+  pkill -9 -f "npm exec next dev" 2>/dev/null || true
+  sleep 0.5
+}
+
 load_dotenv() {
   if [ ! -f .env ]; then
     return
@@ -108,6 +136,9 @@ ensure_local_postgres() {
 # Always free the default Next.js port (and common fallback) so localhost:3000 works.
 stop_port 3000
 stop_port 3001
+
+# Then reap any dev server that survived without holding the port.
+stop_stale_dev_servers
 
 # Stray Vite watchers in this repo reload .next and corrupt the Next.js dev cache.
 if command -v pgrep >/dev/null 2>&1; then

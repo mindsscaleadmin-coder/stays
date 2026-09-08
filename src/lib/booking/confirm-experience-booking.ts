@@ -40,6 +40,10 @@ export async function confirmExperienceBooking(input: {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
     throw new BookingError("Invalid experience date", "INVALID_DATES");
   }
+  const todayIso = new Date().toISOString().slice(0, 10);
+  if (dateIso < todayIso) {
+    throw new BookingError("Experience date cannot be in the past", "INVALID_DATES");
+  }
   if (guestCount < 1 || guestCount > 50) {
     throw new BookingError("Invalid guest count", "INVALID_DATES");
   }
@@ -84,7 +88,10 @@ export async function confirmExperienceBooking(input: {
         throw new BookingError("Listing is not an experience", "INVALID_DATES");
       }
 
-      if (guestCount > Math.max(listing.maxGuests, session!.capacity)) {
+      if (guestCount > session!.capacity) {
+        throw new BookingError("Guest count exceeds session capacity", "INVALID_DATES");
+      }
+      if (listing.maxGuests > 0 && guestCount > listing.maxGuests) {
         throw new BookingError("Guest count exceeds maximum", "INVALID_DATES");
       }
 

@@ -83,8 +83,9 @@ export async function GET(
   const slots = dates.flatMap((dateIso) =>
     sessions.map((session) => {
       const row = byKey.get(`${dateIso}:${session.key}`);
-      const capacity = row?.capacity ?? session.capacity;
       const bookedCount = row?.bookedCount ?? 0;
+      // Always prefer live template capacity from pricing (never show stale slot capacity).
+      const capacity = Math.max(session.capacity, bookedCount);
       return {
         date: dateIso,
         sessionKey: session.key,

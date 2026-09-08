@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCircle,
@@ -10,40 +10,67 @@ import {
   X,
 } from "lucide-react";
 import { useListingSettings } from "@/components/providers/listing-settings-provider";
+import {
+  resolveListingSettingsForTaxonomy,
+  type ListingTaxonomyScope,
+} from "@/lib/admin/listing-settings-scope";
 import { cn } from "@/lib/utils";
 
 export function ListingHighlightsField({
   selectedIds,
   onChange,
+  taxonomy,
 }: {
   selectedIds: string[];
   onChange: (ids: string[]) => void;
+  taxonomy?: ListingTaxonomyScope;
 }) {
   const { enabledHighlights, ready } = useListingSettings();
   const [open, setOpen] = useState(false);
   const [draftIds, setDraftIds] = useState<string[]>(selectedIds);
   const [query, setQuery] = useState("");
 
+  const scopedHighlights = useMemo(
+    () =>
+      resolveListingSettingsForTaxonomy(enabledHighlights, taxonomy ?? {}),
+    [enabledHighlights, taxonomy]
+  );
+
+  const scopedIdSet = useMemo(
+    () => new Set(scopedHighlights.map((h) => h.id)),
+    [scopedHighlights]
+  );
+
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  useEffect(() => {
+    const current = selectedIdsRef.current;
+    const next = current.filter((id) => scopedIdSet.has(id));
+    if (next.length !== current.length) {
+      onChangeRef.current(next);
+    }
+  }, [scopedIdSet]);
+
   useEffect(() => {
     if (open) {
-      setDraftIds(selectedIds);
+      setDraftIds(selectedIds.filter((id) => scopedIdSet.has(id)));
       setQuery("");
     }
-  }, [open, selectedIds]);
+  }, [open, selectedIds, scopedIdSet]);
 
   const selectedItems = useMemo(
-    () => enabledHighlights.filter((h) => selectedIds.includes(h.id)),
-    [enabledHighlights, selectedIds]
+    () => scopedHighlights.filter((h) => selectedIds.includes(h.id)),
+    [scopedHighlights, selectedIds]
   );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return enabledHighlights;
-    return enabledHighlights.filter(
-      (h) =>
-        h.label.toLowerCase().includes(q)
-    );
-  }, [enabledHighlights, query]);
+    if (!q) return scopedHighlights;
+    return scopedHighlights.filter((h) => h.label.toLowerCase().includes(q));
+  }, [scopedHighlights, query]);
 
   function toggleDraft(id: string) {
     setDraftIds((prev) =>
@@ -68,12 +95,14 @@ export function ListingHighlightsField({
     );
   }
 
-  if (enabledHighlights.length === 0) {
+  if (scopedHighlights.length === 0) {
     return (
       <div className="pt-1 border-t border-gray-100">
         <h4 className="text-sm font-semibold text-gray-900 mb-2">Property highlights</h4>
         <p className="text-sm text-gray-400">
-          No highlights configured yet. Ask an admin to add options under Settings → Listing.
+          {taxonomy?.parentId
+            ? "No highlights for this parent / category / subcategory yet."
+            : "No highlights configured yet. Ask an admin to add options under Settings → Listing."}
         </p>
       </div>
     );
@@ -188,7 +217,7 @@ export function ListingHighlightsField({
               <div className="flex items-center justify-between mt-2.5 text-xs">
                 <span className="text-gray-500">
                   <span className="font-semibold text-gray-800">{draftIds.length}</span> of{" "}
-                  {enabledHighlights.length} selected
+                  {scopedHighlights.length} selected
                 </span>
                 {draftIds.length > 0 && (
                   <button

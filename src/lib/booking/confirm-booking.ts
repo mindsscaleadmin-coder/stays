@@ -128,6 +128,9 @@ export async function confirmBooking(input: {
         where: {
           listingId,
           status: { in: ["pending", "confirmed"] },
+          // Experience bookings use checkOut=null + experienceSlotId; they must not
+          // poison night-range overlap checks for stays on the same listing.
+          experienceSlotId: null,
           checkIn: { lt: checkOut },
           OR: [{ checkOut: { gt: checkIn } }, { checkOut: null }],
         },

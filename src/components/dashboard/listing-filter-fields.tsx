@@ -484,11 +484,13 @@ export function ListingFilterFields({
         <ListingFeatureIconsField
           selectedIds={featureIconIds}
           onChange={(ids) => patch({ featureIconIds: ids })}
+          taxonomy={{ parentId, categoryId, subcategoryId }}
         />
 
         <ListingHighlightsField
           selectedIds={highlightIds}
           onChange={(ids) => patch({ highlightIds: ids })}
+          taxonomy={{ parentId, categoryId, subcategoryId }}
         />
       </div>
 

@@ -27,12 +27,17 @@ import {
 } from "@/lib/admin/listing-ads-data";
 import type { ListingAdsSettings } from "@/lib/admin/listing-ads-types";
 import {
-  DEFAULT_LISTING_QUALITY_RULES,
-  normalizeListingQualityRules,
+  DEFAULT_LISTING_QUALITY_RULES_STORE,
+  normalizeListingQualityRulesStore,
 } from "@/lib/admin/listing-quality-rules-data";
-import type { ListingQualityRules } from "@/lib/admin/listing-quality-rules-types";
+import type {
+  ListingQualityRules,
+  ListingQualityRulesStore,
+} from "@/lib/admin/listing-quality-rules-types";
 import type { HostVerificationRequest } from "@/lib/host/verification-types";
 import type { GuestVerificationRequest } from "@/lib/guest/guest-verification-types";
+import type { EventAvailabilityRequest } from "@/lib/events/event-availability-types";
+import { normalizeEventsSubscription } from "@/lib/admin/events-subscription";
 
 export const CATALOG_KEYS = {
   taxonomy: "taxonomy",
@@ -45,6 +50,7 @@ export const CATALOG_KEYS = {
   listingQualityRules: "listing-quality-rules",
   hostVerifications: "host-verifications",
   guestVerifications: "guest-verifications",
+  eventAvailabilityRequests: "event-availability-requests",
 } as const;
 
 async function getPayload(key: string): Promise<string | null> {
@@ -162,6 +168,7 @@ function mergeFinancialSettings(parsed: Partial<FinancialSettings>): FinancialSe
           ? parsed.commission.hostOverrides
           : DEFAULT_FINANCIAL_SETTINGS.commission.hostOverrides,
     },
+    eventsSubscription: normalizeEventsSubscription(parsed.eventsSubscription),
     payoutStates: parsed.payoutStates ?? DEFAULT_FINANCIAL_SETTINGS.payoutStates,
     refundRequests:
       parsed.refundRequests?.length
@@ -266,22 +273,38 @@ export async function saveListingAdsToDb(
   return next;
 }
 
-export async function getListingQualityRulesFromDb(): Promise<ListingQualityRules> {
+export async function getListingQualityRulesStoreFromDb(): Promise<ListingQualityRulesStore> {
   const raw = await getPayload(CATALOG_KEYS.listingQualityRules);
-  if (!raw) return DEFAULT_LISTING_QUALITY_RULES;
+  if (!raw) return { ...DEFAULT_LISTING_QUALITY_RULES_STORE };
   try {
-    return normalizeListingQualityRules(JSON.parse(raw));
+    return normalizeListingQualityRulesStore(JSON.parse(raw));
   } catch {
-    return DEFAULT_LISTING_QUALITY_RULES;
+    return { ...DEFAULT_LISTING_QUALITY_RULES_STORE };
   }
 }
 
+export async function saveListingQualityRulesStoreToDb(
+  store: ListingQualityRulesStore
+): Promise<ListingQualityRulesStore> {
+  const next = normalizeListingQualityRulesStore(store);
+  await savePayload(CATALOG_KEYS.listingQualityRules, next);
+  return next;
+}
+
+/** @deprecated Prefer getListingQualityRulesStoreFromDb */
+export async function getListingQualityRulesFromDb(): Promise<ListingQualityRules> {
+  return (await getListingQualityRulesStoreFromDb()).fallback;
+}
+
+/** @deprecated Prefer saveListingQualityRulesStoreToDb */
 export async function saveListingQualityRulesToDb(
   rules: ListingQualityRules
 ): Promise<ListingQualityRules> {
-  const next = normalizeListingQualityRules(rules);
-  await savePayload(CATALOG_KEYS.listingQualityRules, next);
-  return next;
+  const next = await saveListingQualityRulesStoreToDb({
+    fallback: rules,
+    byParentId: {},
+  });
+  return next.fallback;
 }
 
 function parseVerifications(raw: string | null): Record<string, HostVerificationRequest> {
@@ -365,4 +388,24 @@ export async function saveGuestVerificationToDb(
     });
   }
   return request;
+}
+
+export async function getEventAvailabilityRequestsFromDb(): Promise<
+  EventAvailabilityRequest[]
+> {
+  const raw = await getPayload(CATALOG_KEYS.eventAvailabilityRequests);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as EventAvailabilityRequest[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveEventAvailabilityRequestsToDb(
+  requests: EventAvailabilityRequest[]
+): Promise<EventAvailabilityRequest[]> {
+  await savePayload(CATALOG_KEYS.eventAvailabilityRequests, requests);
+  return requests;
 }

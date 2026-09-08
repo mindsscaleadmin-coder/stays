@@ -20,6 +20,14 @@ import { useListingSubmissions } from "@/lib/listings/use-listing-submissions";
 import type { SubmittedListing } from "@/lib/listings/submission-types";
 import { cn } from "@/lib/utils";
 import { toLegacyQualityView } from "@/lib/admin/listing-quality-rules-data";
+import {
+  createQualityRule,
+  LISTING_QUALITY_FIELD_CATALOG,
+} from "@/lib/admin/listing-quality-fields";
+
+import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
+import { toListingQualityMode } from "@/lib/listings/listing-mode";
+import type { ListingQualityFieldDef } from "@/lib/admin/listing-quality-rules-types";
 
 type TabId = "queue" | "listings" | "quality";
 
@@ -32,14 +40,69 @@ const TABS: { id: TabId; label: string }[] = [
 const inputClass =
   "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500";
 
+function fieldsForParent(parentName: string): {
+  details: ListingQualityFieldDef[];
+  manage: ListingQualityFieldDef[];
+} {
+  const mode = toListingQualityMode({ parentCategory: parentName });
+  const visible = LISTING_QUALITY_FIELD_CATALOG.filter(
+    (f) => !f.modes?.length || f.modes.includes(mode)
+  );
+  return {
+    details: visible.filter((f) => f.form === "details"),
+    manage: visible.filter((f) => f.form === "manage"),
+  };
+}
+
 function QualityRulesSection() {
-  const { rules, updateRules, resetRules } = useListingQualityRules();
-  const view = toLegacyQualityView(rules);
+  const { data: taxonomy } = useAdminTaxonomy();
+  const {
+    store,
+    rulesForParent,
+    addParentRule,
+    updateParentRule,
+    removeParentRule,
+    updateParentRules,
+    resetParentRules,
+    resetAllRules,
+  } = useListingQualityRules();
+
+  const parents = taxonomy.parents.filter((p) => p.enabled !== false);
+  const [parentId, setParentId] = useState(parents[0]?.id ?? "");
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (!parents.length) return;
+    if (!parents.some((p) => p.id === parentId)) {
+      setParentId(parents[0].id);
+    }
+  }, [parents, parentId]);
+
+  const activeParent = parents.find((p) => p.id === parentId) ?? parents[0];
+  const activeParentId = activeParent?.id ?? "";
+  const activeParentName = activeParent?.name ?? "";
+
+  const rules = rulesForParent(activeParentId, activeParentName, parents);
+  const view = toLegacyQualityView(rules);
+  const catalog = fieldsForParent(activeParentName);
+  const hasOverride = Boolean(store.byParentId[activeParentId]);
 
   function flash(text: string) {
     setMessage(text);
     setTimeout(() => setMessage(""), 2500);
+  }
+
+  function toggleField(fieldId: Parameters<typeof createQualityRule>[0]) {
+    if (!activeParentId) return;
+    const existing = rules.items.find((item) => item.fieldId === fieldId);
+    if (existing) {
+      removeParentRule(activeParentId, existing.id);
+      flash(`“${existing.label ?? fieldId}” off for ${activeParentName}.`);
+      return;
+    }
+    const created = createQualityRule(fieldId);
+    addParentRule(activeParentId, created);
+    flash(`“${created.label}” on for ${activeParentName}.`);
   }
 
   return (
@@ -58,85 +121,192 @@ function QualityRulesSection() {
               <h3 className="font-semibold text-gray-900">Platform quality rules</h3>
             </div>
             <p className="text-sm text-gray-500 mt-1">
-              Minimum standards enforced when hosts submit or edit listings.
+              Separate standards for each parent category. Hosts are checked against the
+              parent they select on the listing form.
             </p>
           </div>
           <button
             type="button"
             onClick={() => {
-              resetRules();
-              flash("Quality rules reset to defaults.");
+              resetAllRules();
+              flash("All parent quality rules reset to defaults.");
             }}
             className="inline-flex items-center gap-1.5 text-xs border border-gray-200 hover:border-gray-300 text-gray-600 px-3 py-1.5 rounded-lg font-medium"
           >
-            <RotateCcw className="w-3.5 h-3.5" /> Reset defaults
+            <RotateCcw className="w-3.5 h-3.5" /> Reset all
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Minimum photos</span>
-            <input
-              type="number"
-              min={0}
-              max={20}
-              value={view.minPhotos}
-              onChange={(e) => updateRules({ minPhotos: Math.max(0, Number(e.target.value) || 0) })}
-              className={cn(inputClass, "mt-1")}
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Min description length</span>
-            <input
-              type="number"
-              min={0}
-              max={2000}
-              value={view.minDescriptionLength}
-              onChange={(e) =>
-                updateRules({ minDescriptionLength: Math.max(0, Number(e.target.value) || 0) })
-              }
-              className={cn(inputClass, "mt-1")}
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Minimum amenities</span>
-            <input
-              type="number"
-              min={0}
-              max={20}
-              value={view.minAmenities}
-              onChange={(e) => updateRules({ minAmenities: Math.max(0, Number(e.target.value) || 0) })}
-              className={cn(inputClass, "mt-1")}
-            />
-          </label>
-        </div>
+        {parents.length === 0 ? (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+            Add parent categories in Admin → Filter first.
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2">
+              {parents.map((parent) => {
+                const customized = Boolean(store.byParentId[parent.id]);
+                const active = parent.id === activeParentId;
+                return (
+                  <button
+                    key={parent.id}
+                    type="button"
+                    onClick={() => setParentId(parent.id)}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-xl border transition-colors",
+                      active
+                        ? "bg-green-700 border-green-700 text-white"
+                        : "border-gray-200 text-gray-700 hover:border-green-300"
+                    )}
+                  >
+                    {parent.name}
+                    {customized ? (
+                      <span
+                        className={cn(
+                          "text-[10px] font-semibold uppercase tracking-wide",
+                          active ? "text-green-100" : "text-green-700"
+                        )}
+                      >
+                        set
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {(
-            [
-              ["requireTitle", "Require title"],
-              ["requireDescription", "Require description"],
-              ["requireLocation", "Require country & state"],
-              ["requireCategory", "Require category"],
-              ["requireFarmType", "Require farm type"],
-              ["requireAmenities", "Require amenities"],
-            ] as const
-          ).map(([key, label]) => (
-            <label key={key} className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={view[key]}
-                onChange={(e) => updateRules({ [key]: e.target.checked })}
-                className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-              />
-              {label}
-            </label>
-          ))}
-        </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-2">
+              <p className="text-sm text-gray-700">
+                Editing rules for <span className="font-semibold">{activeParentName}</span>
+                {!hasOverride ? (
+                  <span className="text-gray-400"> · using shared defaults until you change them</span>
+                ) : null}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  resetParentRules(activeParentId, activeParentName);
+                  flash(`Reset ${activeParentName} to defaults.`);
+                }}
+                className="text-xs font-medium text-gray-600 hover:text-green-800"
+              >
+                Reset this parent
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Minimum photos
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={20}
+                  value={view.minPhotos}
+                  onChange={(e) =>
+                    updateParentRules(activeParentId, {
+                      minPhotos: Math.max(0, Number(e.target.value) || 0),
+                    })
+                  }
+                  className={cn(inputClass, "mt-1")}
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Min description length
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={2000}
+                  value={view.minDescriptionLength}
+                  onChange={(e) =>
+                    updateParentRules(activeParentId, {
+                      minDescriptionLength: Math.max(0, Number(e.target.value) || 0),
+                    })
+                  }
+                  className={cn(inputClass, "mt-1")}
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Minimum amenities
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={20}
+                  value={view.minAmenities}
+                  onChange={(e) =>
+                    updateParentRules(activeParentId, {
+                      minAmenities: Math.max(0, Number(e.target.value) || 0),
+                    })
+                  }
+                  className={cn(inputClass, "mt-1")}
+                />
+              </label>
+            </div>
+
+            {(
+              [
+                { title: "Listing details", fields: catalog.details },
+                { title: "Manage / inventory", fields: catalog.manage },
+              ] as const
+            ).map((group) =>
+              group.fields.length === 0 ? null : (
+                <div key={group.title} className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    {group.title}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {group.fields.map((field) => {
+                      const item = rules.items.find((r) => r.fieldId === field.id);
+                      const on = Boolean(item);
+                      return (
+                        <div
+                          key={field.id}
+                          className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-100 px-3 py-2"
+                        >
+                          <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer flex-1 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              onChange={() => toggleField(field.id)}
+                              className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                            />
+                            <span className="truncate">{field.label}</span>
+                          </label>
+                          {on && field.kind !== "required" && item ? (
+                            <input
+                              type="number"
+                              min={1}
+                              max={100}
+                              value={item.min ?? field.defaultMin ?? 1}
+                              onChange={(e) =>
+                                updateParentRule(activeParentId, item.id, {
+                                  min: Math.max(1, Number(e.target.value) || 1),
+                                })
+                              }
+                              className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-xs"
+                              aria-label={field.minLabel ?? "Minimum"}
+                              title={field.minLabel}
+                            />
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )
+            )}
+          </>
+        )}
 
         <p className="text-xs text-gray-400 flex items-start gap-1.5">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          Changes apply immediately when hosts submit or edit a listing.
+          Changes apply when hosts create, manage, or submit a listing under that parent
+          category.
         </p>
       </section>
     </div>

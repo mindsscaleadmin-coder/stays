@@ -3,6 +3,7 @@ import {
   defaultHostPublicProfile,
 } from "@/lib/host/host-profile-data";
 import type { HostPublicProfile, HostPublicProfileInput } from "@/lib/host/host-profile-types";
+import { isEventsSubscriptionActive } from "@/lib/host/events-subscription";
 
 function parsePayload(raw: string): Omit<HostPublicProfile, "hostId"> {
   return JSON.parse(raw) as Omit<HostPublicProfile, "hostId">;
@@ -74,6 +75,8 @@ export async function saveHostProfile(
   input: HostPublicProfileInput
 ): Promise<HostPublicProfile> {
   const user = await ensureHostUser(hostId, input.displayName);
+  const existing = await prisma.hostProfile.findUnique({ where: { hostId } });
+  const stored = existing ? parsePayload(existing.payload) : null;
 
   const next: HostPublicProfile = {
     hostId,
@@ -89,6 +92,10 @@ export async function saveHostProfile(
     logoWidth: input.logoWidth,
     logoHeight: input.logoHeight,
     instantBookEnabled: true,
+    eventsSubscriptionExpiresAt:
+      input.eventsSubscriptionExpiresAt !== undefined
+        ? input.eventsSubscriptionExpiresAt.trim() || undefined
+        : stored?.eventsSubscriptionExpiresAt,
   };
 
   const { hostId: _, ...payload } = next;
@@ -104,4 +111,25 @@ export async function saveHostProfile(
 
 export async function isHostInstantBookEnabled(_hostId: string): Promise<boolean> {
   return true;
+}
+
+export async function listEventSubscribedHostIds(now = new Date()): Promise<string[]> {
+  const rows = await prisma.hostProfile.findMany({ select: { hostId: true, payload: true } });
+  const ids: string[] = [];
+  for (const row of rows) {
+    try {
+      const stored = parsePayload(row.payload);
+      if (isEventsSubscriptionActive(stored.eventsSubscriptionExpiresAt, now)) {
+        ids.push(row.hostId);
+      }
+    } catch {
+      // skip
+    }
+  }
+  return ids;
+}
+
+export async function isHostEventsSubscriptionActive(hostId: string): Promise<boolean> {
+  const profile = await getHostProfile(hostId);
+  return isEventsSubscriptionActive(profile?.eventsSubscriptionExpiresAt);
 }

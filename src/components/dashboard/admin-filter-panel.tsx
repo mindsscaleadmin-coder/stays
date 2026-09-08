@@ -84,21 +84,19 @@ export function AdminFilterPanel({ showTitle = true }: AdminFilterPanelProps) {
           selectTab(id);
         }}
         onEdit={(id, label) => editMainTab(id, label)}
+        deleteLockReason={(tab) =>
+          Boolean(tab.builtIn) ||
+          isDefaultPropertyTab(tab.id) ||
+          ["country", "state", "district", "city"].includes(tab.id)
+            ? `"${tab.label}" is a built-in tab and cannot be deleted. Untick Active to hide it from listing forms and search.`
+            : null
+        }
         onDelete={(id) => {
-          const tab = data.mainTabs.find((t) => t.id === id);
-          const locked =
-            Boolean(tab?.builtIn) ||
-            isDefaultPropertyTab(id) ||
-            ["country", "state", "district", "city"].includes(id);
-          if (locked) {
-            setMainTabEnabled(id, false);
-            return;
+          const deleted = deleteMainTab(id);
+          if (deleted) {
+            selectTab(allTabs.find((t) => t.id !== id)?.id ?? "country");
           }
-          if (confirm(`Delete tab "${tab?.label}" and all its items?`)) {
-            if (deleteMainTab(id)) {
-              selectTab(allTabs.find((t) => t.id !== id)?.id ?? "country");
-            }
-          }
+          return deleted;
         }}
         onToggleEnabled={setMainTabEnabled}
       />
@@ -160,17 +158,17 @@ export function AdminExtraFiltersPanel() {
           setActiveTab(id);
         }}
         onEdit={(id, label) => editExtraTab(id, label)}
+        deleteLockReason={(tab) =>
+          tab.builtIn
+            ? `"${tab.label}" is a built-in tab and cannot be deleted. Untick Active to hide it from listing forms and search.`
+            : null
+        }
         onDelete={(id) => {
-          const tab = data.extraTabs.find((t) => t.id === id);
-          if (tab?.builtIn) {
-            setExtraTabEnabled(id, false);
-            return;
+          const deleted = deleteExtraTab(id);
+          if (deleted) {
+            setActiveTab(data.extraTabs.find((t) => t.id !== id)?.id ?? "amenity");
           }
-          if (confirm(`Delete tab "${tab?.label}" and all its items?`)) {
-            if (deleteExtraTab(id)) {
-              setActiveTab(data.extraTabs.find((t) => t.id !== id)?.id ?? "amenity");
-            }
-          }
+          return deleted;
         }}
         onToggleEnabled={setExtraTabEnabled}
       />
@@ -241,6 +239,7 @@ function FilterTabBar({
   onAdd,
   onEdit,
   onDelete,
+  deleteLockReason,
   onToggleEnabled,
   onAddingChange,
 }: {
@@ -250,7 +249,10 @@ function FilterTabBar({
   accent: "green" | "blue";
   onAdd: (label: string) => void;
   onEdit: (id: string, label: string) => void;
-  onDelete: (id: string) => void;
+  /** Returns false when the tab could not be removed. */
+  onDelete: (id: string) => boolean | void;
+  /** Non-null message means the tab cannot be deleted, only deactivated. */
+  deleteLockReason?: (tab: FilterTab) => string | null;
   onToggleEnabled?: (id: string, enabled: boolean) => void;
   onAddingChange?: (adding: boolean) => void;
 }) {
@@ -258,18 +260,49 @@ function FilterTabBar({
   const [newLabel, setNewLabel] = useState("");
   const [editing, setEditing] = useState(false);
   const [editLabel, setEditLabel] = useState("");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [notice, setNotice] = useState("");
 
   const active = tabs.find((t) => t.id === activeTab);
   const activeEnabled = isFilterEnabled(active);
+  const lockReason = active ? (deleteLockReason?.(active) ?? null) : null;
+
   const activeCls = accent === "green" ? "bg-green-700 text-white" : "bg-blue-600 text-white";
   const btnCls =
     accent === "green"
       ? "bg-green-700 hover:bg-green-800 text-white"
       : "bg-blue-600 hover:bg-blue-700 text-white";
 
+  useEffect(() => {
+    setConfirmingDelete(false);
+    setNotice("");
+  }, [activeTab]);
+
   function setAddingState(next: boolean) {
     setAdding(next);
     onAddingChange?.(next);
+  }
+
+  function requestDelete() {
+    if (!active) return;
+    setEditing(false);
+    setAddingState(false);
+    setNotice("");
+    if (lockReason) {
+      setConfirmingDelete(false);
+      setNotice(lockReason);
+      return;
+    }
+    setConfirmingDelete(true);
+  }
+
+  function confirmDelete() {
+    if (!active) return;
+    const removed = onDelete(active.id);
+    setConfirmingDelete(false);
+    if (removed === false) {
+      setNotice(`"${active.label}" could not be deleted.`);
+    }
   }
 
   function submitAdd(e: React.FormEvent) {
@@ -300,6 +333,8 @@ function FilterTabBar({
                 onSelect(tab.id);
                 setEditing(false);
                 setAddingState(false);
+                setConfirmingDelete(false);
+                setNotice("");
               }}
               className={cn(
                 "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
@@ -346,6 +381,8 @@ function FilterTabBar({
               setEditLabel(active.label);
               setEditing(true);
               setAddingState(false);
+              setConfirmingDelete(false);
+              setNotice("");
             }}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40"
           >
@@ -354,13 +391,46 @@ function FilterTabBar({
           <button
             type="button"
             disabled={!active}
-            onClick={() => active && onDelete(active.id)}
+            onClick={requestDelete}
+            title={lockReason ?? undefined}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-red-200 bg-white text-red-600 hover:bg-red-50 disabled:opacity-40"
           >
             <Trash2 className="w-3.5 h-3.5" /> Delete
           </button>
         </div>
       </div>
+
+      {confirmingDelete && active && (
+        <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
+          <p className="text-xs text-gray-700 flex-1 min-w-[200px]">
+            Delete <span className="font-semibold">{active.label}</span> and all of its items?
+            This cannot be undone.
+          </p>
+          <button
+            type="button"
+            onClick={confirmDelete}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-700 text-white"
+          >
+            Delete tab
+          </button>
+          <button
+            type="button"
+            onClick={() => setConfirmingDelete(false)}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 bg-white text-gray-700 hover:bg-gray-100"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {notice && (
+        <p
+          role="status"
+          className="mx-3 mb-3 text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2"
+        >
+          {notice}
+        </p>
+      )}
 
       {adding && (
         <form onSubmit={submitAdd} className="flex flex-wrap items-center gap-2 px-3 pb-3">

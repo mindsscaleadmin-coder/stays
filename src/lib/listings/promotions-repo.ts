@@ -6,6 +6,7 @@ import type {
 } from "@/lib/host/host-promotions-types";
 import { getEnabledPromotionPackageFromDb } from "@/lib/server/promotion-catalog-repo";
 import { createPropertyReference } from "@/lib/listings/property-reference";
+import { isEventListing } from "@/lib/booking/is-event-listing";
 
 function toDto(row: {
   id: string;
@@ -195,6 +196,31 @@ export async function purchasePromotionInDb(input: {
 }): Promise<ListingPromotion | null> {
   const pkg = await getEnabledPromotionPackageFromDb(input.kind, input.durationDays);
   if (!pkg) return null;
+
+  const listing = await prisma.listing.findUnique({
+    where: { id: input.listingId },
+    select: { parentCategory: true, payload: true, hostId: true },
+  });
+  if (listing) {
+    let type = "";
+    let category = "";
+    try {
+      const payload = JSON.parse(listing.payload) as { type?: string; category?: string };
+      type = payload.type ?? "";
+      category = payload.category ?? "";
+    } catch {
+      // ignore
+    }
+    if (isEventListing({ parentCategory: listing.parentCategory, type, category })) {
+      const { isHostEventsSubscriptionActive } = await import("@/lib/server/host-profile-repo");
+      const ok = await isHostEventsSubscriptionActive(listing.hostId);
+      if (!ok) {
+        throw new Error(
+          "Events listings need an active yearly subscription before you can buy Featured or Trending."
+        );
+      }
+    }
+  }
 
   const now = new Date();
   const active = await prisma.listingPromotion.findFirst({

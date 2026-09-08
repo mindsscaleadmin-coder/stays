@@ -9,11 +9,40 @@ export interface HostCommissionOverride {
   note?: string;
 }
 
+/** One paid tier of the Events directory, priced by how many venues a host lists. */
+export interface EventsSubscriptionPlan {
+  id: string;
+  name: string;
+  /** Highest listing count this tier covers. null = unlimited. */
+  maxListings: number | null;
+  yearlyFeeAed: number;
+  active: boolean;
+}
+
+export interface EventsSubscriptionSettings {
+  /**
+   * Launch phase: approved Event listings are public and free — no subscription
+   * required. Turn this off to start enforcing the paid tiers below.
+   */
+  freeDuringLaunch: boolean;
+  /** Paid tiers, cheapest first. Applied once freeDuringLaunch is off. */
+  plans: EventsSubscriptionPlan[];
+  /** @deprecated Flat single fee kept for stored payload shape; use `plans`. */
+  yearlyFeeAed: number;
+}
+
 export interface PlatformCommissionSettings {
   globalFeePct: number;
   /** Flat service fee added per booking (display / config) */
   globalServiceFeeFlat: number;
   hostOverrides: HostCommissionOverride[];
+}
+
+export interface FinancialSettings {
+  commission: PlatformCommissionSettings;
+  eventsSubscription: EventsSubscriptionSettings;
+  payoutStates: Record<string, AdminPayoutState>;
+  refundRequests: RefundRequest[];
 }
 
 export interface AdminPayoutState {
@@ -75,10 +104,4 @@ export interface FinancialReport {
   pendingRefunds: number;
   currency: string;
   transactionCount: number;
-}
-
-export interface FinancialSettings {
-  commission: PlatformCommissionSettings;
-  payoutStates: Record<string, AdminPayoutState>;
-  refundRequests: RefundRequest[];
 }

@@ -86,19 +86,50 @@ export function preferStoredRateIfPublishedEmpty(
   published: ListingPricingSettings | null,
   stored: ListingPricingSettings
 ): { settings: ListingPricingSettings; shouldPersist: boolean } {
+  const storedHasSessions = (stored.sessions?.length ?? 0) > 0;
+  const storedHasRate = stored.basePrice > 0;
+
   if (!published) {
-    return { settings: stored, shouldPersist: stored.basePrice > 0 };
-  }
-  if (published.basePrice > 0) {
-    return { settings: published, shouldPersist: false };
-  }
-  if (stored.basePrice > 0) {
     return {
-      settings: { ...published, ...stored, listingId: published.listingId },
-      shouldPersist: true,
+      settings: stored,
+      shouldPersist: storedHasRate || storedHasSessions,
     };
   }
-  return { settings: published, shouldPersist: false };
+
+  const publishedHasSessions = (published.sessions?.length ?? 0) > 0;
+  const needRate = published.basePrice <= 0 && storedHasRate;
+  const needSessions = !publishedHasSessions && storedHasSessions;
+
+  if (!needRate && !needSessions) {
+    return { settings: published, shouldPersist: false };
+  }
+
+  return {
+    settings: {
+      ...published,
+      ...(needRate
+        ? {
+            basePrice: stored.basePrice,
+            weekendPrice: stored.weekendPrice,
+            monthlyPrice: stored.monthlyPrice,
+            weeklyDiscountPct: stored.weeklyDiscountPct,
+            monthlyDiscountPct: stored.monthlyDiscountPct,
+            earlyBirdDiscountPct: stored.earlyBirdDiscountPct,
+            earlyBirdDaysAhead: stored.earlyBirdDaysAhead,
+            lastMinuteDiscountPct: stored.lastMinuteDiscountPct,
+            lastMinuteDaysAhead: stored.lastMinuteDaysAhead,
+            extraGuestCharge: stored.extraGuestCharge,
+            guestsIncludedInBase: stored.guestsIncludedInBase,
+            extraCharges: stored.extraCharges,
+            seasonalPricing: stored.seasonalPricing,
+            roomPrices: stored.roomPrices,
+          }
+        : {}),
+      ...(needSessions ? { sessions: stored.sessions } : {}),
+      listingId: published.listingId,
+    },
+    shouldPersist: true,
+  };
 }
 
 /** True when this browser has saved pricing for the listing (not just defaults). */
@@ -212,13 +243,14 @@ export function getListingIds(): string[] {
  * After creating/editing a listing, seed pricing from the listing country and
  * (when available) copy rates from a similar listing (same country / category).
  * Does not overwrite pricing the host has already customized for this listing.
+ * When the shared DB is on, also PATCHes so experience sessions reach guests.
  */
-export function seedPricingFromListingForm(input: {
+export async function seedPricingFromListingForm(input: {
   listingId: string;
   country?: CountryPricingConfig;
   similarListingIds?: string[];
   seedSessions?: ListingPricingSettings["sessions"];
-}): ListingPricingSettings {
+}): Promise<ListingPricingSettings> {
   const map = readAll();
   const existing = map[input.listingId];
   const alreadyCustomized = Boolean(existing);
@@ -258,10 +290,11 @@ export function seedPricingFromListingForm(input: {
           ...s,
           id: newSeasonalPriceId(),
         })),
-        // Keep this listing's country currency/tax
+        // Keep this listing's country currency/tax + seeded sessions
         currency: base.currency,
         taxPct: base.taxPct,
         taxLabel: base.taxLabel,
+        sessions: base.sessions,
         roomPrices: [],
       };
       break;
@@ -275,5 +308,21 @@ export function seedPricingFromListingForm(input: {
   }
 
   savePricingSettings(base);
+
+  if (typeof window !== "undefined") {
+    try {
+      const { savePricingToApi, shouldUseSharedPricingStore } = await import(
+        "./host-pricing-api"
+      );
+      if (shouldUseSharedPricingStore()) {
+        const saved = await savePricingToApi(base);
+        savePricingSettings(saved);
+        return saved;
+      }
+    } catch {
+      // Keep local seed; Pricing page can still push on first edit.
+    }
+  }
+
   return base;
 }

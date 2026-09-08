@@ -327,15 +327,6 @@ export function HostProfileContent() {
               />
             </label>
             <label className="block">
-              <span className="block text-xs font-medium text-gray-600 mb-1.5">Phone</span>
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+971 50 123 4567"
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
-            </label>
-            <label className="block">
               <span className="block text-xs font-medium text-gray-600 mb-1.5">
                 Country <span className="text-red-500">*</span>
               </span>
@@ -355,6 +346,15 @@ export function HostProfileContent() {
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="block">
+              <span className="block text-xs font-medium text-gray-600 mb-1.5">Phone</span>
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+971 50 123 4567"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
             </label>
             <label className="block">
               <span className="block text-xs font-medium text-gray-600 mb-1.5">Language</span>

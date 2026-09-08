@@ -1,6 +1,7 @@
 import {
   BadgeDollarSign,
   Bell,
+  CalendarCheck,
   CalendarDays,
   CalendarRange,
   ClipboardList,
@@ -32,6 +33,7 @@ export const HOST_NAV: DashboardNavItem[] = [
   { label: "New listing", href: "/host/new-listing", icon: PlusCircle },
   { label: "Pricing", href: "/host/pricing", icon: BadgeDollarSign },
   { label: "Bookings", href: "/host/bookings", icon: CalendarDays },
+  { label: "Event requests", href: "/host/event-requests", icon: CalendarCheck },
   { label: "Calendar & Availability", href: "/host/calendar", icon: CalendarRange },
   { label: "Promote", href: "/host/promote", icon: Megaphone },
   { label: "Extra charges", href: "/host/extra-charges", icon: ReceiptText },

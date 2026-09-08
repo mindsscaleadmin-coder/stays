@@ -4,6 +4,7 @@ import { BookingError } from "@/lib/booking/confirm-booking";
 import { createQuotedBooking } from "@/lib/booking/create-quoted-booking";
 import { createQuotedExperienceBooking } from "@/lib/booking/create-quoted-experience-booking";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
+import { isEventListing } from "@/lib/booking/is-event-listing";
 import { markBookingPaid } from "@/lib/booking/mark-paid";
 import {
   queryBookings,
@@ -183,13 +184,32 @@ export async function POST(request: Request) {
       select: { parentCategory: true, payload: true },
     });
     let payloadType = "";
+    let payloadCategory = "";
     try {
       if (listingRow?.payload) {
-        payloadType = (JSON.parse(listingRow.payload) as { type?: string }).type ?? "";
+        const payload = JSON.parse(listingRow.payload) as { type?: string; category?: string };
+        payloadType = payload.type ?? "";
+        payloadCategory = payload.category ?? "";
       }
     } catch {
       // ignore
     }
+    const treatAsEvent = isEventListing({
+      parentCategory: listingRow?.parentCategory,
+      type: payloadType || json.listing?.type,
+      category: payloadCategory,
+    });
+
+    if (treatAsEvent) {
+      return NextResponse.json(
+        {
+          error:
+            "Event listings are enquire-only. Guests contact the host directly — this platform does not take bookings or payment.",
+        },
+        { status: 400 }
+      );
+    }
+
     const treatAsExperience =
       json.kind === "experience" ||
       isExperienceListing({

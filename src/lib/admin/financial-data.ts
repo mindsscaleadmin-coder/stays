@@ -13,6 +13,10 @@ import type {
   HostCommissionOverride,
   RefundRequest,
 } from "./financial-types";
+import {
+  DEFAULT_EVENTS_SUBSCRIPTION,
+  normalizeEventsSubscription,
+} from "./events-subscription";
 import { BASE_CURRENCY } from "@/lib/currency";
 
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
@@ -72,6 +76,7 @@ export const DEFAULT_FINANCIAL_SETTINGS: FinancialSettings = {
       },
     ],
   },
+  eventsSubscription: DEFAULT_EVENTS_SUBSCRIPTION,
   payoutStates: {
     "up-2": {
       adminStatus: "held",
@@ -123,6 +128,7 @@ function mergeSettings(parsed: Partial<FinancialSettings>): FinancialSettings {
           ? parsed.commission.hostOverrides
           : DEFAULT_FINANCIAL_SETTINGS.commission.hostOverrides,
     },
+    eventsSubscription: normalizeEventsSubscription(parsed.eventsSubscription),
     payoutStates: parsed.payoutStates ?? DEFAULT_FINANCIAL_SETTINGS.payoutStates,
     refundRequests:
       parsed.refundRequests?.length

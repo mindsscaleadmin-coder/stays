@@ -26,11 +26,27 @@ import type {
 export function useHostPricing(listingId?: string, country?: CountryPricingConfig) {
   const [settings, setSettings] = useState<ListingPricingSettings | null>(null);
   const [ready, setReady] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const shared = shouldUseSharedPricingStore();
 
   const settingsRef = useRef<ListingPricingSettings | null>(null);
   const persistGen = useRef(0);
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Edits the host has made that have not round-tripped to the store yet. */
+  const dirtyRef = useRef(false);
+  const inFlightRef = useRef(0);
+  /** The listing `settingsRef` currently holds, so we can tell a reload from a swap. */
+  const loadedForRef = useRef<string | undefined>(undefined);
+  /** Latest listing asked for, so a slower earlier fetch cannot land last. */
+  const requestedListingRef = useRef<string | undefined>(undefined);
+
+  // Callers rebuild this config object on every render, so depend on its values
+  // instead of its identity — identity churn re-ran refresh over live edits.
+  const countryRef = useRef(country);
+  countryRef.current = country;
+  const countryKey = country
+    ? `${country.countryId}|${country.currency}|${country.taxPct}|${country.taxLabel}`
+    : "";
 
   const persistLatest = useCallback(async () => {
     const snapshot = settingsRef.current;
@@ -38,6 +54,7 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
     const gen = ++persistGen.current;
 
     if (shared) {
+      inFlightRef.current += 1;
       try {
         const saved = await savePricingToApi(snapshot);
         if (settingsRef.current !== snapshot) {
@@ -47,9 +64,11 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
         savePricingSettings(saved);
         settingsRef.current = saved;
         setSettings(saved);
+        dirtyRef.current = false;
+        setSaveError(null);
         window.dispatchEvent(new Event(HOST_PRICING_SYNC_EVENT));
         return saved;
-      } catch {
+      } catch (error) {
         if (settingsRef.current !== snapshot) {
           return persistLatest();
         }
@@ -57,20 +76,45 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
         savePricingSettings(snapshot);
         settingsRef.current = snapshot;
         setSettings(snapshot);
+        // Keep dirty so a background reload cannot replace the unsaved edit.
+        setSaveError(
+          error instanceof Error ? error.message : "Could not save pricing"
+        );
         return snapshot;
+      } finally {
+        inFlightRef.current -= 1;
       }
     }
 
     savePricingSettings(snapshot);
     settingsRef.current = snapshot;
     setSettings(snapshot);
+    dirtyRef.current = false;
     return snapshot;
   }, [shared]);
 
   const refresh = useCallback(async () => {
     if (!listingId) {
       settingsRef.current = null;
+      loadedForRef.current = undefined;
       setSettings(null);
+      setReady(true);
+      return;
+    }
+
+    const country = countryRef.current;
+    const switching = loadedForRef.current !== listingId;
+    requestedListingRef.current = listingId;
+
+    if (switching) {
+      if (persistTimer.current) {
+        clearTimeout(persistTimer.current);
+        persistTimer.current = null;
+      }
+      dirtyRef.current = false;
+    } else if (dirtyRef.current || inFlightRef.current > 0) {
+      // Same listing, host is mid-edit. Reloading here overwrote the rate,
+      // discount, or extra being typed.
       setReady(true);
       return;
     }
@@ -83,22 +127,38 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
           fromApi,
           local
         );
+        // The listing may have changed, or an edit landed, while in flight.
+        if (requestedListingRef.current !== listingId) return;
+        if (!switching && (dirtyRef.current || inFlightRef.current > 0)) {
+          setReady(true);
+          return;
+        }
         savePricingSettings(next);
         settingsRef.current = next;
+        loadedForRef.current = listingId;
         setSettings(next);
         if (shouldPersist) void persistLatest();
       } catch {
         const next = loadPricingSettings(listingId, country);
+        if (requestedListingRef.current !== listingId) return;
+        if (!switching && (dirtyRef.current || inFlightRef.current > 0)) {
+          setReady(true);
+          return;
+        }
         settingsRef.current = next;
+        loadedForRef.current = listingId;
         setSettings(next);
       }
     } else {
       const next = loadPricingSettings(listingId, country);
       settingsRef.current = next;
+      loadedForRef.current = listingId;
       setSettings(next);
     }
     setReady(true);
-  }, [listingId, country, persistLatest, shared]);
+    // countryRef is read through a ref; countryKey tracks the values that matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingId, countryKey, persistLatest, shared]);
 
   useEffect(() => {
     void refresh();
@@ -126,10 +186,12 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
     ) => {
       const current = settingsRef.current;
       if (!current) return null;
-      const next = country
-        ? applyCountryPricing({ ...current, ...updates }, country)
+      const activeCountry = countryRef.current;
+      const next = activeCountry
+        ? applyCountryPricing({ ...current, ...updates }, activeCountry)
         : { ...current, ...updates };
       settingsRef.current = next;
+      dirtyRef.current = true;
       setSettings(next);
       if (persistTimer.current) clearTimeout(persistTimer.current);
       if (options?.immediate) {
@@ -141,7 +203,7 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
       }
       return next;
     },
-    [country, persistLatest]
+    [persistLatest]
   );
 
   function setRoomPrice(
@@ -176,6 +238,7 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
   return {
     ready,
     settings,
+    saveError,
     refresh,
     save,
     flushSave,

@@ -44,6 +44,39 @@ function hasWork(changes: ListingRelabelChanges): boolean {
   return false;
 }
 
+const LEGACY_VENUE_TYPE_NAMES = new Set([
+  "wedding venues",
+  "party lawns",
+  "corporate retreats",
+  "private events",
+  "farmhouse gatherings",
+  "outdoor lawns",
+  "desert venues",
+]);
+
+/** Venues parent → Events; old venue types become the Venue subcategory. */
+export function migrateEventsVenueListingLabels(
+  listing: SubmittedListing
+): SubmittedListing {
+  let row = listing;
+  const parent = (row.parentCategory ?? "").trim();
+  if (/^venues?$/i.test(parent)) {
+    row = { ...row, parentCategory: "Events" };
+  }
+
+  const category = (row.category ?? "").trim();
+  if (LEGACY_VENUE_TYPE_NAMES.has(category.toLowerCase())) {
+    const subcategory = (row.subcategory ?? "").trim();
+    row = {
+      ...row,
+      category: "Venue",
+      subcategory: subcategory || category,
+    };
+  }
+
+  return row;
+}
+
 /** Copy a listing and rewrite stored Filter names. Returns the same object if nothing changed. */
 export function relabelListing(
   listing: SubmittedListing,

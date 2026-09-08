@@ -80,11 +80,11 @@ function FilterField({
   children: React.ReactNode;
 }) {
   return (
-    <label className="block w-full min-w-0">
-      <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
+    <label className="block w-full min-w-0 max-w-full">
+      <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1 truncate">
         {label}
       </span>
-      {children}
+      <div className="min-w-0 w-full">{children}</div>
     </label>
   );
 }

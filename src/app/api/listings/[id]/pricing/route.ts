@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { getListingPricing, saveListingPricing } from "@/lib/server/listing-pricing-repo";
 import {
   hostDataErrorResponse,
@@ -8,6 +9,7 @@ import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError } from "@/lib/auth/booking-access";
 import { getRequestId } from "@/lib/observability/logger";
 import type { ListingPricingSettings } from "@/lib/host/host-pricing-types";
+import { normalizeExperienceSessions } from "@/lib/booking/experience-session-types";
 
 export const dynamic = "force-dynamic";
 
@@ -57,7 +59,21 @@ export async function PATCH(
           : current.extraChargesEnabled,
     };
 
+    if (body.sessions !== undefined) {
+      next.sessions = normalizeExperienceSessions(body.sessions);
+    }
+
     const saved = await saveListingPricing(next);
+
+    const sessions = normalizeExperienceSessions(saved.sessions);
+    if (sessions.length > 0) {
+      const maxCap = Math.max(1, ...sessions.map((s) => s.capacity));
+      await prisma.listing.update({
+        where: { id },
+        data: { maxGuests: maxCap },
+      });
+    }
+
     return NextResponse.json(
       { settings: saved },
       { headers: { "x-request-id": requestId } }

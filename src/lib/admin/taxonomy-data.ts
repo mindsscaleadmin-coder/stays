@@ -91,8 +91,8 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
   cities: [],
   parents: [
     { id: "p1", name: "Stays" },
-    { id: "p3", name: "Experiences" },
-    { id: "p4", name: "Venues" },
+    { id: "p2", name: "Experiences" },
+    { id: "p3", name: "Events" },
   ],
   categories: [
     { id: "cat-farm", name: "Farm Stays", parentId: "p1" },
@@ -107,15 +107,9 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     { id: "cat-eco", name: "Eco Resorts / Non-Hotel Resorts", parentId: "p1" },
     { id: "cat-guest", name: "Guesthouses", parentId: "p1" },
     { id: "cat-heritage", name: "Heritage & Palace Stays", parentId: "p1" },
-    { id: "cat-bbq", name: "BBQ Experience", parentId: "p3" },
-    { id: "cat-tour", name: "Farm Tour", parentId: "p3" },
-    { id: "cat-wedding", name: "Wedding Venues", parentId: "p4" },
-    { id: "cat-party", name: "Party Lawns", parentId: "p4" },
-    { id: "cat-corp", name: "Corporate Retreats", parentId: "p4" },
-    { id: "cat-private", name: "Private Events", parentId: "p4" },
-    { id: "cat-gather", name: "Farmhouse Gatherings", parentId: "p4" },
-    { id: "cat-lawn", name: "Outdoor Lawns", parentId: "p4" },
-    { id: "cat-desert-v", name: "Desert Venues", parentId: "p4" },
+    { id: "cat-bbq", name: "BBQ Experience", parentId: "p2" },
+    { id: "cat-tour", name: "Farm Tour", parentId: "p2" },
+    { id: "cat-venue", name: "Venue", parentId: "p3" },
   ],
   subcategories: [
     { id: "sc1", name: "Luxury Farm House", parentId: "p1", categoryId: "cat-farm" },
@@ -137,15 +131,15 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     { id: "sc27", name: "Eco Resorts / Non-Hotel Resorts", parentId: "p1", categoryId: "cat-eco" },
     { id: "sc28", name: "Guesthouses", parentId: "p1", categoryId: "cat-guest" },
     { id: "sc29", name: "Heritage & Palace Stays", parentId: "p1", categoryId: "cat-heritage" },
-    { id: "sc11", name: "BBQ Experience", parentId: "p3", categoryId: "cat-bbq" },
-    { id: "sc12", name: "Farm Tour", parentId: "p3", categoryId: "cat-tour" },
-    { id: "sc13", name: "Wedding Venues", parentId: "p4", categoryId: "cat-wedding" },
-    { id: "sc14", name: "Party Lawns", parentId: "p4", categoryId: "cat-party" },
-    { id: "sc15", name: "Corporate Retreats", parentId: "p4", categoryId: "cat-corp" },
-    { id: "sc16", name: "Private Events", parentId: "p4", categoryId: "cat-private" },
-    { id: "sc17", name: "Farmhouse Gatherings", parentId: "p4", categoryId: "cat-gather" },
-    { id: "sc18", name: "Outdoor Lawns", parentId: "p4", categoryId: "cat-lawn" },
-    { id: "sc19", name: "Desert Venues", parentId: "p4", categoryId: "cat-desert-v" },
+    { id: "sc11", name: "BBQ Experience", parentId: "p2", categoryId: "cat-bbq" },
+    { id: "sc12", name: "Farm Tour", parentId: "p2", categoryId: "cat-tour" },
+    { id: "sc13", name: "Wedding Venues", parentId: "p3", categoryId: "cat-venue" },
+    { id: "sc14", name: "Party Lawns", parentId: "p3", categoryId: "cat-venue" },
+    { id: "sc15", name: "Corporate Retreats", parentId: "p3", categoryId: "cat-venue" },
+    { id: "sc16", name: "Private Events", parentId: "p3", categoryId: "cat-venue" },
+    { id: "sc17", name: "Farmhouse Gatherings", parentId: "p3", categoryId: "cat-venue" },
+    { id: "sc18", name: "Outdoor Lawns", parentId: "p3", categoryId: "cat-venue" },
+    { id: "sc19", name: "Desert Venues", parentId: "p3", categoryId: "cat-venue" },
   ],
   extraFilters: [
     { id: "ef1", name: "Swimming Pool", type: "amenity", parentId: "p1" },
@@ -159,15 +153,15 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     { id: "ef9", name: "Luxury (AED 1500+)", type: "priceRange" },
     { id: "ef10", name: "Horse Riding", type: "activity", parentId: "p1" },
     { id: "ef11", name: "Fruit Picking", type: "activity", parentId: "p1" },
-    { id: "ef12", name: "Desert Safari", type: "activity", parentId: "p3" },
+    { id: "ef12", name: "Desert Safari", type: "activity", parentId: "p2" },
   ],
   featureFilters: [
     { id: "ff1", name: "Private Pool", parentId: "p1" },
     { id: "ff2", name: "Organic Garden", parentId: "p1" },
     { id: "ff3", name: "Kitchen Access", parentId: "p1" },
     { id: "ff4", name: "Heritage Tour", parentId: "p1" },
-    { id: "ff5", name: "Guided Safari", parentId: "p3" },
-    { id: "ff6", name: "Cooking Class", parentId: "p3" },
+    { id: "ff5", name: "Guided Safari", parentId: "p2" },
+    { id: "ff6", name: "Cooking Class", parentId: "p2" },
   ],
 };
 
@@ -449,14 +443,146 @@ function normalizeSubcategories(
   );
 }
 
+const LEGACY_VENUE_CATEGORY_IDS = new Set([
+  "cat-wedding",
+  "cat-party",
+  "cat-corp",
+  "cat-private",
+  "cat-gather",
+  "cat-lawn",
+  "cat-desert-v",
+]);
+
+const LEGACY_VENUE_CATEGORY_NAMES = new Set([
+  "wedding venues",
+  "party lawns",
+  "corporate retreats",
+  "private events",
+  "farmhouse gatherings",
+  "outdoor lawns",
+  "desert venues",
+]);
+
+function remapLegacyParentId(id: string): string {
+  if (id === "p3") return "p2";
+  if (id === "p4") return "p3";
+  return id;
+}
+
+function shouldMigrateSequentialParents(
+  parents: TaxonomyData["parents"] | undefined
+): boolean {
+  if (!parents?.length) return false;
+  const ids = new Set(parents.map((p) => p.id));
+  if (ids.has("p4")) return true;
+  if (ids.has("p3") && !ids.has("p2")) {
+    const p3 = parents.find((p) => p.id === "p3");
+    return Boolean(p3 && /experience/i.test(p3.name));
+  }
+  return false;
+}
+
+function remapParentIdOnItems<T extends { parentId?: string }>(items: T[] | undefined): T[] | undefined {
+  if (!items) return items;
+  return items.map((item) =>
+    item.parentId ? { ...item, parentId: remapLegacyParentId(item.parentId) } : item
+  );
+}
+
+function collapseLegacyVenueCategories(
+  categories: TaxonomyData["categories"],
+  subcategories: TaxonomyData["subcategories"]
+): {
+  categories: TaxonomyData["categories"];
+  subcategories: TaxonomyData["subcategories"];
+} {
+  const eventsParentId =
+    SEED_TAXONOMY.parents.find((p) => /^events$/i.test(p.name))?.id ?? "p3";
+
+  const isLegacyVenueCat = (cat: TaxonomyData["categories"][number]) =>
+    LEGACY_VENUE_CATEGORY_IDS.has(cat.id) ||
+    (cat.parentId === eventsParentId &&
+      LEGACY_VENUE_CATEGORY_NAMES.has(normalizeFilterName(cat.name)));
+
+  if (!categories.some(isLegacyVenueCat)) {
+    return { categories, subcategories };
+  }
+
+  const existingVenue =
+    categories.find((c) => c.id === "cat-venue") ??
+    categories.find(
+      (c) =>
+        c.parentId === eventsParentId && normalizeFilterName(c.name) === "venue"
+    );
+  const venueCat = existingVenue
+    ? { ...existingVenue, name: "Venue", parentId: eventsParentId }
+    : { id: "cat-venue", name: "Venue", parentId: eventsParentId, enabled: true };
+
+  const nextCategories = [
+    ...categories.filter((c) => !isLegacyVenueCat(c) && c.id !== venueCat.id),
+    venueCat,
+  ];
+
+  const nextSubcategories = subcategories.map((sc) => {
+    const cat = categories.find((c) => c.id === sc.categoryId);
+    if ((cat && isLegacyVenueCat(cat)) || LEGACY_VENUE_CATEGORY_IDS.has(sc.categoryId)) {
+      return { ...sc, parentId: eventsParentId, categoryId: venueCat.id };
+    }
+    return sc;
+  });
+
+  return { categories: nextCategories, subcategories: nextSubcategories };
+}
+
+/** p3 Experiences → p2, p4 Venues → p3 Events; venue types become subcategories of Venue. */
+function migrateLegacyParentTaxonomy(parsed: Partial<TaxonomyData>): Partial<TaxonomyData> {
+  let parents = parsed.parents;
+  let categories = parsed.categories;
+  let subcategories = parsed.subcategories;
+  let extraFilters = parsed.extraFilters;
+  let featureFilters = parsed.featureFilters;
+
+  if (shouldMigrateSequentialParents(parents)) {
+    parents = parents!.map((p) => {
+      const id = remapLegacyParentId(p.id);
+      const name = /^venues?$/i.test(p.name.trim()) ? "Events" : p.name;
+      return { ...p, id, name };
+    });
+    categories = remapParentIdOnItems(categories);
+    subcategories = remapParentIdOnItems(subcategories);
+    extraFilters = remapParentIdOnItems(extraFilters);
+    featureFilters = remapParentIdOnItems(featureFilters);
+  } else if (parents?.some((p) => /^venues?$/i.test(p.name.trim()))) {
+    parents = parents.map((p) =>
+      /^venues?$/i.test(p.name.trim()) ? { ...p, name: "Events" } : p
+    );
+  }
+
+  if (categories) {
+    const collapsed = collapseLegacyVenueCategories(categories, subcategories ?? []);
+    categories = collapsed.categories;
+    if (subcategories) subcategories = collapsed.subcategories;
+  }
+
+  return {
+    ...parsed,
+    ...(parents ? { parents } : {}),
+    ...(categories ? { categories } : {}),
+    ...(subcategories ? { subcategories } : {}),
+    ...(extraFilters ? { extraFilters } : {}),
+    ...(featureFilters ? { featureFilters } : {}),
+  };
+}
+
 export function normalizeTaxonomy(parsed: Partial<TaxonomyData>): TaxonomyData {
+  const migrated = migrateLegacyParentTaxonomy(parsed);
   const incoming: TaxonomyData = {
     ...SEED_TAXONOMY,
-    ...parsed,
-    parents: parsed.parents ?? SEED_TAXONOMY.parents,
-    categories: parsed.categories ?? SEED_TAXONOMY.categories,
-    subcategories: parsed.subcategories ?? SEED_TAXONOMY.subcategories,
-    featureFilters: parsed.featureFilters ?? SEED_TAXONOMY.featureFilters,
+    ...migrated,
+    parents: migrated.parents ?? SEED_TAXONOMY.parents,
+    categories: migrated.categories ?? SEED_TAXONOMY.categories,
+    subcategories: migrated.subcategories ?? SEED_TAXONOMY.subcategories,
+    featureFilters: migrated.featureFilters ?? SEED_TAXONOMY.featureFilters,
   };
 
   const mainTabs = mergeMainTabs(parsed.mainTabs);
@@ -478,11 +604,11 @@ export function normalizeTaxonomy(parsed: Partial<TaxonomyData>): TaxonomyData {
 
   const merged: TaxonomyData = {
     ...SEED_TAXONOMY,
-    ...parsed,
+    ...migrated,
     mainTabs,
-    extraTabs: mergeExtraTabs(parsed.extraTabs),
+    extraTabs: mergeExtraTabs(migrated.extraTabs),
     customItems: cleanedCustom,
-    extraFilters: dedupeExtraFilters(parsed.extraFilters ?? SEED_TAXONOMY.extraFilters),
+    extraFilters: dedupeExtraFilters(migrated.extraFilters ?? SEED_TAXONOMY.extraFilters),
     featureFilters: dedupeByNameAndParent(
       incoming.featureFilters ?? SEED_TAXONOMY.featureFilters,
       "parentId"

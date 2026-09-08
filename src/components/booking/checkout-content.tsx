@@ -19,6 +19,7 @@ import { useLocale } from "next-intl";
 import { computeExperienceQuote } from "@/lib/booking/compute-experience-quote";
 import { normalizeExperienceSessions } from "@/lib/booking/experience-session-types";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
+import { isEventListing } from "@/lib/booking/is-event-listing";
 
 const EXPERIENCE_PRICES: Record<string, { title: string; amount: number }> = {
   "farm-tour": { title: "Farm Tour", amount: 75 },
@@ -65,6 +66,12 @@ export function CheckoutContent({
     () => listings.find((s) => s.id === listingId),
     [listings, listingId]
   );
+
+  const asEvent = isEventListing({
+    parentCategory: stay?.parentCategory,
+    type: stay?.type,
+    category: stay?.category,
+  });
 
   const asExperience =
     kind === "experience" ||
@@ -351,6 +358,21 @@ export function CheckoutContent({
         <p className="text-gray-800 font-medium">Listing not found</p>
         <Link href="/listings" className="text-sm text-green-700 font-semibold mt-3 inline-block">
           Browse listings
+        </Link>
+      </div>
+    );
+  }
+
+  if (asEvent) {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-16 text-center space-y-3">
+        <h1 className="text-xl font-bold text-gray-900">Enquire with the host</h1>
+        <p className="text-sm text-gray-600">
+          Event listings are not booked or paid on this platform. Open the listing to
+          contact the host directly.
+        </p>
+        <Link href={`/listing/${listingId}`} className="text-green-700 font-semibold text-sm">
+          Back to listing
         </Link>
       </div>
     );

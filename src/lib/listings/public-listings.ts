@@ -6,10 +6,15 @@ import { hasStoredPricing, loadPricingSettings } from "@/lib/host/host-pricing-d
 import { getActiveFlashDeal, stayHasLiveFlashDeal } from "@/lib/host/flash-deal-utils";
 import { getActivePromotedListingIds } from "@/lib/host/host-promotions-data";
 import { locationMatchesCountry } from "@/lib/currency";
+import { submittedListingMatches } from "./match-listing";
 import { loadTaxonomy } from "@/lib/admin/taxonomy-data";
 import type { TaxonomyData } from "@/lib/admin/taxonomy-types";
 import { applyGuestReviewRatings } from "@/lib/booking/stay-reviews-data";
-import { submittedListingMatches } from "./match-listing";
+import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isEventsSubscriptionActive } from "@/lib/host/events-subscription";
+import { eventsDirectoryIsFree } from "@/lib/admin/events-subscription";
+import { loadFinancialSettings } from "@/lib/admin/financial-data";
+import { loadHostPublicProfile } from "@/lib/host/host-profile-data";
 
 export interface SearchCriteria {
   country?: string;
@@ -138,9 +143,21 @@ export function getPublicListings(): Stay[] {
     ...submissions.filter((l) => l.featured).map((l) => l.id),
   ]);
 
+  const freeDirectory = eventsDirectoryIsFree(
+    loadFinancialSettings().eventsSubscription
+  );
+
   const hostApproved = submissions
     .map(submissionToStay)
-    .map((stay) => applyPaidFeaturedBadge(stay));
+    .map((stay) => applyPaidFeaturedBadge(stay))
+    .filter((stay) => {
+      if (freeDirectory || !isEventListing(stay)) return true;
+      const hostId = stay.hostId?.trim();
+      if (!hostId) return false;
+      return isEventsSubscriptionActive(
+        loadHostPublicProfile(hostId).eventsSubscriptionExpiresAt
+      );
+    });
 
   return hostApproved
     .map(applyHostPublishedRates)
@@ -153,7 +170,8 @@ export function getPublicListings(): Stay[] {
 /** Host venue listings (approved) for mega menu / venue search. */
 export function isVenueStay(stay: Stay): boolean {
   if (stay.type === "venue") return true;
-  if (normalize(stay.parentCategory ?? "").includes("venue")) return true;
+  const parent = normalize(stay.parentCategory ?? "");
+  if (parent.includes("venue") || /\bevents?\b/.test(parent)) return true;
   if (normalize(stay.category).includes("venue")) return true;
   return false;
 }
@@ -202,10 +220,10 @@ export function stayMatchesParentCategory(stay: Stay, parentName: string): boole
         (!isVenueStay(stay) && stay.type !== "experience")
       );
     }
-    if (row.id === "p3") {
+    if (row.id === "p2") {
       return stay.type === "experience" || stayHaystack(stay).includes("experience");
     }
-    if (row.id === "p4") return isVenueStay(stay);
+    if (row.id === "p3") return isVenueStay(stay);
   }
 
   const isStayListing =
@@ -218,7 +236,9 @@ export function stayMatchesParentCategory(stay: Stay, parentName: string): boole
   }
   if (parent.includes("homestay") && stay.type === "homestay") return true;
   if (parent.includes("farm") && stay.type === "farmstay") return true;
-  if (parent.includes("venue") && isVenueStay(stay)) return true;
+  if ((parent.includes("venue") || /\bevents?\b/.test(parent)) && isVenueStay(stay)) {
+    return true;
+  }
   if (
     parent.includes("experience") &&
     (stay.type === "experience" || stayHaystack(stay).includes("experience"))

@@ -5,31 +5,56 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
 import {
   DEFAULT_LISTING_QUALITY_RULES,
+  DEFAULT_LISTING_QUALITY_RULES_STORE,
   LISTING_QUALITY_RULES_SYNC_EVENT,
   applyLegacyQualityPatch,
-  loadListingQualityRules,
-  saveListingQualityRules,
+  defaultRulesForParentName,
+  loadListingQualityRulesStore,
+  normalizeListingQualityRules,
+  resolveRulesForParent,
+  saveListingQualityRulesStore,
 } from "@/lib/admin/listing-quality-rules-data";
 import {
-  fetchListingQualityRulesFromApi,
-  saveListingQualityRulesToApi,
+  fetchListingQualityRulesStoreFromApi,
+  saveListingQualityRulesStoreToApi,
   shouldUseSharedQualityRules,
 } from "@/lib/admin/listing-quality-rules-api";
 import type {
   LegacyListingQualityRules,
   ListingQualityRuleItem,
   ListingQualityRules,
+  ListingQualityRulesStore,
 } from "@/lib/admin/listing-quality-rules-types";
 import { qualityRuleKey } from "@/lib/admin/listing-quality-fields";
 
 interface ListingQualityRulesContextValue {
+  store: ListingQualityRulesStore;
+  /** Fallback rules (legacy). Prefer rulesForParent. */
   rules: ListingQualityRules;
   ready: boolean;
+  rulesForParent: (
+    parentId?: string | null,
+    parentName?: string | null,
+    parents?: { id: string; name: string }[]
+  ) => ListingQualityRules;
+  ensureParentRules: (parentId: string, parentName?: string) => ListingQualityRules;
+  addParentRule: (parentId: string, item: ListingQualityRuleItem) => void;
+  updateParentRule: (
+    parentId: string,
+    id: string,
+    patch: Partial<ListingQualityRuleItem>
+  ) => void;
+  removeParentRule: (parentId: string, id: string) => void;
+  updateParentRules: (parentId: string, patch: Partial<LegacyListingQualityRules>) => void;
+  resetParentRules: (parentId: string, parentName?: string) => void;
+  resetAllRules: () => void;
+  /** @deprecated Use parent-scoped APIs */
   addRule: (item: ListingQualityRuleItem) => void;
   updateRule: (id: string, patch: Partial<ListingQualityRuleItem>) => void;
   removeRule: (id: string) => void;
@@ -39,20 +64,22 @@ interface ListingQualityRulesContextValue {
 
 const ListingQualityRulesContext = createContext<ListingQualityRulesContextValue | null>(null);
 
-function persistLocal(next: ListingQualityRules) {
-  saveListingQualityRules(next);
+function persistLocal(next: ListingQualityRulesStore) {
+  saveListingQualityRulesStore(next);
   return next;
 }
 
 export function ListingQualityRulesProvider({ children }: { children: ReactNode }) {
-  const [rules, setRules] = useState<ListingQualityRules>(DEFAULT_LISTING_QUALITY_RULES);
+  const [store, setStore] = useState<ListingQualityRulesStore>(
+    DEFAULT_LISTING_QUALITY_RULES_STORE
+  );
   const [ready, setReady] = useState(false);
   const shared = shouldUseSharedQualityRules();
 
   const persist = useCallback(
-    (next: ListingQualityRules) => {
+    (next: ListingQualityRulesStore) => {
       if (shared) {
-        void saveListingQualityRulesToApi(next).catch(() => persistLocal(next));
+        void saveListingQualityRulesStoreToApi(next).catch(() => persistLocal(next));
         return next;
       }
       return persistLocal(next);
@@ -62,12 +89,12 @@ export function ListingQualityRulesProvider({ children }: { children: ReactNode 
 
   const refresh = useCallback(() => {
     if (shared) {
-      void fetchListingQualityRulesFromApi()
-        .then(setRules)
-        .catch(() => setRules(loadListingQualityRules()));
+      void fetchListingQualityRulesStoreFromApi()
+        .then(setStore)
+        .catch(() => setStore(loadListingQualityRulesStore()));
       return;
     }
-    setRules(loadListingQualityRules());
+    setStore(loadListingQualityRulesStore());
   }, [shared]);
 
   useEffect(() => {
@@ -76,7 +103,7 @@ export function ListingQualityRulesProvider({ children }: { children: ReactNode 
 
     function onSync() {
       if (shared) return;
-      setRules(loadListingQualityRules());
+      setStore(loadListingQualityRulesStore());
     }
     function onStorage(e: StorageEvent) {
       if (e.key && e.key !== "farm-stays-listing-quality-rules") return;
@@ -91,33 +118,137 @@ export function ListingQualityRulesProvider({ children }: { children: ReactNode 
     };
   }, [refresh, shared]);
 
-  const value: ListingQualityRulesContextValue = {
-    rules,
-    ready,
-    addRule: (item) => {
-      setRules((prev) => {
-        const key = qualityRuleKey(item);
-        if (prev.items.some((existing) => qualityRuleKey(existing) === key)) return prev;
-        return persist({ items: [...prev.items, item] });
-      });
-    },
-    updateRule: (id, patch) => {
-      setRules((prev) =>
+  const rulesForParent = useCallback(
+    (
+      parentId?: string | null,
+      parentName?: string | null,
+      parents?: { id: string; name: string }[]
+    ) => resolveRulesForParent(store, { parentId, parentName, parents }),
+    [store]
+  );
+
+  const patchParent = useCallback(
+    (parentId: string, nextRules: ListingQualityRules) => {
+      setStore((prev) =>
         persist({
-          items: prev.items.map((item) => (item.id === id ? { ...item, ...patch, id: item.id } : item)),
+          ...prev,
+          byParentId: {
+            ...prev.byParentId,
+            [parentId]: normalizeListingQualityRules(nextRules),
+          },
         })
       );
     },
-    removeRule: (id) => {
-      setRules((prev) => persist({ items: prev.items.filter((item) => item.id !== id) }));
+    [persist]
+  );
+
+  const ensureParentRules = useCallback(
+    (parentId: string, parentName?: string) => {
+      const existing = store.byParentId[parentId];
+      if (existing) return existing;
+      const seeded = parentName
+        ? defaultRulesForParentName(parentName)
+        : normalizeListingQualityRules(store.fallback);
+      patchParent(parentId, seeded);
+      return seeded;
     },
-    updateRules: (patch) => {
-      setRules((prev) => persist(applyLegacyQualityPatch(prev, patch)));
-    },
-    resetRules: () => {
-      setRules(persist(DEFAULT_LISTING_QUALITY_RULES));
-    },
-  };
+    [store, patchParent]
+  );
+
+  const value = useMemo<ListingQualityRulesContextValue>(
+    () => ({
+      store,
+      rules: store.fallback,
+      ready,
+      rulesForParent,
+      ensureParentRules,
+      addParentRule: (parentId, item) => {
+        const current =
+          store.byParentId[parentId] ?? normalizeListingQualityRules(store.fallback);
+        const key = qualityRuleKey(item);
+        if (current.items.some((existing) => qualityRuleKey(existing) === key)) return;
+        patchParent(parentId, { items: [...current.items, item] });
+      },
+      updateParentRule: (parentId, id, patch) => {
+        const current =
+          store.byParentId[parentId] ?? normalizeListingQualityRules(store.fallback);
+        patchParent(parentId, {
+          items: current.items.map((item) =>
+            item.id === id ? { ...item, ...patch, id: item.id } : item
+          ),
+        });
+      },
+      removeParentRule: (parentId, id) => {
+        const current =
+          store.byParentId[parentId] ?? normalizeListingQualityRules(store.fallback);
+        patchParent(parentId, {
+          items: current.items.filter((item) => item.id !== id),
+        });
+      },
+      updateParentRules: (parentId, patch) => {
+        const current =
+          store.byParentId[parentId] ?? normalizeListingQualityRules(store.fallback);
+        patchParent(parentId, applyLegacyQualityPatch(current, patch));
+      },
+      resetParentRules: (parentId, parentName) => {
+        patchParent(
+          parentId,
+          parentName
+            ? defaultRulesForParentName(parentName)
+            : normalizeListingQualityRules(DEFAULT_LISTING_QUALITY_RULES)
+        );
+      },
+      resetAllRules: () => {
+        setStore(persist({ ...DEFAULT_LISTING_QUALITY_RULES_STORE }));
+      },
+      addRule: (item) => {
+        setStore((prev) => {
+          const key = qualityRuleKey(item);
+          if (prev.fallback.items.some((existing) => qualityRuleKey(existing) === key)) {
+            return prev;
+          }
+          return persist({
+            ...prev,
+            fallback: { items: [...prev.fallback.items, item] },
+          });
+        });
+      },
+      updateRule: (id, patch) => {
+        setStore((prev) =>
+          persist({
+            ...prev,
+            fallback: {
+              items: prev.fallback.items.map((item) =>
+                item.id === id ? { ...item, ...patch, id: item.id } : item
+              ),
+            },
+          })
+        );
+      },
+      removeRule: (id) => {
+        setStore((prev) =>
+          persist({
+            ...prev,
+            fallback: {
+              items: prev.fallback.items.filter((item) => item.id !== id),
+            },
+          })
+        );
+      },
+      updateRules: (patch) => {
+        setStore((prev) =>
+          persist({
+            ...prev,
+            fallback: applyLegacyQualityPatch(prev.fallback, patch),
+          })
+        );
+      },
+      resetRules: () => {
+        setStore(persist({ ...DEFAULT_LISTING_QUALITY_RULES_STORE }));
+      },
+    }),
+    [store, ready, rulesForParent, ensureParentRules, patchParent, persist]
+  );
 
   return (
     <ListingQualityRulesContext.Provider value={value}>

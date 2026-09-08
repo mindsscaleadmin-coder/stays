@@ -210,7 +210,7 @@ export const HOST_BOOKINGS: HostBooking[] = [
   {
     id: "GF-A8K2X1",
     guest: "Priya Sharma",
-    guestEmail: "priya.sharma@example.com",
+    guestEmail: "priya@example.com",
     guestPhone: "+971 50 123 4567",
     guestCountry: "United Arab Emirates",
     guestNotes: "Prefer ground-floor rooms. Arriving around 4 PM.",

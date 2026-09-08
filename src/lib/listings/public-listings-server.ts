@@ -12,11 +12,42 @@ import { submissionToStay } from "./submission-to-stay";
 import type { SubmittedListing } from "./submission-types";
 import type { ListingPricingSettings } from "@/lib/host/host-pricing-types";
 import type { ListingSearchFilters } from "./match-listing";
+import { isEventListing } from "@/lib/booking/is-event-listing";
+import { listEventSubscribedHostIds } from "@/lib/server/host-profile-repo";
+import { getFinancialSettingsFromDb } from "@/lib/server/platform-catalog-repo";
+import { eventsDirectoryIsFree } from "@/lib/admin/events-subscription";
 import {
   parseListingPagination,
   PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE,
   type ListingPagination,
 } from "./listings-pagination";
+
+/**
+ * Event listings need a paid subscription to stay public — unless the directory
+ * is still in its free launch phase, when approval alone is enough.
+ * Boosts never override this.
+ */
+export function listingVisibleOnPublicCatalog(
+  listing: { hostId?: string; parentCategory?: string; type?: string; category?: string },
+  subscribed: Set<string>,
+  freeDirectory = false
+): boolean {
+  if (!isEventListing(listing)) return true;
+  if (freeDirectory) return true;
+  const hostId = listing.hostId?.trim();
+  return Boolean(hostId && subscribed.has(hostId));
+}
+
+/** Reads the admin setting that decides whether Event listings are gated. */
+export async function eventsDirectoryFreeForPublicCatalog(): Promise<boolean> {
+  try {
+    const settings = await getFinancialSettingsFromDb();
+    return eventsDirectoryIsFree(settings.eventsSubscription);
+  } catch {
+    // Settings unreadable — fall back to the launch default (visible).
+    return true;
+  }
+}
 
 export function stayWithPublishedRates(
   listing: SubmittedListing,
@@ -76,13 +107,21 @@ export async function getPublicStaysFromStore(
     { page, pageSize }
   );
   const approved = await attachPublicListingMeta(result.listings);
-  const pricingById = await getListingPricingMap(approved.map((l) => l.id));
-  const stays = approved.map((listing) =>
+  const freeDirectory = await eventsDirectoryFreeForPublicCatalog();
+  const subscribed = freeDirectory
+    ? new Set<string>()
+    : new Set(await listEventSubscribedHostIds());
+  const visible = approved.filter((listing) =>
+    listingVisibleOnPublicCatalog(listing, subscribed, freeDirectory)
+  );
+  const pricingById = await getListingPricingMap(visible.map((l) => l.id));
+  const stays = visible.map((listing) =>
     stayWithPublishedRates(listing, pricingById.get(listing.id))
   );
+  const hidden = approved.length - visible.length;
   return {
     stays,
-    total: result.total,
+    total: Math.max(0, result.total - hidden),
     page: result.page,
     pageSize: result.pageSize,
   };
@@ -103,6 +142,13 @@ export async function getApprovedListingDetail(id: string): Promise<{
     await seedListingsIfEmpty(getSeedListings());
     const listing = await getListing(id);
     if (!listing || listing.status !== "approved") return null;
+    if (isEventListing(listing)) {
+      const freeDirectory = await eventsDirectoryFreeForPublicCatalog();
+      const subscribed = freeDirectory
+        ? new Set<string>()
+        : new Set(await listEventSubscribedHostIds());
+      if (!listingVisibleOnPublicCatalog(listing, subscribed, freeDirectory)) return null;
+    }
     const [withMeta] = await attachPublicListingMeta([listing]);
     const pricingById = await getListingPricingMap([listing.id]);
     const pricing = pricingById.get(listing.id) ?? null;

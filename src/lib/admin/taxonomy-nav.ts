@@ -93,7 +93,7 @@ function categorySubs(data: TaxonomyData, categoryId: string) {
 
 function catalogForParent(name: string) {
   if (/experience/i.test(name)) return POPULAR_EXPERIENCES;
-  if (/venue/i.test(name)) return POPULAR_VENUES;
+  if (/event/i.test(name) || /venue/i.test(name)) return POPULAR_VENUES;
   return POPULAR_CATEGORIES;
 }
 
@@ -260,12 +260,29 @@ function cardsForParent(
 }
 
 export function taxonomyExperienceCards(data: TaxonomyData, limit = 6): TaxonomyCard[] {
-  const parent = findParentByHint(data, /experience/i, "p3");
+  const parent = findParentByHint(data, /experience/i, "p2");
   return cardsForParent(data, parent, POPULAR_EXPERIENCES, limit);
 }
 
 export function taxonomyVenueCards(data: TaxonomyData, limit = 6): TaxonomyCard[] {
-  const parent = findParentByHint(data, /venue/i, "p4");
+  const parent = findParentByHint(data, /event|venue/i, "p3");
+  if (!parent) return [];
+  const venueCat = data.categories.find(
+    (c) => c.enabled !== false && c.parentId === parent.id && /venue/i.test(c.name)
+  );
+  const subs = venueCat ? categorySubs(data, venueCat.id) : [];
+  if (subs.length > 0) {
+    return subs.slice(0, limit).map((sc) => ({
+      id: sc.id,
+      name: sc.name,
+      href: listingsHref({
+        parent: parent.name,
+        category: venueCat?.name,
+        subcategory: sc.name,
+      }),
+      img: imageForName(sc.name, POPULAR_VENUES),
+    }));
+  }
   return cardsForParent(data, parent, POPULAR_VENUES, limit);
 }
 
@@ -317,9 +334,9 @@ export function taxonomyDestinationCards(data: TaxonomyData, limit = 6): Taxonom
 }
 
 export function taxonomyExperienceParentName(data: TaxonomyData): string | null {
-  return findParentByHint(data, /experience/i, "p3")?.name ?? null;
+  return findParentByHint(data, /experience/i, "p2")?.name ?? null;
 }
 
 export function taxonomyVenueParentName(data: TaxonomyData): string | null {
-  return findParentByHint(data, /venue/i, "p4")?.name ?? null;
+  return findParentByHint(data, /event|venue/i, "p3")?.name ?? null;
 }

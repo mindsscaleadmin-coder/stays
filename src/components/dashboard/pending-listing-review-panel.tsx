@@ -12,9 +12,11 @@ import {
   qualityInputFromListing,
 } from "@/lib/listings/listing-quality-validation";
 import { useListingQualityRules } from "@/components/providers/listing-quality-rules-provider";
+import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { RichTextView } from "@/components/listing/rich-text-view";
 import { ListingQualityChecklist } from "./listing-quality-checklist";
 import { ListingDetailRow } from "./listing-detail-row";
+import { toListingQualityMode } from "@/lib/listings/listing-mode";
 
 export function PendingListingReviewPanel({
   listings,
@@ -25,7 +27,8 @@ export function PendingListingReviewPanel({
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
 }) {
-  const { rules: qualityRules } = useListingQualityRules();
+  const { rulesForParent } = useListingQualityRules();
+  const { data: taxonomy } = useAdminTaxonomy();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState("");
 
@@ -41,8 +44,20 @@ export function PendingListingReviewPanel({
 
   const selected = listings.find((l) => l.id === selectedId) ?? null;
 
+  const selectedMode = selected
+    ? toListingQualityMode({
+        parentCategory: selected.parentCategory,
+        type: selected.type,
+        category: selected.category,
+      })
+    : "stay";
+
   const qualityChecklist = selected
-    ? buildQualityChecklist(qualityInputFromListing(selected), qualityRules)
+    ? buildQualityChecklist(
+        qualityInputFromListing({ ...selected, listingMode: selectedMode }),
+        rulesForParent(undefined, selected.parentCategory, taxonomy.parents),
+        { listingMode: selectedMode }
+      )
     : [];
 
   function handleApprove(id: string) {

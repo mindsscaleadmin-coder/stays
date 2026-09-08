@@ -1,6 +1,11 @@
-import type { ListingQualityForm, ListingQualityRules } from "@/lib/admin/listing-quality-rules-types";
+import type {
+  ListingQualityForm,
+  ListingQualityMode,
+  ListingQualityRules,
+} from "@/lib/admin/listing-quality-rules-types";
 import { getQualityFieldDef, qualityRuleKey } from "@/lib/admin/listing-quality-fields";
 import { loadListingQualityRules } from "@/lib/admin/listing-quality-rules-data";
+import { toListingQualityMode } from "@/lib/listings/listing-mode";
 import { richTextToPlain } from "./rich-text";
 
 export interface ListingQualityInput {
@@ -23,8 +28,14 @@ export interface ListingQualityInput {
   livestockCrops?: string;
   roomsCount?: number;
   houseRulesCount?: number;
+  meetingPoint?: string;
+  requirements?: string;
+  itineraryCount?: number;
   customSelections?: Record<string, string>;
   customFilters?: { label: string; value: string }[];
+  /** When set, prefer over parentCategory/type detection. */
+  listingMode?: ListingQualityMode;
+  type?: string;
 }
 
 export type QualityCheckId = string;
@@ -41,10 +52,24 @@ export interface QualityValidateOptions {
   omit?: QualityCheckId[];
   /** Skip manage-only fields on the create/edit listing form. */
   form?: ListingQualityForm | "all";
+  listingMode?: ListingQualityMode;
 }
 
 function filled(value?: string | null) {
   return Boolean(value?.trim());
+}
+
+function resolveMode(
+  input: ListingQualityInput,
+  options?: QualityValidateOptions
+): ListingQualityMode {
+  if (options?.listingMode) return options.listingMode;
+  if (input.listingMode) return input.listingMode;
+  return toListingQualityMode({
+    parentCategory: input.parentCategory,
+    type: input.type,
+    category: input.category,
+  });
 }
 
 function countForField(fieldId: string, input: ListingQualityInput): number {
@@ -67,6 +92,8 @@ function countForField(fieldId: string, input: ListingQualityInput): number {
       return input.roomsCount ?? 0;
     case "houseRules":
       return input.houseRulesCount ?? 0;
+    case "itinerary":
+      return input.itineraryCount ?? 0;
     default:
       return 0;
   }
@@ -96,6 +123,10 @@ function valueForRequired(fieldId: string, input: ListingQualityInput) {
       return filled(input.farmType);
     case "livestockCrops":
       return filled(input.livestockCrops);
+    case "meetingPoint":
+      return filled(input.meetingPoint);
+    case "requirements":
+      return filled(input.requirements);
     default:
       return countForField(fieldId, input) > 0;
   }
@@ -120,15 +151,22 @@ function ruleLabel(rule: ListingQualityRules["items"][number]) {
 
 function ruleApplies(
   rule: ListingQualityRules["items"][number],
+  input: ListingQualityInput,
   options?: QualityValidateOptions
 ) {
   const key = qualityRuleKey(rule);
   if (options?.omit?.includes(key) || options?.omit?.includes(rule.fieldId)) return false;
   const form = options?.form ?? "all";
-  if (form === "all") return true;
-  if (rule.fieldId === "custom") return form === "details";
+  if (rule.fieldId === "custom") {
+    return form === "all" || form === "details";
+  }
   const def = getQualityFieldDef(rule.fieldId);
-  return !def || def.form === form;
+  if (form !== "all" && def && def.form !== form) return false;
+
+  const mode = resolveMode(input, options);
+  if (def?.modes && def.modes.length > 0 && !def.modes.includes(mode)) return false;
+
+  return true;
 }
 
 function evaluateRule(
@@ -181,7 +219,7 @@ export function validateListingQuality(
   options?: QualityValidateOptions
 ): string | null {
   for (const rule of rules.items) {
-    if (!ruleApplies(rule, options)) continue;
+    if (!ruleApplies(rule, input, options)) continue;
     const result = evaluateRule(rule, input);
     if (!result.passed) return result.message;
   }
@@ -200,16 +238,18 @@ export function buildQualityChecklist(
   rules: ListingQualityRules = loadListingQualityRules(),
   options?: QualityValidateOptions
 ): QualityCheckItem[] {
-  return rules.items.filter((rule) => ruleApplies(rule, options)).map((rule) => {
-    const result = evaluateRule(rule, input);
-    return {
-      id: qualityRuleKey(rule),
-      label: ruleLabel(rule),
-      required: true,
-      passed: result.passed,
-      detail: result.detail,
-    };
-  });
+  return rules.items
+    .filter((rule) => ruleApplies(rule, input, options))
+    .map((rule) => {
+      const result = evaluateRule(rule, input);
+      return {
+        id: qualityRuleKey(rule),
+        label: ruleLabel(rule),
+        required: true,
+        passed: result.passed,
+        detail: result.detail,
+      };
+    });
 }
 
 export function qualityChecksPassed(items: QualityCheckItem[]): boolean {
@@ -227,6 +267,7 @@ export function qualityInputFromListing(listing: {
   parentCategory?: string;
   category?: string;
   subcategory?: string;
+  type?: string;
   highlightIds?: string[];
   featureIconIds?: string[];
   advancedFilters?: string[];
@@ -237,7 +278,11 @@ export function qualityInputFromListing(listing: {
   livestockCrops?: string;
   rooms?: { id?: string }[];
   houseRules?: { title?: string }[];
+  meetingPoint?: string;
+  requirements?: string;
+  itinerary?: { title?: string }[];
   customFilters?: { label: string; value: string }[];
+  listingMode?: ListingQualityMode;
 }): ListingQualityInput {
   return {
     title: listing.title,
@@ -249,6 +294,8 @@ export function qualityInputFromListing(listing: {
     parentCategory: listing.parentCategory,
     category: listing.category,
     subcategory: listing.subcategory,
+    type: listing.type,
+    listingMode: listing.listingMode,
     highlightCount: listing.highlightIds?.length ?? 0,
     featureIconCount: listing.featureIconIds?.length ?? 0,
     advancedCount: listing.advancedFilters?.length ?? 0,
@@ -259,6 +306,9 @@ export function qualityInputFromListing(listing: {
     livestockCrops: listing.livestockCrops,
     roomsCount: listing.rooms?.length ?? 0,
     houseRulesCount: listing.houseRules?.length ?? 0,
+    meetingPoint: listing.meetingPoint,
+    requirements: listing.requirements,
+    itineraryCount: (listing.itinerary ?? []).filter((s) => s.title?.trim()).length,
     customFilters: listing.customFilters,
   };
 }

@@ -28,7 +28,11 @@ import type {
   ListingPromotionDurationDays,
   ListingPromotionKind,
 } from "@/lib/host/host-promotions-types";
-import { formatAmount, cn } from "@/lib/utils";
+import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isEventsSubscriptionActive } from "@/lib/host/events-subscription";
+import { useEventsSubscriptionSettings } from "@/lib/host/use-events-subscription-settings";
+import { useHostPublicProfile } from "@/lib/host/use-host-public-profile";
+import { cn, formatAmount } from "@/lib/utils";
 
 export function HostPromoteContent() {
   const { user } = useAuth();
@@ -36,6 +40,11 @@ export function HostPromoteContent() {
   const hostId = resolveHostId(user);
   const hostName = resolveHostName(user);
   const submissions = useHostSubmissions(hostId, hostName);
+  const { data: hostProfile } = useHostPublicProfile(hostId ?? undefined, hostName);
+  const { freeDuringLaunch: eventsFree } = useEventsSubscriptionSettings();
+  /** Free launch phase counts as entitled — boosts are sold separately. */
+  const eventsSubActive =
+    eventsFree || isEventsSubscriptionActive(hostProfile?.eventsSubscriptionExpiresAt);
   const { ready: settingsReady, settings: promoSettings } = useHostPromotionsSettings();
 
   const listingOptions = useMemo(() => {
@@ -109,8 +118,19 @@ export function HostPromoteContent() {
     }
   }, [packages, duration]);
 
+  const selectedListingRow = submissions.find((l) => l.id === listingId);
+  const selectedIsEvent = isEventListing({
+    parentCategory: selectedListingRow?.parentCategory,
+    type: selectedListingRow?.type,
+    category: selectedListingRow?.category,
+  });
+
   async function handlePay() {
     if (!listingId || !hostId || !selectedPkg) return;
+    if (selectedIsEvent && !eventsSubActive) {
+      flash("Events listings need an active yearly subscription before you can buy Featured or Trending.");
+      return;
+    }
     setPaying(true);
     const saved = await purchase({
       listingId,
@@ -155,6 +175,22 @@ export function HostPromoteContent() {
           </h2>
           <p className="text-gray-500 text-sm mt-1">{promoSettings.pageSubtitle}</p>
         </div>
+
+        {selectedIsEvent && (
+          <div
+            className={`text-sm rounded-xl px-4 py-3 border ${
+              eventsSubActive
+                ? "bg-green-50 border-green-200 text-green-900"
+                : "bg-amber-50 border-amber-200 text-amber-950"
+            }`}
+          >
+            {eventsFree
+              ? "Event listings are free during launch and already visible to guests. You can buy Featured or Trending to stand out — boosts never take a cut of the venue booking."
+              : eventsSubActive
+                ? "This Events listing can buy Featured or Trending like other listings. Boosts never take a cut of the venue booking."
+                : "This Events listing is hidden from guests until your yearly Events subscription is active. Ask admin to record payment, then you can buy Featured or Trending."}
+          </div>
+        )}
 
         {message && (
           <div className="bg-green-50 border border-green-200 text-green-800 text-sm rounded-xl px-4 py-3 flex items-start gap-2">

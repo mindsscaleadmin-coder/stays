@@ -443,8 +443,8 @@ export function ActiveListingPanel({
           </div>
 
           {filtersOpen && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
-              <label className="block">
+            <div className="grid grid-cols-6 gap-2 sm:gap-3 pt-1 min-w-0">
+              <label className="block min-w-0">
                 <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
                   Country
                 </span>
@@ -465,7 +465,7 @@ export function ActiveListingPanel({
                 </select>
               </label>
 
-              <label className="block">
+              <label className="block min-w-0">
                 <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
                   State
                 </span>
@@ -484,7 +484,7 @@ export function ActiveListingPanel({
                 </select>
               </label>
 
-              <label className="block">
+              <label className="block min-w-0">
                 <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
                   Host
                 </span>
@@ -502,7 +502,7 @@ export function ActiveListingPanel({
                 </select>
               </label>
 
-              <label className="block">
+              <label className="block min-w-0">
                 <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
                   Parent
                 </span>
@@ -524,7 +524,7 @@ export function ActiveListingPanel({
                 </select>
               </label>
 
-              <label className="block">
+              <label className="block min-w-0">
                 <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
                   Category
                 </span>
@@ -548,7 +548,7 @@ export function ActiveListingPanel({
                 </select>
               </label>
 
-              <label className="block">
+              <label className="block min-w-0">
                 <span className="block text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
                   Sub category
                 </span>

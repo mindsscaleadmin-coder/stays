@@ -13,10 +13,12 @@ import {
   updatePayoutState,
 } from "./financial-data";
 import type {
+  EventsSubscriptionSettings,
   FinancialSettings,
   HostCommissionOverride,
   RefundRequest,
 } from "./financial-types";
+import { normalizeEventsSubscription } from "./events-subscription";
 import {
   fetchFinancialSettingsFromApi,
   patchFinancialSettingsViaApi,
@@ -164,6 +166,27 @@ export function useAdminFinancial() {
           ...(globalServiceFeeFlat !== undefined ? { globalServiceFeeFlat } : {}),
         },
       }));
+    },
+    updateEventsSubscription: (next: Partial<EventsSubscriptionSettings>) => {
+      const merged = normalizeEventsSubscription({
+        ...settings.eventsSubscription,
+        ...next,
+      });
+      if (shared) {
+        void patchFinancialSettingsViaApi({
+          action: "saveSettings",
+          settings: { ...settings, eventsSubscription: merged },
+        })
+          .then((payload) => {
+            applyPayload(payload);
+            refresh();
+          })
+          .catch(() => {
+            patch((prev) => ({ ...prev, eventsSubscription: merged }));
+          });
+        return;
+      }
+      patch((prev) => ({ ...prev, eventsSubscription: merged }));
     },
     setHostOverride: (override: HostCommissionOverride) => {
       const clamped = { ...override, feePct: clampCommissionPct(override.feePct) };

@@ -95,11 +95,12 @@ export function resolveListingLabels(
     })
     .filter(Boolean);
 
-  const type = parentCategory.toLowerCase().includes("experience")
+  const parent = parentCategory.toLowerCase();
+  const type = parent.includes("experience")
     ? "experience"
-    : parentCategory.toLowerCase().includes("homestay")
+    : parent.includes("homestay")
       ? "homestay"
-      : parentCategory.toLowerCase().includes("venue")
+      : parent.includes("venue") || /\bevents?\b/.test(parent)
         ? "venue"
         : "farmstay";
 

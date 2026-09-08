@@ -252,7 +252,7 @@ function StayListRow({
   }
 
   return (
-    <article className="flex flex-col sm:flex-row sm:items-start gap-4 py-5 border-b border-gray-200 last:border-b-0">
+    <article className="flex flex-col sm:flex-row sm:items-stretch gap-4 py-5 border-b border-gray-200 last:border-b-0">
       <Link
         href={listingUrl}
         className="relative block w-full aspect-[4/3] sm:w-[240px] lg:w-[260px] sm:h-[196px] sm:aspect-auto shrink-0 rounded-lg overflow-hidden bg-gray-100"
@@ -316,10 +316,10 @@ function StayListRow({
         )}
       </Link>
 
-      <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5">
-        <div className="flex items-start justify-between gap-3">
+      <div className="flex-1 min-w-0 flex flex-col justify-between sm:h-[196px] py-0.5">
+        <div className="flex items-center justify-between gap-3 min-h-[1.5rem]">
           <Link href={listingUrl} className="min-w-0">
-            <h2 className="text-lg font-bold text-gray-900 leading-snug hover:underline line-clamp-2">
+            <h2 className="text-lg font-bold text-gray-900 leading-tight hover:underline line-clamp-1">
               {name}
             </h2>
           </Link>
@@ -331,27 +331,28 @@ function StayListRow({
           )}
         </div>
 
-        <p className="text-sm text-gray-500 truncate">{categoryPath || stay.type}</p>
-
-        <p className="text-xl font-bold text-gray-900">
-          {priceLabel}
-          <span className="ms-1 text-sm font-medium text-gray-500">{perNightLabel}</span>
+        <p className="text-sm text-gray-500 leading-tight truncate min-h-[1.25rem]">
+          {categoryPath || stay.type}
         </p>
-        {stay.originalPrice != null && stay.originalPrice > stay.price && (
-          <p className="text-sm text-gray-400 line-through leading-tight">
-            {formatStoredMoney(stay.originalPrice, {
-              storedCurrency: stay.currency || stay.flashDealCurrency || BASE_CURRENCY,
-              currency: displayCurrency,
-              exchangeRateToAED,
-              locale,
-            })}
-          </p>
-        )}
-        {stay.priceNote && (
-          <p className="text-xs font-semibold text-red-600">{stay.priceNote}</p>
-        )}
 
-        <div className="flex gap-2 pt-0.5">
+        <div className="min-h-[1.75rem] flex flex-col justify-center">
+          <p className="text-xl font-bold text-gray-900 leading-tight">
+            {priceLabel}
+            <span className="ms-1 text-sm font-medium text-gray-500">{perNightLabel}</span>
+          </p>
+          {stay.originalPrice != null && stay.originalPrice > stay.price && (
+            <p className="text-xs text-gray-400 line-through leading-tight">
+              {formatStoredMoney(stay.originalPrice, {
+                storedCurrency: stay.currency || stay.flashDealCurrency || BASE_CURRENCY,
+                currency: displayCurrency,
+                exchangeRateToAED,
+                locale,
+              })}
+            </p>
+          )}
+        </div>
+
+        <div className="flex gap-2">
           <SpecBox label="Guests" value={String(stay.guests)} />
           <SpecBox
             label={stay.type === "venue" ? "Event type" : "Bedrooms"}
@@ -361,7 +362,7 @@ function StayListRow({
           <SpecBox label="Rating" value={stay.rating > 0 ? String(stay.rating) : "New"} />
         </div>
 
-        <p className="flex items-center gap-1.5 text-sm text-gray-500">
+        <p className="flex items-center gap-1.5 text-sm text-gray-500 leading-tight min-h-[1.25rem]">
           <MapPin className="w-3.5 h-3.5 shrink-0" />
           <span className="truncate">
             {location}
@@ -599,7 +600,7 @@ export function SearchResultsContent({
     const parents = (taxonomy.parents ?? []).filter(
       (p) => p.enabled !== false && p.name?.trim()
     );
-    const order = ["p1", "p3", "p4"];
+    const order = ["p1", "p2", "p3"];
     parents.sort((a, b) => {
       const ai = order.indexOf(a.id);
       const bi = order.indexOf(b.id);

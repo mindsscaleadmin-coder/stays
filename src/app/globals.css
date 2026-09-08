@@ -56,35 +56,28 @@
   }
 }
 
-/* Filter grids follow the panel width (sidebar + gadget), not the viewport. */
+/* Filter grids: always one row; fields share width equally. */
 .gadget-filter-panel {
-  container-type: inline-size;
-  container-name: filters;
+  min-width: 0;
 }
 
 .gadget-filter-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 0.75rem 0.875rem;
+  min-width: 0;
+  align-items: end;
+}
+
+.gadget-filter-grid > * {
   min-width: 0;
 }
 
-@container filters (min-width: 28rem) {
-  .gadget-filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@container filters (min-width: 44rem) {
-  .gadget-filter-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@container filters (min-width: 60rem) {
-  .gadget-filter-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
+.gadget-filter-grid select,
+.gadget-filter-grid input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 @keyframes announcement-marquee {

@@ -21,12 +21,16 @@ export const DEFAULT_LISTING_SETTINGS: ListingSettings = {
     id: `hl-${index + 1}`,
     label,
     enabled: true,
+    parentId: "p1",
+    categoryId: "cat-farm",
   })),
   featureIcons: DEFAULT_LISTING_FEATURE_ICON_ROWS.map((row, index) => ({
     id: `fi-${index + 1}`,
     label: row.label,
     iconKey: row.iconKey,
     enabled: true,
+    parentId: "p1",
+    categoryId: "cat-farm",
   })),
   ratingCategories: RATING_BREAKDOWN.map((row, index) => ({
     id: `rc-${index + 1}`,
@@ -47,6 +51,30 @@ export const DEFAULT_LISTING_SETTINGS: ListingSettings = {
   })),
 };
 
+function migrateBuiltInFarmScopes(settings: Partial<ListingSettings>): Partial<ListingSettings> {
+  const defaultHighlightIds = new Set(DEFAULT_LISTING_SETTINGS.highlights.map((item) => item.id));
+  const defaultIconIds = new Set(DEFAULT_LISTING_SETTINGS.featureIcons.map((item) => item.id));
+  return {
+    ...settings,
+    highlights: settings.highlights?.map((item) =>
+      defaultHighlightIds.has(item.id) &&
+      !item.parentId &&
+      !item.categoryId &&
+      !item.subcategoryId
+        ? { ...item, parentId: "p1", categoryId: "cat-farm" }
+        : item
+    ),
+    featureIcons: settings.featureIcons?.map((item) =>
+      defaultIconIds.has(item.id) &&
+      !item.parentId &&
+      !item.categoryId &&
+      !item.subcategoryId
+        ? { ...item, parentId: "p1", categoryId: "cat-farm" }
+        : item
+    ),
+  };
+}
+
 function dispatchSync() {
   if (typeof window !== "undefined") {
     emitSyncCustomEvent(LISTING_SETTINGS_SYNC_EVENT);
@@ -54,6 +82,7 @@ function dispatchSync() {
 }
 
 function mergeSettings(parsed: Partial<ListingSettings>): ListingSettings {
+  parsed = migrateBuiltInFarmScopes(parsed);
   return {
     highlights:
       parsed.highlights && parsed.highlights.length > 0

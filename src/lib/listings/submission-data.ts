@@ -8,6 +8,7 @@ import type {
 import { ALL_SEEDS, SEED_IDS } from "./listing-seeds";
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
 import {
+  migrateEventsVenueListingLabels,
   relabelListing,
   type ListingRelabelChanges,
 } from "./relabel-listings";
@@ -20,7 +21,7 @@ export const LISTINGS_SYNC_EVENT = "farm-stays-listings-updated";
 export function normalizeSubmittedListing(
   listing: SubmittedListing | (Partial<SubmittedListing> & { id: string })
 ): SubmittedListing {
-  return {
+  return migrateEventsVenueListingLabels({
     title: "",
     description: "",
     hostId: "",
@@ -48,7 +49,7 @@ export function normalizeSubmittedListing(
     farmActivities: listing.farmActivities ?? [],
     houseRules: listing.houseRules ?? [],
     rooms: listing.rooms ?? [],
-  };
+  });
 }
 
 function dispatchSync() {

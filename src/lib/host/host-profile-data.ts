@@ -58,6 +58,8 @@ export function saveHostPublicProfile(
   hostId: string,
   input: HostPublicProfileInput
 ): HostPublicProfile {
+  const store = loadStore();
+  const stored = store[hostId];
   const next: HostPublicProfile = {
     hostId,
     displayName: input.displayName.trim(),
@@ -72,8 +74,9 @@ export function saveHostPublicProfile(
     logoWidth: input.logoWidth,
     logoHeight: input.logoHeight,
     instantBookEnabled: true,
+    eventsSubscriptionExpiresAt:
+      input.eventsSubscriptionExpiresAt?.trim() || stored?.eventsSubscriptionExpiresAt,
   };
-  const store = loadStore();
   store[hostId] = next;
   saveStore(store);
   return next;

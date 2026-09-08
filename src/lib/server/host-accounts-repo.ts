@@ -17,6 +17,7 @@ import type {
   HostTransaction,
 } from "@/lib/host/host-accounts-types";
 import type { FinancialHostOption } from "@/lib/admin/financial-data";
+import { isEventListing } from "@/lib/booking/is-event-listing";
 import { BASE_CURRENCY } from "@/lib/currency";
 
 type StoredAccounts = {
@@ -40,12 +41,36 @@ function nextFriday(from = new Date()): string {
   return ymd(d);
 }
 
-function parseListingMeta(payload: string): { currency: string; country: string } {
+function parseListingMeta(payload: string): {
+  currency: string;
+  country: string;
+  parentCategory: string;
+  type: string;
+  category: string;
+} {
   try {
-    const p = JSON.parse(payload) as { currency?: string; country?: string };
-    return { currency: p.currency || BASE_CURRENCY, country: p.country?.trim() || "" };
+    const p = JSON.parse(payload) as {
+      currency?: string;
+      country?: string;
+      parentCategory?: string;
+      type?: string;
+      category?: string;
+    };
+    return {
+      currency: p.currency || BASE_CURRENCY,
+      country: p.country?.trim() || "",
+      parentCategory: p.parentCategory?.trim() || "",
+      type: p.type?.trim() || "",
+      category: p.category?.trim() || "",
+    };
   } catch {
-    return { currency: BASE_CURRENCY, country: "" };
+    return {
+      currency: BASE_CURRENCY,
+      country: "",
+      parentCategory: "",
+      type: "",
+      category: "",
+    };
   }
 }
 
@@ -76,7 +101,12 @@ async function ensureHostUser(hostId: string, fallbackName = "Host") {
   });
 }
 
-function commissionPct(settings: FinancialSettings, hostId: string): number {
+function commissionPct(
+  settings: FinancialSettings,
+  hostId: string,
+  listing?: { parentCategory?: string; type?: string; category?: string }
+): number {
+  if (listing && isEventListing(listing)) return 0;
   const override = settings.commission.hostOverrides.find((o) => o.hostId === hostId);
   return clampCommissionPct(override?.feePct ?? settings.commission.globalFeePct);
 }
@@ -109,7 +139,7 @@ function toTransaction(
 ): AdminTransactionRow {
   const meta = parseListingMeta(row.listing.payload);
   const hostId = row.listing.hostId;
-  const pct = commissionPct(settings, hostId);
+  const pct = commissionPct(settings, hostId, meta);
   const refunded = row.paymentStatus.toLowerCase().includes("refund");
   const refundAmount = row.refundAmount ?? 0;
   const remaining = Math.max(0, row.totalPrice - (refunded ? refundAmount : 0));

@@ -53,7 +53,36 @@ export const LISTING_QUALITY_FIELD_CATALOG: ListingQualityFieldDef[] = [
     minLabel: "Minimum selected",
   },
   { id: "mapEmbed", label: "Embed map", form: "details", kind: "required" },
-  { id: "farmType", label: "Farm type", form: "manage", kind: "required" },
+  {
+    id: "meetingPoint",
+    label: "Meeting point",
+    form: "details",
+    kind: "required",
+    modes: ["experience"],
+  },
+  {
+    id: "requirements",
+    label: "Requirements / safety",
+    form: "details",
+    kind: "required",
+    modes: ["experience"],
+  },
+  {
+    id: "itinerary",
+    label: "Itinerary steps",
+    form: "details",
+    kind: "minCount",
+    defaultMin: 1,
+    minLabel: "Minimum steps",
+    modes: ["experience"],
+  },
+  {
+    id: "farmType",
+    label: "Farm type",
+    form: "manage",
+    kind: "required",
+    modes: ["stay"],
+  },
   {
     id: "amenities",
     label: "Amenities",
@@ -69,8 +98,15 @@ export const LISTING_QUALITY_FIELD_CATALOG: ListingQualityFieldDef[] = [
     kind: "minCount",
     defaultMin: 1,
     minLabel: "Minimum activities",
+    modes: ["stay"],
   },
-  { id: "livestockCrops", label: "Livestock / crops", form: "manage", kind: "required" },
+  {
+    id: "livestockCrops",
+    label: "Livestock / crops",
+    form: "manage",
+    kind: "required",
+    modes: ["stay"],
+  },
   {
     id: "rooms",
     label: "Rooms",
@@ -78,6 +114,7 @@ export const LISTING_QUALITY_FIELD_CATALOG: ListingQualityFieldDef[] = [
     kind: "minCount",
     defaultMin: 1,
     minLabel: "Minimum rooms",
+    modes: ["stay"],
   },
 ];
 
