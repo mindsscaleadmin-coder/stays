@@ -3,7 +3,7 @@ import { logger } from "@/lib/observability/logger";
 
 const SLOW_QUERY_MS = 200;
 /** Bump after `prisma generate` so the Next.dev singleton picks up new Booking fields. */
-const PRISMA_CLIENT_REV = 3;
+const PRISMA_CLIENT_REV = 6;
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;

@@ -12,7 +12,6 @@ import {
   Share2,
   ShieldCheck,
   Sparkles,
-  Users,
   Zap,
 } from "lucide-react";
 import { useTranslations, useLocale } from "next-intl";
@@ -35,18 +34,22 @@ import { getFavoriteIds, setFavoriteIds } from "@/lib/mock/guest-data";
 import type { Stay } from "@/lib/mock/data";
 import { listingHref } from "@/lib/guest/stay-search-dates";
 import { cn } from "@/lib/utils";
-import { formatStoredMoney } from "@/lib/currency";
+import { BASE_CURRENCY, formatStoredMoney  } from "@/lib/currency";
 import { findCountryByListingName } from "@/lib/admin/country-utils";
 import { useCountry } from "@/components/providers/country-provider";
 import type { Country as TaxonomyCountry } from "@/lib/admin/taxonomy-types";
+import {
+  PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE,
+  PUBLIC_LISTINGS_PAGE_SIZE_OPTIONS,
+  parsePublicPageSize,
+  type PublicListingsPageSize,
+} from "@/lib/listings/listings-pagination";
 
-const PAGE_SIZE_OPTIONS = [25, 50, 75, 100] as const;
-type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+const PAGE_SIZE_OPTIONS = PUBLIC_LISTINGS_PAGE_SIZE_OPTIONS;
+type PageSize = PublicListingsPageSize;
 
 function parsePageSize(value?: string | number): PageSize {
-  const n = typeof value === "number" ? value : Number(value);
-  if (PAGE_SIZE_OPTIONS.includes(n as PageSize)) return n as PageSize;
-  return 25;
+  return parsePublicPageSize(value);
 }
 
 function formatPostedDate(value?: string): string {
@@ -192,7 +195,7 @@ function StayListRow({
   checkOut,
   guests,
   adults,
-  children,
+  childrenCount,
   infants,
 }: {
   stay: Stay;
@@ -206,13 +209,20 @@ function StayListRow({
   checkOut?: string;
   guests?: number;
   adults?: number;
-  children?: number;
+  childrenCount?: number;
   infants?: number;
 }) {
   const name = stay.name;
   const location = stay.location;
   const isDataUrl = stay.img.startsWith("data:");
-  const listingUrl = listingHref(stay.id, { checkIn, checkOut, guests, adults, children, infants });
+  const listingUrl = listingHref(stay.id, {
+    checkIn,
+    checkOut,
+    guests,
+    adults,
+    children: childrenCount,
+    infants,
+  });
   const photoCount = stay.photoCount ?? 1;
   const isFeatured = isFeaturedStay(stay);
   const categoryPath = [stay.parentCategory, stay.category, stay.subcategory]
@@ -224,7 +234,7 @@ function StayListRow({
     })
     .join(" • ");
   const priceLabel = formatStoredMoney(stay.price, {
-    storedCurrency: stay.currency || stay.flashDealCurrency || "AED",
+    storedCurrency: stay.currency || stay.flashDealCurrency || BASE_CURRENCY,
     currency: displayCurrency,
     exchangeRateToAED,
     locale,
@@ -290,17 +300,8 @@ function StayListRow({
         </div>
 
         <span className="absolute bottom-2 start-2 inline-flex items-center gap-1 bg-[#fbbf24] text-gray-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
-          {stay.instantBook ? (
-            <>
-              <Zap className="w-3 h-3" />
-              Instant book
-            </>
-          ) : (
-            <>
-              <Users className="w-3 h-3" />
-              Up to {stay.guests}
-            </>
-          )}
+          <Zap className="w-3 h-3" />
+          Instant book
         </span>
 
         {photoCount > 1 && (
@@ -339,7 +340,7 @@ function StayListRow({
         {stay.originalPrice != null && stay.originalPrice > stay.price && (
           <p className="text-sm text-gray-400 line-through leading-tight">
             {formatStoredMoney(stay.originalPrice, {
-              storedCurrency: stay.currency || stay.flashDealCurrency || "AED",
+              storedCurrency: stay.currency || stay.flashDealCurrency || BASE_CURRENCY,
               currency: displayCurrency,
               exchangeRateToAED,
               locale,
@@ -392,9 +393,11 @@ export function SearchResultsContent({
   advanced = "",
   sort = "recommended",
   page: pageProp = 1,
-  perPage: perPageProp = 25,
+  perPage: perPageProp = PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE,
   resultsPath = "/listings",
   initialListings,
+  totalCount: totalCountProp,
+  serverPaginated = false,
 }: {
   query?: string;
   filter?: string;
@@ -417,19 +420,26 @@ export function SearchResultsContent({
   perPage?: number;
   resultsPath?: string;
   initialListings?: Stay[];
+  /** Total matching rows from the server (when `serverPaginated`). */
+  totalCount?: number;
+  /** Skip client full-catalog refresh; page via URL + SSR. */
+  serverPaginated?: boolean;
 }) {
   const t = useTranslations("common");
   const locale = useLocale();
   const router = useRouter();
+  const perPage = parsePageSize(perPageProp);
+  const page = Math.max(1, Math.floor(Number(pageProp)) || 1);
   const { listings } = usePublicListings(initialListings, {
     country: country.trim() || undefined,
+    serverPaginated,
+    page,
+    pageSize: perPage,
   });
   const { data: taxonomy } = useAdminTaxonomy();
   const { country: headerCountry, setCountry: setHeaderCountry } = useCountry();
   const [wishlist, setWishlist] = useState<string[]>([]);
 
-  const perPage = parsePageSize(perPageProp);
-  const page = Math.max(1, Math.floor(Number(pageProp)) || 1);
   const countryTabOn = tabEnabled(taxonomy, "country");
   const effectiveCountry = country.trim() || (countryTabOn ? headerCountry.name : "") || "";
   const needsCountry = countryTabOn && !effectiveCountry;
@@ -473,6 +483,8 @@ export function SearchResultsContent({
 
   const results = useMemo(() => {
     if (needsCountry) return [];
+    // Server already applied geo/taxonomy/`q` and returned one page.
+    // Keep light client filters (deals tab, guests, advanced) on this page only.
     const filtered = filterPublicListings(
       listings,
       query,
@@ -483,11 +495,14 @@ export function SearchResultsContent({
     return sortPublicListings(filtered, sort);
   }, [listings, query, filter, criteria, filterNameById, sort, needsCountry]);
 
-  const totalPages = Math.max(1, Math.ceil(results.length / perPage));
+  const totalMatches = serverPaginated
+    ? (totalCountProp ?? results.length)
+    : results.length;
+  const totalPages = Math.max(1, Math.ceil(totalMatches / perPage));
   const currentPage = Math.min(page, totalPages);
-  const pageStart = results.length === 0 ? 0 : (currentPage - 1) * perPage;
-  const pageEnd = Math.min(pageStart + perPage, results.length);
-  const pageResults = results.slice(pageStart, pageEnd);
+  const pageStart = totalMatches === 0 ? 0 : (currentPage - 1) * perPage;
+  const pageEnd = Math.min(pageStart + (serverPaginated ? results.length : perPage), totalMatches);
+  const pageResults = serverPaginated ? results : results.slice(pageStart, pageStart + perPage);
   const featuredOnPage =
     sort === "recommended" ? pageResults.filter((stay) => isFeaturedStay(stay)) : [];
   const restOnPage =
@@ -515,14 +530,14 @@ export function SearchResultsContent({
       advanced: advanced || undefined,
       sort: sort !== "recommended" ? sort : undefined,
       page: currentPage > 1 ? currentPage : undefined,
-      perPage: perPage !== 25 ? perPage : undefined,
+      perPage: perPage !== PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE ? perPage : undefined,
       ...overrides,
     };
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(values)) {
       if (value === undefined || value === "" || value === null) continue;
       if (key === "page" && Number(value) <= 1) continue;
-      if (key === "perPage" && Number(value) === 25) continue;
+      if (key === "perPage" && Number(value) === PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE) continue;
       if (key === "sort" && value === "recommended") continue;
       params.set(key, String(value));
     }
@@ -555,13 +570,13 @@ export function SearchResultsContent({
       : null;
     if (match) {
       return {
-        currency: match.currency || "AED",
+        currency: match.currency || BASE_CURRENCY,
         exchangeRateToAED: match.exchangeRateToAED ?? 1,
         name: match.name,
       };
     }
     return {
-      currency: headerCountry.currency || "AED",
+      currency: headerCountry.currency || BASE_CURRENCY,
       exchangeRateToAED: headerCountry.exchangeRateToAED ?? 1,
       name: headerCountry.name,
     };
@@ -840,7 +855,7 @@ export function SearchResultsContent({
                             checkOut={checkOut}
                             guests={guestCount || undefined}
                             adults={adultCount || undefined}
-                            children={childCount || undefined}
+                            childrenCount={childCount || undefined}
                             infants={infantCount || undefined}
                           />
                         ))}
@@ -867,7 +882,7 @@ export function SearchResultsContent({
                             checkOut={checkOut}
                             guests={guestCount || undefined}
                             adults={adultCount || undefined}
-                            children={childCount || undefined}
+                            childrenCount={childCount || undefined}
                             infants={infantCount || undefined}
                           />
                         ))}
@@ -884,7 +899,7 @@ export function SearchResultsContent({
                         </span>{" "}
                         of{" "}
                         <span className="font-semibold text-gray-900">
-                          {results.length.toLocaleString()}
+                          {totalMatches.toLocaleString()}
                         </span>
                       </span>
                       <label className="inline-flex items-center gap-2">

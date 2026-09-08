@@ -10,6 +10,7 @@ import path from "node:path";
 import { prisma } from "../src/lib/prisma";
 import { getTaxonomyFromDb, saveTaxonomyToDb } from "../src/lib/server/platform-catalog-repo";
 import type { District, State } from "../src/lib/admin/taxonomy-types";
+import { createPropertyReference } from "../src/lib/listings/property-reference";
 
 const ROOT = path.join(process.cwd(), "data", "india-lgd");
 const STATES_FILE = path.join(ROOT, "lgd-states.csv");
@@ -396,6 +397,7 @@ async function ensureIdukkiTestListing() {
   await prisma.listing.create({
     data: {
       id: listing.id,
+      propertyReference: createPropertyReference(),
       hostId,
       title: listing.title,
       status: listing.status,

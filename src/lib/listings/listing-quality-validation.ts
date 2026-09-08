@@ -1,6 +1,7 @@
 import type { ListingQualityForm, ListingQualityRules } from "@/lib/admin/listing-quality-rules-types";
 import { getQualityFieldDef, qualityRuleKey } from "@/lib/admin/listing-quality-fields";
 import { loadListingQualityRules } from "@/lib/admin/listing-quality-rules-data";
+import { richTextToPlain } from "./rich-text";
 
 export interface ListingQualityInput {
   title?: string;
@@ -49,7 +50,7 @@ function filled(value?: string | null) {
 function countForField(fieldId: string, input: ListingQualityInput): number {
   switch (fieldId) {
     case "description":
-      return input.description?.trim().length ?? 0;
+      return richTextToPlain(input.description ?? "").length;
     case "photos":
       return input.photoCount ?? 0;
     case "highlights":

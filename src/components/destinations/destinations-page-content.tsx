@@ -7,11 +7,14 @@ import { useTranslations } from "next-intl";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { taxonomyDestinationCards } from "@/lib/admin/taxonomy-nav";
 import { usePublicListings } from "@/lib/listings/use-public-listings";
+import { PUBLIC_LISTINGS_MAX_PAGE_SIZE } from "@/lib/listings/listings-pagination";
 
 export function DestinationsPageContent() {
   const t = useTranslations("destinationsPage");
   const { data: taxonomy } = useAdminTaxonomy();
-  const { listings } = usePublicListings();
+  const { listings } = usePublicListings(undefined, {
+    pageSize: PUBLIC_LISTINGS_MAX_PAGE_SIZE,
+  });
   const destinations = useMemo(
     () => taxonomyDestinationCards(taxonomy, 48),
     [taxonomy]

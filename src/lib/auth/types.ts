@@ -7,6 +7,8 @@ export interface GuestUser {
   country?: string;
   roles: string[];
   language: "en";
+  /** Optional profile photo (data URL or remote URL) */
+  avatarUrl?: string;
   /**
    * When logged in as host staff/manager, this is the owner host id whose
    * listings and data they manage.

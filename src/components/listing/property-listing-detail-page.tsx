@@ -59,7 +59,8 @@ import {
 import { usePublicListings } from "@/lib/listings/use-public-listings";
 import { ListingReviewsSection } from "@/components/listing/listing-reviews-section";
 import { VerifiedBadge } from "@/components/ui/verified-badge";
-import { formatStoredMoney } from "@/lib/currency";
+import { RichTextView } from "@/components/listing/rich-text-view";
+import { BASE_CURRENCY, formatStoredMoney  } from "@/lib/currency";
 import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { photoTagLabel } from "@/lib/listings/photo-tags";
@@ -74,14 +75,17 @@ import {
   HOST_AVAILABILITY_SYNC_EVENT,
   getAvailabilitySettings,
 } from "@/lib/host/host-availability-data";
+import { fetchAvailabilityState } from "@/lib/host/host-availability-api";
 import {
-  fetchAvailabilityFromApi,
-  shouldUseSharedAvailabilityStore,
-} from "@/lib/host/host-availability-api";
-import { isDateUnavailable } from "@/lib/host/host-availability-utils";
+  bookingRulesViolation,
+  earliestBookableCheckInIso,
+  isDateUnavailable,
+  isSeasonallyClosed,
+} from "@/lib/host/host-availability-utils";
 import type { ListingAvailabilitySettings } from "@/lib/host/host-availability-types";
 import {
   calculateStayQuote,
+  countNights,
   defaultCheckInOut,
   resolveDisplayNightlyRate,
   resolvePublishedRateTiers,
@@ -102,6 +106,13 @@ import { applyGuestReviewRatings } from "@/lib/booking/stay-reviews-data";
 import type { StayReview } from "@/lib/booking/stay-reviews-types";
 import { addToBookingCart, loadBookingCart } from "@/lib/guest/booking-cart";
 import { readStayDatesFromSearch, readStayPartyFromSearch } from "@/lib/guest/stay-search-dates";
+import { ExperienceBookingCard } from "@/components/listing/experience-booking-card";
+import { isExperienceListing } from "@/lib/booking/is-experience-listing";
+import {
+  guestPartyFromRoom,
+  mergeGuestPartyLimits,
+  type GuestPartyLimits,
+} from "@/lib/listings/guest-capacity";
 
 const AMENITY_ICONS: Record<string, typeof Wifi> = {
   "Free WiFi": Wifi,
@@ -203,15 +214,26 @@ interface PropertyListingDetailPageProps {
     desc: string;
     price: number;
     capacity: number;
+    maxAdults?: number;
+    maxChildren?: number;
+    maxInfants?: number;
     beds: number;
     baths: number;
     img: string;
   }[];
+  /** Host-configured guest limits (property-level). Rooms override when selected. */
+  guestParty?: GuestPartyLimits;
   /** Host-configured optional fees for this listing */
   extraCharges?: ExtraCharge[];
   extraChargesCurrency?: string;
   /** Explicit amenities (merged with stay.amenities) */
   amenities?: string[];
+  /** Experience listing content */
+  itinerary?: { step: number; title: string; description?: string }[];
+  meetingPoint?: string;
+  requirements?: string;
+  licenseNumber?: string;
+  groupSizeMin?: number;
 }
 
 export function PropertyListingDetailPage({
@@ -228,14 +250,24 @@ export function PropertyListingDetailPage({
   houseRules,
   mapEmbedUrl,
   rooms: roomsProp,
+  guestParty: guestPartyProp,
   extraCharges: extraChargesProp,
   extraChargesCurrency: extraChargesCurrencyProp,
   amenities: amenitiesProp,
+  itinerary,
+  meetingPoint,
+  requirements,
+  licenseNumber,
+  groupSizeMin,
 }: PropertyListingDetailPageProps) {
   const t = useTranslations("listing");
   const tc = useTranslations("common");
   const locale = useLocale();
   const { data: taxonomy } = useAdminTaxonomy();
+  const isExperience = isExperienceListing({
+    parentCategory: stay.parentCategory,
+    type: stay.type,
+  });
   const { listings: catalogListings } = usePublicListings();
   const [showFeatured, setShowFeatured] = useState(() =>
     /featured|premium/i.test(stay.badge ?? "")
@@ -296,28 +328,27 @@ export function PropertyListingDetailPage({
     const fromSearch = readStayDatesFromSearch();
     if (fromSearch) return fromSearch.checkIn;
     const cartLine = loadBookingCart().find((line) => line.listingId === stay.id);
-    return cartLine?.checkIn || defaultDates.checkIn;
+    return cartLine?.checkIn || "";
   });
   const [checkOut, setCheckOut] = useState(() => {
     const fromSearch = readStayDatesFromSearch();
     if (fromSearch) return fromSearch.checkOut;
     const cartLine = loadBookingCart().find((line) => line.listingId === stay.id);
-    return cartLine?.checkOut || defaultDates.checkOut;
+    return cartLine?.checkOut || "";
   });
   const [datePickerOpen, setDatePickerOpen] = useState<"checkIn" | "checkOut" | null>(null);
   const [calendarMonth, setCalendarMonth] = useState(() => {
-    const d = new Date(`${defaultDates.checkIn}T12:00:00`);
+    const seed = checkIn || defaultDates.checkIn;
+    const d = new Date(`${seed}T12:00:00`);
     return { year: d.getFullYear(), month: d.getMonth() };
   });
   const datePickerRef = useRef<HTMLDivElement>(null);
-  const [adults, setAdults] = useState(() => readStayPartyFromSearch()?.adults || 2);
+  const [adults, setAdults] = useState(() => readStayPartyFromSearch()?.adults ?? 0);
   const [children, setChildren] = useState(() => readStayPartyFromSearch()?.children ?? 0);
   const [infants, setInfants] = useState(() => readStayPartyFromSearch()?.infants ?? 0);
-  const [pets, setPets] = useState(0);
   const [guestsOpen, setGuestsOpen] = useState(false);
   /** Paying guests for capacity + per-pax fees (infants excluded). */
   const guestCount = adults + children;
-  const allowPets = false;
 
   const [activeTab, setActiveTab] = useState("overview");
   const [wishlist, setWishlist] = useState(false);
@@ -330,10 +361,11 @@ export function PropertyListingDetailPage({
   const [cartAdded, setCartAdded] = useState(false);
   const [pricingSettings, setPricingSettings] = useState<ListingPricingSettings | null>(null);
   const [availability, setAvailability] = useState<ListingAvailabilitySettings | null>(null);
+  const [occupiedDates, setOccupiedDates] = useState<string[]>([]);
   const [listingExtras, setListingExtras] = useState<ExtraCharge[]>(
     extraChargesProp ?? []
   );
-  const [extrasCurrency, setExtrasCurrency] = useState(extraChargesCurrencyProp ?? "AED");
+  const [extrasCurrency, setExtrasCurrency] = useState(extraChargesCurrencyProp ?? BASE_CURRENCY);
 
   const displayRooms = useMemo(() => {
     if (hasRoomTypes) return hostRooms;
@@ -376,15 +408,53 @@ export function PropertyListingDetailPage({
   useEffect(() => {
     // Property-level listings only — room listings derive capacity from selected rooms
     if (hasRoomTypes) return;
-    const cap = Math.max(1, stay.guests);
-    setAdults((a) => Math.min(Math.max(1, a), cap));
-    setChildren((c) => Math.min(c, Math.max(0, cap - 1)));
-  }, [stay.guests, hasRoomTypes]);
+    const total = Math.max(1, guestPartyProp?.total ?? stay.guests);
+    const maxAdults = Math.max(0, guestPartyProp?.adults ?? total);
+    const maxChildren = Math.max(0, guestPartyProp?.children ?? total);
+    const maxInfants = Math.max(0, guestPartyProp?.infants ?? 5);
+    setAdults((a) => Math.min(Math.max(0, a), maxAdults, total));
+    setChildren((c) => Math.min(Math.max(0, c), maxChildren, total));
+    setInfants((i) => Math.min(Math.max(0, i), maxInfants));
+  }, [
+    stay.guests,
+    hasRoomTypes,
+    guestPartyProp?.total,
+    guestPartyProp?.adults,
+    guestPartyProp?.children,
+    guestPartyProp?.infants,
+  ]);
 
   const bookingRooms = useMemo(
     () => hostRooms.filter((r) => r.id && bookingRoomIds.includes(r.id)),
     [hostRooms, bookingRoomIds]
   );
+
+  const partyLimits = useMemo((): GuestPartyLimits => {
+    if (hasRoomTypes && bookingRooms.length > 0) {
+      return mergeGuestPartyLimits(bookingRooms.map(guestPartyFromRoom));
+    }
+    if (guestPartyProp) {
+      return {
+        total: Math.max(1, guestPartyProp.total),
+        adults: Math.max(0, guestPartyProp.adults),
+        children: Math.max(0, guestPartyProp.children),
+        infants: Math.max(0, guestPartyProp.infants),
+      };
+    }
+    const total = Math.max(1, stay.guests);
+    return { adults: total, children: total, infants: 5, total };
+  }, [
+    hasRoomTypes,
+    bookingRooms,
+    stay.guests,
+    guestPartyProp?.total,
+    guestPartyProp?.adults,
+    guestPartyProp?.children,
+    guestPartyProp?.infants,
+  ]);
+
+  const maxGuests = partyLimits.total;
+  const maxInfantsAllowed = Math.max(0, partyLimits.infants);
 
   function scrollToCalculator() {
     if (typeof window === "undefined") return;
@@ -432,7 +502,7 @@ export function PropertyListingDetailPage({
           ).settings
         : local;
       setPricingSettings(pricing);
-      const currency = extraChargesCurrencyProp ?? pricing.currency ?? "AED";
+      const currency = extraChargesCurrencyProp ?? pricing.currency ?? BASE_CURRENCY;
       setExtrasCurrency(currency);
 
       if (!pricing.extraChargesEnabled) {
@@ -452,16 +522,20 @@ export function PropertyListingDetailPage({
       window.removeEventListener(HOST_PRICING_SYNC_EVENT, refreshPricing);
       window.removeEventListener("storage", refreshPricing);
     };
-  }, [stay.id, extraChargesProp, extraChargesCurrencyProp]);
+    // Intentionally omit extraChargesProp identity — parents often pass a fresh [] each render.
+  }, [stay.id, extraChargesCurrencyProp]);
 
   useEffect(() => {
     async function refreshAvailability() {
       if (typeof window === "undefined") return;
-      const settings = shouldUseSharedAvailabilityStore()
-        ? (await fetchAvailabilityFromApi(stay.id).catch(() => null)) ??
-          getAvailabilitySettings(stay.id)
-        : getAvailabilitySettings(stay.id);
-      setAvailability(settings);
+      const state = await fetchAvailabilityState(stay.id).catch(() => null);
+      if (state) {
+        setAvailability(state.settings);
+        setOccupiedDates(state.occupiedDates);
+        return;
+      }
+      setAvailability(getAvailabilitySettings(stay.id));
+      setOccupiedDates([]);
     }
     void refreshAvailability();
     window.addEventListener(HOST_AVAILABILITY_SYNC_EVENT, refreshAvailability);
@@ -471,6 +545,8 @@ export function PropertyListingDetailPage({
       window.removeEventListener("storage", refreshAvailability);
     };
   }, [stay.id]);
+
+  const occupiedDateSet = useMemo(() => new Set(occupiedDates), [occupiedDates]);
 
   useEffect(() => {
     setSelectedExtraIds((prev) =>
@@ -544,7 +620,7 @@ export function PropertyListingDetailPage({
   }, [pricingSettings, bookingRooms, displayPrice, stay.price]);
 
   const stayQuote = useMemo(() => {
-    if (!pricingSettings) return null;
+    if (!pricingSettings || !checkIn || !checkOut) return null;
     return calculateStayQuote({
       settings: pricingSettings,
       checkIn,
@@ -588,34 +664,52 @@ export function PropertyListingDetailPage({
     return `${y}-${m}-${day}`;
   }
 
-  function onCheckInChange(value: string) {
-    setCheckIn(value);
-    if (value && checkOut && checkOut <= value) {
-      const next = new Date(`${value}T12:00:00`);
-      next.setDate(next.getDate() + 1);
-      setCheckOut(toIsoDate(next));
-    }
-  }
-
   function openDatePicker(which: "checkIn" | "checkOut") {
     setGuestsOpen(false);
-    const iso = which === "checkIn" ? checkIn : checkOut || checkIn;
-    const d = new Date(`${(iso || defaultDates.checkIn)}T12:00:00`);
+    // Checkout requires a check-in first — open check-in, then guest picks checkout.
+    const mode = which === "checkOut" && !checkIn ? "checkIn" : which;
+    const iso =
+      mode === "checkIn"
+        ? checkIn || defaultDates.checkIn
+        : checkOut || checkIn || defaultDates.checkIn;
+    const d = new Date(`${iso}T12:00:00`);
     setCalendarMonth({ year: d.getFullYear(), month: d.getMonth() });
-    setDatePickerOpen((prev) => (prev === which ? null : which));
+    setDatePickerOpen((prev) => (prev === mode ? null : mode));
   }
 
   function selectCalendarDate(iso: string) {
     if (availability && isDateUnavailable(iso, availability)) return;
+    const earliest = earliestBookableCheckInIso(availability?.advanceNoticeDays ?? 0);
+
     if (datePickerOpen === "checkIn") {
-      onCheckInChange(iso);
+      if (iso < earliest) return;
+      setCheckIn(iso);
+      // Keep an existing checkout only if it still makes a valid stay after the new check-in.
+      setCheckOut((prev) => (prev && prev > iso ? prev : ""));
       setDatePickerOpen("checkOut");
       const d = new Date(`${iso}T12:00:00`);
-      d.setDate(d.getDate() + 1);
       setCalendarMonth({ year: d.getFullYear(), month: d.getMonth() });
       return;
     }
+
     if (datePickerOpen === "checkOut") {
+      if (!checkIn) {
+        if (iso < earliest) return;
+        setCheckIn(iso);
+        setCheckOut("");
+        setDatePickerOpen("checkOut");
+        return;
+      }
+      // Clicking on/before check-in starts a new range (guest can re-pick both dates).
+      if (iso <= checkIn) {
+        if (iso < earliest) return;
+        setCheckIn(iso);
+        setCheckOut("");
+        setDatePickerOpen("checkOut");
+        const d = new Date(`${iso}T12:00:00`);
+        setCalendarMonth({ year: d.getFullYear(), month: d.getMonth() });
+        return;
+      }
       setCheckOut(iso);
       setDatePickerOpen(null);
     }
@@ -632,14 +726,23 @@ export function PropertyListingDetailPage({
     });
   }
 
-  const calendarMinIso =
-    datePickerOpen === "checkOut"
-      ? (() => {
-          const d = new Date(`${(checkIn || defaultDates.checkIn)}T12:00:00`);
-          d.setDate(d.getDate() + 1);
-          return toIsoDate(d);
-        })()
-      : defaultDates.checkIn;
+  const selectedNights =
+    checkIn && checkOut ? countNights(checkIn, checkOut) : 0;
+
+  // Guests can always pick any bookable day; in checkout mode, a day on/before
+  // check-in restarts the range instead of setting checkout.
+  const calendarMinIso = earliestBookableCheckInIso(
+    availability?.advanceNoticeDays ?? 0
+  );
+
+  const minStayNights = Math.max(1, availability?.minStayNights ?? 1);
+
+  const bookingRuleHint =
+    guestCount < 1
+      ? "Add at least one adult or child to continue."
+      : checkIn && checkOut && availability
+        ? bookingRulesViolation(checkIn, checkOut, availability)
+        : null;
 
   const calendarCells = useMemo(() => {
     const { year, month } = calendarMonth;
@@ -726,47 +829,40 @@ export function PropertyListingDetailPage({
     [bookingRooms]
   );
 
-  /** Paying guests (adults + children) cannot exceed selected rooms' combined capacity. */
-  const maxGuests = useMemo(() => {
-    if (hasRoomTypes && roomCapacity > 0) return roomCapacity;
-    return Math.max(1, stay.guests);
-  }, [hasRoomTypes, roomCapacity, stay.guests]);
+  /** Keep guest pickers inside host total + per-type maxes. */
+  useEffect(() => {
+    setInfants((i) => Math.min(Math.max(0, i), maxInfantsAllowed));
+    setAdults((a) => Math.min(Math.max(0, a), partyLimits.adults, maxGuests));
+    setChildren((c) => Math.min(Math.max(0, c), partyLimits.children, maxGuests));
+  }, [maxGuests, maxInfantsAllowed, partyLimits.adults, partyLimits.children]);
 
   useEffect(() => {
-    if (maxGuests <= 0) {
-      setChildren(0);
-      setAdults(1);
-      return;
-    }
     if (guestCount <= maxGuests) return;
-    // Cap when capacity shrinks (e.g. a room is removed)
     const overflow = guestCount - maxGuests;
     setChildren((c) => {
       const reduceChildren = Math.min(c, overflow);
       const remain = overflow - reduceChildren;
       if (remain > 0) {
-        setAdults((a) => Math.max(1, Math.min(a - remain, maxGuests)));
+        setAdults((a) => Math.max(0, a - remain));
       }
-      return c - reduceChildren;
+      return Math.max(0, c - reduceChildren);
     });
   }, [guestCount, maxGuests]);
 
   const guestsSummary = useMemo(() => {
+    if (guestCount === 0 && infants === 0) return "Add guests";
     const parts: string[] = [];
     parts.push(`${guestCount} guest${guestCount === 1 ? "" : "s"}`);
     if (infants > 0) parts.push(`${infants} infant${infants === 1 ? "" : "s"}`);
-    if (pets > 0) parts.push(`${pets} pet${pets === 1 ? "" : "s"}`);
     return parts.join(", ");
-  }, [guestCount, infants, pets]);
+  }, [guestCount, infants]);
 
-  function adjustGuests(
-    kind: "adults" | "children" | "infants" | "pets",
-    delta: number
-  ) {
+  function adjustGuests(kind: "adults" | "children" | "infants", delta: number) {
     if (kind === "adults") {
       setAdults((prev) => {
         const next = prev + delta;
-        if (next < 1) return prev;
+        if (next < 0) return prev;
+        if (next > partyLimits.adults) return prev;
         if (delta > 0 && (maxGuests <= 0 || prev + children >= maxGuests)) return prev;
         return next;
       });
@@ -776,17 +872,13 @@ export function PropertyListingDetailPage({
       setChildren((prev) => {
         const next = prev + delta;
         if (next < 0) return prev;
+        if (next > partyLimits.children) return prev;
         if (delta > 0 && (maxGuests <= 0 || adults + prev >= maxGuests)) return prev;
         return next;
       });
       return;
     }
-    if (kind === "infants") {
-      setInfants((prev) => Math.max(0, Math.min(5, prev + delta)));
-      return;
-    }
-    if (!allowPets) return;
-    setPets((prev) => Math.max(0, Math.min(5, prev + delta)));
+    setInfants((prev) => Math.max(0, Math.min(maxInfantsAllowed, prev + delta)));
   }
 
   const photos: { src: string; tag?: string }[] =
@@ -815,7 +907,7 @@ export function PropertyListingDetailPage({
       seen.add(key);
       unique.push(label);
     }
-    if (stay.instantBook && !seen.has("instant booking")) {
+    if (stay.instantBook !== false && !seen.has("instant booking")) {
       unique.push("Instant Booking");
     }
     return unique;
@@ -1004,7 +1096,7 @@ export function PropertyListingDetailPage({
   return (
     <div className="bg-gray-50 min-h-screen pb-24 lg:pb-0">
       {/* Photo grid — directly under site header */}
-      <div className="max-w-7xl mx-auto px-4 pt-4">
+      <div className="max-w-7xl mx-auto px-4 pt-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 h-auto md:h-[480px] rounded-2xl overflow-hidden bg-white">
           <Link
             href={`/listing/${stay.id}/gallery`}
@@ -1115,10 +1207,15 @@ export function PropertyListingDetailPage({
             </div>
 
             {/* Title row */}
-            <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-4">
-              <div>
-                <h1 className="text-2xl md:text-3xl font-bold text-gray-900 font-display flex items-center gap-2 flex-wrap">
-                  {stayName}
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div className="min-w-0 flex-1 overflow-hidden">
+                <h1 className="flex items-center gap-2 min-w-0">
+                  <span
+                    className="block min-w-0 flex-1 truncate text-2xl md:text-3xl font-bold text-gray-900 font-display"
+                    title={stayName}
+                  >
+                    {stayName}
+                  </span>
                   <VerifiedBadge size="lg" />
                 </h1>
                 <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-gray-600">
@@ -1143,9 +1240,21 @@ export function PropertyListingDetailPage({
                     )}
                   </div>
                   <span className="hidden sm:inline text-gray-300">·</span>
-                  <div className="flex items-center gap-1">
-                    <MapPin className="w-4 h-4 text-gray-400" />
-                    {stayLocation}
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <MapPin className="w-4 h-4 shrink-0 text-gray-400" />
+                    <span className="truncate">{stayLocation}</span>
+                    {stay.propertyReference && (
+                      <>
+                        <span className="shrink-0 text-gray-300">·</span>
+                        <span
+                          className="shrink-0 font-mono text-xs font-semibold tracking-wide text-gray-700"
+                          title="Property reference"
+                          aria-label={`Property reference ${stay.propertyReference}`}
+                        >
+                          {stay.propertyReference}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-3">
@@ -1302,21 +1411,25 @@ export function PropertyListingDetailPage({
             {/* Overview */}
             <section id="section-overview" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
               <h2 className="font-bold text-gray-900 text-base mb-3 font-display">{t("aboutTitle")}</h2>
-              <p
-                className={`text-gray-600 text-sm leading-relaxed mb-4 ${
-                  !readMore && (!aboutText || aboutText.length > 280) ? "line-clamp-3" : ""
+              <div
+                className={`mb-4 ${
+                  !readMore && (!aboutText || aboutText.length > 280)
+                    ? "max-h-24 overflow-hidden"
+                    : ""
                 }`}
               >
-                {aboutText || (
-                  <>
+                {aboutText ? (
+                  <RichTextView value={aboutText} />
+                ) : (
+                  <p className="text-gray-600 text-sm leading-relaxed text-start">
                     Welcome to <strong>{stayName}</strong>, a sprawling retreat nestled in the lush
                     landscapes of {stayLocation}. Surrounded by nature, this property offers an
                     authentic farm living experience unlike any other. Whether you&apos;re looking for a
                     romantic escape, a family adventure, or a corporate offsite in nature, this farm
                     delivers comfort, privacy, and unforgettable memories.
-                  </>
+                  </p>
                 )}
-              </p>
+              </div>
               {!readMore && (!aboutText || aboutText.length > 280) && (
                 <button
                   type="button"
@@ -1326,6 +1439,46 @@ export function PropertyListingDetailPage({
                   {tc("readMore")}
                 </button>
               )}
+              {isExperience && (meetingPoint || requirements || (itinerary && itinerary.length > 0) || licenseNumber) ? (
+                <div className="mt-5 space-y-4 border-t border-gray-100 pt-5">
+                  {meetingPoint ? (
+                    <div>
+                      <h3 className="font-semibold text-gray-900 text-sm mb-1">Meeting point</h3>
+                      <p className="text-sm text-gray-600 whitespace-pre-wrap">{meetingPoint}</p>
+                    </div>
+                  ) : null}
+                  {itinerary && itinerary.length > 0 ? (
+                    <div>
+                      <h3 className="font-semibold text-gray-900 text-sm mb-2">Itinerary</h3>
+                      <ol className="space-y-2">
+                        {itinerary.map((step) => (
+                          <li key={`${step.step}-${step.title}`} className="flex gap-3 text-sm">
+                            <span className="font-bold text-green-700 shrink-0">{step.step}.</span>
+                            <div>
+                              <p className="font-medium text-gray-900">{step.title}</p>
+                              {step.description ? (
+                                <p className="text-gray-500 text-xs mt-0.5">{step.description}</p>
+                              ) : null}
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  ) : null}
+                  {requirements ? (
+                    <div>
+                      <h3 className="font-semibold text-gray-900 text-sm mb-1">Requirements</h3>
+                      <p className="text-sm text-gray-600 whitespace-pre-wrap">{requirements}</p>
+                    </div>
+                  ) : null}
+                  {licenseNumber ? (
+                    <p className="text-xs text-gray-500">
+                      License / certification:{" "}
+                      <span className="font-semibold text-gray-700">{licenseNumber}</span>
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               {featureIcons.length > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 border-y border-gray-100 mb-5">
                   {featureIcons.map(({ icon: Icon, label }) => (
@@ -1761,7 +1914,14 @@ export function PropertyListingDetailPage({
           {/* Sidebar — 4 cols */}
           <div className="lg:col-span-4">
             <div className="sticky top-20 flex flex-col gap-4">
-              {/* Limited offer */}
+              {isExperience ? (
+                <ExperienceBookingCard
+                  listingId={stay.id}
+                  maxGuests={stay.guests}
+                  currency={priceCurrency}
+                  groupSizeMin={groupSizeMin}
+                />
+              ) : (
               <div id="booking-calculator" className="bg-white rounded-2xl border border-gray-200 shadow-lg p-5 scroll-mt-24">
                 {flashDeal && flashCountdown && (
                 <div className="bg-amber-50 border border-amber-200/70 rounded-lg px-3 py-2 mb-4">
@@ -1784,6 +1944,11 @@ export function PropertyListingDetailPage({
                     {money(publishedRates.nightly || displayPrice)}
                   </span>
                   <span className="text-gray-400 text-sm">{tc("perNight")}</span>
+                  {selectedNights > 0 ? (
+                    <span className="text-sm font-semibold text-gray-700 ms-auto tabular-nums">
+                      {selectedNights} night{selectedNights === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
                 </div>
                 {bookingRooms.length > 0 ? (
                   <p className="text-xs text-gray-500 mb-3">
@@ -1815,15 +1980,23 @@ export function PropertyListingDetailPage({
                         type="button"
                         onClick={() => openDatePicker("checkIn")}
                         className={`p-3 text-start hover:bg-gray-50 transition-colors cursor-pointer ${
-                          datePickerOpen === "checkIn" ? "bg-gray-50" : ""
+                          datePickerOpen === "checkIn" ? "bg-green-50 ring-1 ring-inset ring-green-200" : ""
                         }`}
                       >
                         <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">
                           {t("checkIn")}
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                          <span className="text-sm font-semibold text-gray-800 truncate">
+                          <Calendar
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              checkIn ? "text-green-600" : "text-gray-400"
+                            }`}
+                          />
+                          <span
+                            className={`text-sm font-semibold truncate ${
+                              checkIn ? "text-gray-900" : "text-gray-400"
+                            }`}
+                          >
                             {formatDateLabel(checkIn)}
                           </span>
                         </div>
@@ -1832,15 +2005,23 @@ export function PropertyListingDetailPage({
                         type="button"
                         onClick={() => openDatePicker("checkOut")}
                         className={`p-3 text-start hover:bg-gray-50 transition-colors cursor-pointer ${
-                          datePickerOpen === "checkOut" ? "bg-gray-50" : ""
+                          datePickerOpen === "checkOut" ? "bg-green-50 ring-1 ring-inset ring-green-200" : ""
                         }`}
                       >
                         <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">
                           {t("checkOut")}
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                          <span className="text-sm font-semibold text-gray-800 truncate">
+                          <Calendar
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              checkOut ? "text-green-600" : "text-gray-400"
+                            }`}
+                          />
+                          <span
+                            className={`text-sm font-semibold truncate ${
+                              checkOut ? "text-gray-900" : "text-gray-400"
+                            }`}
+                          >
                             {formatDateLabel(checkOut)}
                           </span>
                         </div>
@@ -1893,32 +2074,68 @@ export function PropertyListingDetailPage({
                             if (!cell) {
                               return <div key={`empty-${idx}`} className="h-9" />;
                             }
+                            const past = cell.iso < calendarMinIso;
+                            const booked = occupiedDateSet.has(cell.iso);
+                            const blocked =
+                              Boolean(availability) &&
+                              availability!.blockedDates.includes(cell.iso);
+                            const seasonClosed =
+                              Boolean(availability) &&
+                              isSeasonallyClosed(cell.iso, availability!.seasonalPeriods);
+                            const channel =
+                              Boolean(availability) &&
+                              (availability!.icalImportedDates ?? []).includes(cell.iso) &&
+                              !booked;
                             const unavailable =
                               Boolean(availability) &&
                               isDateUnavailable(cell.iso, availability!);
-                            const disabled = cell.iso < calendarMinIso || unavailable;
-                            const selected =
-                              cell.iso ===
-                              (datePickerOpen === "checkIn" ? checkIn : checkOut);
+                            const disabled = past || unavailable;
+                            const isCheckInDay = Boolean(checkIn) && cell.iso === checkIn;
+                            const isCheckOutDay = Boolean(checkOut) && cell.iso === checkOut;
+                            const selected = isCheckInDay || isCheckOutDay;
                             const inRange =
                               Boolean(checkIn) &&
                               Boolean(checkOut) &&
                               cell.iso > checkIn &&
                               cell.iso < checkOut;
+                            const statusTitle = past
+                              ? "Past date"
+                              : blocked
+                                ? "Blocked"
+                                : seasonClosed
+                                  ? "Seasonal closure"
+                                  : booked
+                                    ? "Booked"
+                                    : channel
+                                      ? "Unavailable (channel calendar)"
+                                      : selected
+                                        ? "Selected"
+                                        : "Available";
                             return (
                               <button
                                 key={cell.iso}
                                 type="button"
                                 disabled={disabled}
+                                title={statusTitle}
                                 onClick={() => selectCalendarDate(cell.iso)}
-                                className={`h-9 rounded-lg text-sm tabular-nums transition-colors ${
+                                className={`h-9 rounded-lg text-sm tabular-nums transition-colors border ${
                                   disabled
-                                    ? "text-gray-300 cursor-not-allowed"
+                                    ? past && !unavailable
+                                      ? "border-transparent text-gray-300 cursor-not-allowed"
+                                      : blocked
+                                        ? "bg-red-100 border-red-300 text-red-900 cursor-not-allowed"
+                                        : seasonClosed
+                                          ? "bg-amber-100 border-amber-300 text-amber-900 cursor-not-allowed"
+                                          : booked
+                                            ? "bg-blue-100 border-blue-300 text-blue-900 cursor-not-allowed"
+                                            : channel
+                                              ? "bg-slate-100 border-slate-300 text-slate-800 cursor-not-allowed"
+                                              : "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
                                     : selected
-                                      ? "bg-green-600 text-white font-semibold"
+                                      ? "bg-green-600 border-green-600 text-white font-semibold"
                                       : inRange
-                                        ? "bg-green-50 text-green-800 font-medium"
-                                        : "text-gray-800 hover:bg-gray-100 font-medium"
+                                        ? "bg-green-50 border-green-200 text-green-800 font-medium"
+                                        : "bg-green-50 border-green-200 text-gray-800 hover:bg-green-100 hover:border-green-400 font-medium"
                                 }`}
                               >
                                 {cell.day}
@@ -1926,14 +2143,68 @@ export function PropertyListingDetailPage({
                             );
                           })}
                         </div>
-                        <p className="mt-2 text-[11px] text-gray-500 text-center">
+                        <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[10px] text-gray-500">
+                          <span className="inline-flex items-center gap-1">
+                            <span className="h-2.5 w-2.5 rounded-sm bg-red-100 border border-red-300" />
+                            Blocked
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <span className="h-2.5 w-2.5 rounded-sm bg-amber-100 border border-amber-300" />
+                            Seasonal
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <span className="h-2.5 w-2.5 rounded-sm bg-blue-100 border border-blue-300" />
+                            Booked
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <span className="h-2.5 w-2.5 rounded-sm bg-slate-100 border border-slate-300" />
+                            Channel
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <span className="h-2.5 w-2.5 rounded-sm bg-green-50 border border-green-200" />
+                            Open
+                          </span>
+                        </div>
+                        <p className="mt-1.5 text-[11px] text-gray-500 text-center">
                           {datePickerOpen === "checkIn"
-                            ? "Select check-in date"
-                            : "Select check-out date"}
+                            ? "1. Select check-in date"
+                            : minStayNights > 1
+                              ? `2. Select check-out (minimum ${minStayNights} nights)`
+                              : "2. Select check-out date"}
                         </p>
+                        {selectedNights > 0 ? (
+                          <p className="mt-1 text-center text-xs font-semibold text-green-800">
+                            {selectedNights} night{selectedNights === 1 ? "" : "s"} selected
+                          </p>
+                        ) : null}
                       </div>
                     )}
                   </div>
+
+                  {selectedNights > 0 ? (
+                    <div className="border-t border-gray-200 px-3 py-2.5 flex items-center justify-between gap-2 bg-green-50/60">
+                      <span className="text-xs text-gray-600">Length of stay</span>
+                      <span className="text-sm font-bold text-green-900 tabular-nums">
+                        {selectedNights} night{selectedNights === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  ) : checkIn ? (
+                    <div className="border-t border-gray-200 px-3 py-2.5 text-center">
+                      <button
+                        type="button"
+                        onClick={() => openDatePicker("checkOut")}
+                        className="text-xs font-semibold text-green-800 hover:text-green-950 underline-offset-2 hover:underline"
+                      >
+                        Choose check-out date →
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {bookingRuleHint && (
+                    <p className="px-3 py-2 text-xs text-amber-800 bg-amber-50 border-t border-amber-100">
+                      {bookingRuleHint}
+                    </p>
+                  )}
 
                   <div className="border-t border-gray-200 p-3 relative">
                     <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">
@@ -1967,8 +2238,9 @@ export function PropertyListingDetailPage({
                               label: "Adults",
                               hint: "Age 13+",
                               value: adults,
-                              canMinus: adults > 1,
-                              canPlus: guestCount < maxGuests,
+                              canMinus: adults > 0,
+                              canPlus:
+                                adults < partyLimits.adults && guestCount < maxGuests,
                             },
                             {
                               key: "children" as const,
@@ -1976,7 +2248,8 @@ export function PropertyListingDetailPage({
                               hint: "Ages 2–12",
                               value: children,
                               canMinus: children > 0,
-                              canPlus: guestCount < maxGuests,
+                              canPlus:
+                                children < partyLimits.children && guestCount < maxGuests,
                             },
                             {
                               key: "infants" as const,
@@ -1984,15 +2257,7 @@ export function PropertyListingDetailPage({
                               hint: "Under 2",
                               value: infants,
                               canMinus: infants > 0,
-                              canPlus: infants < 5,
-                            },
-                            {
-                              key: "pets" as const,
-                              label: "Pets",
-                              hint: allowPets ? "Service animals welcome" : undefined,
-                              value: pets,
-                              canMinus: allowPets && pets > 0,
-                              canPlus: allowPets && pets < 5,
+                              canPlus: infants < maxInfantsAllowed,
                             },
                           ] as const
                         ).map((row) => (
@@ -2002,11 +2267,7 @@ export function PropertyListingDetailPage({
                           >
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-gray-900">{row.label}</p>
-                              {row.key === "pets" && !allowPets ? (
-                                <p className="text-xs text-gray-500 underline decoration-gray-300">
-                                  Bringing a service animal?
-                                </p>
-                              ) : row.hint ? (
+                              {row.hint ? (
                                 <p className="text-xs text-gray-500">{row.hint}</p>
                               ) : null}
                             </div>
@@ -2039,13 +2300,16 @@ export function PropertyListingDetailPage({
                           {hasRoomTypes ? (
                             bookingRooms.length === 0 ? (
                               <>
-                                This place has a maximum of {maxGuests} guests, not including
-                                infants. Add a room to update capacity and rate.
+                                Up to {maxGuests} paying guests (adults + children). Add a room
+                                to update capacity and rate. Infants don&apos;t count toward the
+                                total.
                               </>
                             ) : (
                               <>
-                                Selected rooms sleep up to {maxGuests} guest
-                                {maxGuests === 1 ? "" : "s"} (infants not counted).
+                                Up to {maxGuests} paying guest{maxGuests === 1 ? "" : "s"} across
+                                selected rooms (adults + children). Mix freely within that total
+                                — max {partyLimits.adults} adults, {partyLimits.children}{" "}
+                                children, {maxInfantsAllowed} infants.
                                 {guestCount >= maxGuests
                                   ? " Add another room to bring more guests."
                                   : ""}
@@ -2053,9 +2317,9 @@ export function PropertyListingDetailPage({
                             )
                           ) : (
                             <>
-                              This place has a maximum of {maxGuests} guests, not including
-                              infants.
-                              {!allowPets ? " Pets aren’t allowed." : ""}
+                              Up to {maxGuests} paying guests (adults + children). Mix freely —
+                              max {partyLimits.adults} adults, {partyLimits.children} children,{" "}
+                              {maxInfantsAllowed} infants.
                             </>
                           )}
                         </p>
@@ -2204,13 +2468,17 @@ export function PropertyListingDetailPage({
                       {selectedExtras.map((extra) => {
                         const billing = normalizeExtraChargeBilling(extra);
                         const billingLabel = EXTRA_CHARGE_BILLING_LABELS[billing];
-                        const nights = Math.max(
-                          1,
-                          Math.round(
-                            (new Date(checkOut).getTime() - new Date(checkIn).getTime()) /
-                              (1000 * 60 * 60 * 24)
-                          ) || 1
-                        );
+                        const nights =
+                          checkIn && checkOut
+                            ? Math.max(
+                                1,
+                                Math.round(
+                                  (new Date(checkOut).getTime() -
+                                    new Date(checkIn).getTime()) /
+                                    (1000 * 60 * 60 * 24)
+                                ) || 1
+                              )
+                            : 1;
                         const paying = Math.max(1, guestCount);
                         let preview = extra.amount;
                         if (billing === "per_person") preview = extra.amount * paying;
@@ -2307,15 +2575,19 @@ export function PropertyListingDetailPage({
                   <>
                     <CheckAvailabilityLink
                       href={checkoutHref}
-                      className="w-full block font-bold py-3.5 rounded-xl transition-colors text-center text-sm mb-2 bg-green-700 hover:bg-green-800 text-white"
+                      className={`w-full block font-bold py-3.5 rounded-xl transition-colors text-center text-sm mb-2 ${
+                        bookingRuleHint
+                          ? "bg-gray-200 text-gray-500 pointer-events-none"
+                          : "bg-green-700 hover:bg-green-800 text-white"
+                      }`}
                     >
                       {tc("checkAvailability")}
                     </CheckAvailabilityLink>
                     <button
                       type="button"
-                      disabled={!checkIn || !checkOut}
+                      disabled={!checkIn || !checkOut || Boolean(bookingRuleHint)}
                       onClick={() => {
-                        if (!checkIn || !checkOut) return;
+                        if (!checkIn || !checkOut || bookingRuleHint) return;
                         addToBookingCart({
                           listingId: stay.id,
                           title: stay.name,
@@ -2369,8 +2641,9 @@ export function PropertyListingDetailPage({
                   Last booking was 12 minutes ago from Dubai, UAE
                 </p>
               </div>
+              )}
 
-              {hostOffers.length > 0 && (
+              {!isExperience && hostOffers.length > 0 && (
               <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4">
                 <h3 className="font-semibold text-gray-800 text-sm mb-3 flex items-center gap-2">
                   <Tag className="w-4 h-4 text-orange-500" /> {t("specialOffers")}

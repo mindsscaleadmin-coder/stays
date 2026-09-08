@@ -2,7 +2,7 @@ import { computeHostBookingMetrics, resolveBookingHost } from "@/lib/admin/booki
 import { resolveAdminHosts } from "@/lib/admin/host-helpers";
 import { loadAllUsers } from "@/lib/admin/user-data";
 import type { AdminUserRecord } from "@/lib/admin/user-types";
-import { locationMatchesCountry } from "@/lib/currency";
+import { BASE_CURRENCY, locationMatchesCountry } from "@/lib/currency";
 import { loadHostBookings } from "@/lib/host/host-booking-data";
 import type { HostBookingRecord } from "@/lib/host/host-booking-types";
 import { loadHostReviews } from "@/lib/host/host-reviews-data";
@@ -493,7 +493,7 @@ export function computePlatformAnalytics(
   };
 }
 
-export function formatPlatformMoney(amount: number, currency = "AED"): string {
+export function formatPlatformMoney(amount: number, currency = BASE_CURRENCY): string {
   return `${currency} ${Math.round(amount).toLocaleString()}`;
 }
 

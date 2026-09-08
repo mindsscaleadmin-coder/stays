@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { Link } from "@/i18n/routing";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { Check, CheckCircle2, Copy, Loader2 } from "lucide-react";
 
 type PaidBooking = {
   id: string;
+  bookingReference: string;
   listingId: string;
   paymentStatus: string;
 };
@@ -45,6 +46,8 @@ export function BookingSuccessContent({
 }) {
   const [ready, setReady] = useState(!bookingId);
   const [paid, setPaid] = useState(!bookingId);
+  const [bookingReference, setBookingReference] = useState("");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!bookingId) return;
@@ -65,6 +68,7 @@ export function BookingSuccessContent({
         }
 
         setPaid(booking.paymentStatus === "paid");
+        setBookingReference(booking.bookingReference);
       } catch {
         // non-fatal — confirmation UI still shows
       } finally {
@@ -120,6 +124,37 @@ export function BookingSuccessContent({
       <p className="text-gray-600">
         Your payment was received. The host will see this stay on their calendar.
       </p>
+      {bookingReference && (
+        <div className="rounded-2xl border border-green-200 bg-green-50 px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-green-700">
+            Booking reference
+          </p>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(bookingReference);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1800);
+              } catch {
+                // The reference remains selectable when clipboard access is unavailable.
+              }
+            }}
+            className="mx-auto mt-1 inline-flex items-center gap-2 rounded-lg px-2 py-1 font-mono text-xl font-bold tracking-wider text-gray-900 hover:bg-white"
+            aria-label="Copy booking reference"
+          >
+            {bookingReference}
+            {copied ? (
+              <Check className="h-4 w-4 text-green-700" />
+            ) : (
+              <Copy className="h-4 w-4 text-gray-400" />
+            )}
+          </button>
+          <p className="mt-1 text-xs text-gray-500">
+            Use this reference when contacting the host or support.
+          </p>
+        </div>
+      )}
       <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
         <Link
           href={

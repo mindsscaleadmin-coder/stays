@@ -29,7 +29,7 @@ import {
 } from "@/lib/admin/host-helpers";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useAdminStaffAccess } from "@/lib/admin/use-admin-staff-access";
-import { formatJoinedAt } from "@/lib/admin/user-data";
+import { ensureAdminHostUser, formatJoinedAt } from "@/lib/admin/user-data";
 import { useAdminUsers } from "@/lib/admin/use-admin-users";
 import { useListingSubmissions } from "@/lib/listings/use-listing-submissions";
 import { idTypeLabel } from "@/lib/host/verification-data";
@@ -58,9 +58,12 @@ const VERIFY_STATUS_STYLES: Record<string, string> = {
 
 export function AdminHostDetailContent({ hostId }: { hostId: string }) {
   const router = useRouter();
-  const { startImpersonatingHost } = useAuth();
+  const { isDemo, startImpersonatingHost } = useAuth();
   const { can } = useAdminStaffAccess();
-  const canImpersonate = can("impersonate_hosts");
+  const canApprove = can("approve_kyc");
+  const canRestrict = can("suspend_hosts");
+  const canEdit = can("edit_host_profiles");
+  const canImpersonate = isDemo && can("impersonate_hosts");
   const { users, suspend, ban, verify, reinstate, updateProfile } = useAdminUsers();
   const { all: listings, ready } = useListingSubmissions();
   const { all: verifications, approve, reject } = useHostVerification();
@@ -108,12 +111,23 @@ export function AdminHostDetailContent({ hostId }: { hostId: string }) {
 
   function handleSaveProfile() {
     if (!host) return;
-    updateProfile(host.id, {
+    ensureAdminHostUser({
+      id: host.id,
+      name: host.name,
+      email: host.email,
+      phone: host.phone,
+      country: host.country,
+    });
+    const saved = updateProfile(host.id, {
       name: editName,
       email: editEmail,
       phone: editPhone,
       adminNote: editNote,
     });
+    if (!saved) {
+      flash("Could not update this host. Please try again.");
+      return;
+    }
     setEditing(false);
     flash("Host profile updated.");
   }
@@ -131,7 +145,17 @@ export function AdminHostDetailContent({ hostId }: { hostId: string }) {
   function handleApproveDocs() {
     if (!verification || !host) return;
     approve(verification.hostId, reviewNote);
-    verify(host.id);
+    ensureAdminHostUser({
+      id: host.id,
+      name: host.name,
+      email: host.email,
+      phone: host.phone,
+      country: host.country,
+    });
+    if (!verify(host.id)) {
+      flash("Documents were approved, but the host status could not be updated.");
+      return;
+    }
     setReviewNote("");
     flash("ID documents approved and host marked verified.");
   }
@@ -211,38 +235,61 @@ export function AdminHostDetailContent({ hostId }: { hostId: string }) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {host.status === "pending" && (
+              {host.status === "pending" && canApprove && (
                 <button
                   type="button"
                   onClick={() => {
-                    verify(host.id);
-                    flash(`${host.name} has been approved.`);
+                    ensureAdminHostUser({
+                      id: host.id,
+                      name: host.name,
+                      email: host.email,
+                      phone: host.phone,
+                      country: host.country,
+                    });
+                    flash(
+                      verify(host.id)
+                        ? `${host.name} has been approved.`
+                        : `Could not approve ${host.name}.`
+                    );
                   }}
                   className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium"
                 >
                   Approve signup
                 </button>
               )}
-              {(host.status === "suspended" || host.status === "banned") && (
+              {(host.status === "suspended" || host.status === "banned") && canRestrict && (
                 <button
                   type="button"
                   onClick={() => {
-                    reinstate(host.id);
-                    flash(`${host.name} has been reinstated.`);
+                    flash(
+                      reinstate(host.id)
+                        ? `${host.name} has been reinstated.`
+                        : `Could not reinstate ${host.name}.`
+                    );
                   }}
                   className="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg font-medium"
                 >
                   Reinstate
                 </button>
               )}
-              {host.status !== "suspended" && host.status !== "banned" && (
+              {host.status !== "suspended" && host.status !== "banned" && canRestrict && (
                 <>
                   <button
                     type="button"
                     onClick={() => {
                       if (!confirm(`Suspend host ${host.name}?`)) return;
-                      suspend(host.id);
-                      flash(`${host.name} has been suspended.`);
+                        ensureAdminHostUser({
+                          id: host.id,
+                          name: host.name,
+                          email: host.email,
+                          phone: host.phone,
+                          country: host.country,
+                        });
+                        flash(
+                          suspend(host.id)
+                            ? `${host.name} has been suspended.`
+                            : `Could not suspend ${host.name}.`
+                        );
                     }}
                     className="text-xs border border-orange-200 hover:bg-orange-50 text-orange-700 px-3 py-1.5 rounded-lg font-medium"
                   >
@@ -252,31 +299,43 @@ export function AdminHostDetailContent({ hostId }: { hostId: string }) {
                     type="button"
                     onClick={() => {
                       if (!confirm(`Ban host ${host.name}?`)) return;
-                      ban(host.id);
-                      flash(`${host.name} has been banned.`);
+                        ensureAdminHostUser({
+                          id: host.id,
+                          name: host.name,
+                          email: host.email,
+                          phone: host.phone,
+                          country: host.country,
+                        });
+                        flash(
+                          ban(host.id)
+                            ? `${host.name} has been banned.`
+                            : `Could not ban ${host.name}.`
+                        );
                     }}
                     className="text-xs border border-red-200 hover:bg-red-50 text-red-600 px-3 py-1.5 rounded-lg font-medium"
                   >
                     Ban
                   </button>
-                  {canImpersonate && (
-                    <button
-                      type="button"
-                      onClick={handleImpersonate}
-                      className="inline-flex items-center gap-1 text-xs border border-gray-300 hover:border-green-400 text-gray-700 px-3 py-1.5 rounded-lg font-medium"
-                    >
-                      <UserRound className="w-3.5 h-3.5" /> Login as host
-                    </button>
-                  )}
                 </>
               )}
-              <button
-                type="button"
-                onClick={startEdit}
-                className="inline-flex items-center gap-1 text-xs border border-gray-300 hover:border-green-400 text-gray-700 px-3 py-1.5 rounded-lg font-medium"
-              >
-                <Pencil className="w-3.5 h-3.5" /> Edit profile
-              </button>
+              {canImpersonate && host.status !== "suspended" && host.status !== "banned" && (
+                <button
+                  type="button"
+                  onClick={handleImpersonate}
+                  className="inline-flex items-center gap-1 text-xs border border-gray-300 hover:border-green-400 text-gray-700 px-3 py-1.5 rounded-lg font-medium"
+                >
+                  <UserRound className="w-3.5 h-3.5" /> Login as host
+                </button>
+              )}
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  className="inline-flex items-center gap-1 text-xs border border-gray-300 hover:border-green-400 text-gray-700 px-3 py-1.5 rounded-lg font-medium"
+                >
+                  <Pencil className="w-3.5 h-3.5" /> Edit profile
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -313,7 +372,7 @@ export function AdminHostDetailContent({ hostId }: { hostId: string }) {
         <section className="bg-white rounded-2xl border p-5 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-gray-900">Host details</h3>
-            {!editing && (
+            {!editing && canEdit && (
               <button
                 type="button"
                 onClick={startEdit}
@@ -524,7 +583,7 @@ export function AdminHostDetailContent({ hostId }: { hostId: string }) {
                 )}
               </div>
 
-              {verification.status === "pending" && (
+              {verification.status === "pending" && canApprove && (
                 <div className="space-y-3 border-t pt-4">
                   <label className="block">
                     <span className="block text-xs font-semibold text-gray-600 mb-1">

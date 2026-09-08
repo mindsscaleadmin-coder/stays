@@ -39,11 +39,12 @@ export async function deliverBookingConfirmedEmail(bookingId: string) {
   const total = `${booking.paymentStatus === "paid" ? "Paid" : "Due"} · ${booking.totalPrice}`;
   const tripsUrl = `${appUrl()}/account?tab=bookings`;
   const name = booking.guest.fullName || "there";
+  const reference = booking.bookingReference;
 
   return sendEmail({
     to: booking.guest.email,
-    subject: `Your stay is confirmed · ${title}`,
-    text: `Hi ${name},\n\nYour booking at ${title} is confirmed.\n${dates}\n${total}\n\nView it: ${tripsUrl}\n`,
-    html: `<p>Hi ${name},</p><p>Your booking at <strong>${title}</strong> is confirmed.</p><p>${dates}<br/>${total}</p><p><a href="${tripsUrl}">View your trips</a></p>`,
+    subject: `${reference} · Your stay is confirmed · ${title}`,
+    text: `Hi ${name},\n\nYour booking at ${title} is confirmed.\nBooking reference: ${reference}\n${dates}\n${total}\n\nUse ${reference} when contacting the host or support.\n\nView it: ${tripsUrl}\n`,
+    html: `<p>Hi ${name},</p><p>Your booking at <strong>${title}</strong> is confirmed.</p><p><strong>Booking reference: ${reference}</strong><br/>${dates}<br/>${total}</p><p>Use ${reference} when contacting the host or support.</p><p><a href="${tripsUrl}">View your trips</a></p>`,
   });
 }

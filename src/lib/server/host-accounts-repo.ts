@@ -17,6 +17,7 @@ import type {
   HostTransaction,
 } from "@/lib/host/host-accounts-types";
 import type { FinancialHostOption } from "@/lib/admin/financial-data";
+import { BASE_CURRENCY } from "@/lib/currency";
 
 type StoredAccounts = {
   payoutAccount: HostPayoutAccount | null;
@@ -42,9 +43,9 @@ function nextFriday(from = new Date()): string {
 function parseListingMeta(payload: string): { currency: string; country: string } {
   try {
     const p = JSON.parse(payload) as { currency?: string; country?: string };
-    return { currency: p.currency || "AED", country: p.country?.trim() || "" };
+    return { currency: p.currency || BASE_CURRENCY, country: p.country?.trim() || "" };
   } catch {
-    return { currency: "AED", country: "" };
+    return { currency: BASE_CURRENCY, country: "" };
   }
 }
 
@@ -90,6 +91,7 @@ function paidBookingIds(stored: StoredAccounts): Set<string> {
 
 type LedgerBooking = {
   id: string;
+  bookingReference: string;
   totalPrice: number;
   paymentStatus: string;
   refundAmount: number | null;
@@ -128,7 +130,7 @@ function toTransaction(
     date: ymd(row.createdAt),
     guestName: row.guest.fullName,
     property: row.listing.title,
-    bookingRef: row.id,
+    bookingRef: row.bookingReference,
     currency: meta.currency,
     grossAmount: row.totalPrice,
     platformFeePct: pct,
@@ -160,7 +162,7 @@ function upcomingForHost(
     hostName,
     scheduledDate,
     amount: Math.round(amount * 100) / 100,
-    currency: pending[0]?.currency ?? "AED",
+    currency: pending[0]?.currency ?? BASE_CURRENCY,
     bookingCount: pending.length,
     sourceStatus: "scheduled",
     adminStatus: state?.adminStatus ?? "pending_review",
@@ -198,7 +200,7 @@ function refundsFromBookings(rows: LedgerBooking[]): RefundRequest[] {
       const pay = row.paymentStatus.toLowerCase();
       return {
         id: `refund-${row.id}`,
-        bookingRef: row.id,
+        bookingRef: row.bookingReference,
         guestName: row.guest.fullName,
         hostName: row.listing.host.fullName,
         amount: String(row.refundAmount ?? 0),
@@ -278,7 +280,7 @@ export async function markPayoutBatchPaid(payoutId: string): Promise<void> {
     id: payoutId,
     paidDate,
     amount: Math.round(pending.reduce((s, tx) => s + tx.netEarnings, 0) * 100) / 100,
-    currency: pending[0]?.currency ?? "AED",
+    currency: pending[0]?.currency ?? BASE_CURRENCY,
     reference: payoutId.toUpperCase(),
     method: stored.payoutAccount?.method ?? "bank",
     status: "paid",

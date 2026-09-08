@@ -13,6 +13,12 @@ import {
   type ListingRelabelChanges,
 } from "@/lib/listings/relabel-listings";
 import type { ListingSearchFilters } from "@/lib/listings/match-listing";
+import { createPropertyReference } from "@/lib/listings/property-reference";
+import {
+  LISTINGS_QUERY_HARD_CAP,
+  PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE,
+  PUBLIC_LISTINGS_MAX_PAGE_SIZE,
+} from "@/lib/listings/listings-pagination";
 
 function parsePayload(raw: string): SubmittedListing {
   return normalizeSubmittedListing(JSON.parse(raw) as SubmittedListing);
@@ -20,7 +26,9 @@ function parsePayload(raw: string): SubmittedListing {
 
 type ListingRow = {
   id: string;
+  propertyReference: string;
   payload: string;
+  status?: string | null;
   featured?: boolean | null;
   pricePerNight?: number | null;
   country?: string | null;
@@ -44,9 +52,13 @@ function filterColumnsFromListing(listing: SubmittedListing) {
 
 function toRow(listing: ListingRow): SubmittedListing {
   const data = parsePayload(listing.payload);
+  // DB column is the source of truth for public filters; keep payload fields otherwise.
+  const dbStatus = listing.status?.trim() as SubmittedListing["status"] | undefined;
   return normalizeSubmittedListing({
     ...data,
     id: listing.id,
+    propertyReference: listing.propertyReference,
+    status: dbStatus || data.status,
     featured: listing.featured ?? data.featured,
     pricePerNight: listing.pricePerNight ?? data.pricePerNight ?? null,
     country: listing.country || data.country,
@@ -108,49 +120,6 @@ function listingSearchWhere(filters: ListingSearchFilters): Prisma.ListingWhereI
   return and.length > 0 ? { AND: and } : {};
 }
 
-let filterColumnsBackfilled = false;
-
-/** Copy Filter names from listing JSON onto columns (once per process). */
-export async function ensureListingFilterColumns(): Promise<number> {
-  if (filterColumnsBackfilled) return 0;
-  const updated = await backfillListingFilterColumns();
-  filterColumnsBackfilled = true;
-  return updated;
-}
-
-async function backfillListingFilterColumns(): Promise<number> {
-  const rows = await prisma.listing.findMany();
-  const updates = rows.flatMap((row) => {
-    const listing = toRow(row);
-    const cols = filterColumnsFromListing(listing);
-    const needs =
-      (row.country ?? "") !== cols.country ||
-      (row.state ?? "") !== cols.state ||
-      (row.district ?? "") !== cols.district ||
-      (row.parentCategory ?? "") !== cols.parentCategory ||
-      (row.category ?? "") !== cols.category ||
-      (row.subcategory ?? "") !== cols.subcategory;
-    return needs ? [{ id: row.id, ...cols }] : [];
-  });
-  if (updates.length === 0) return 0;
-  await prisma.$transaction(
-    updates.map((item) =>
-      prisma.listing.update({
-        where: { id: item.id },
-        data: {
-          country: item.country,
-          state: item.state,
-          district: item.district,
-          parentCategory: item.parentCategory,
-          category: item.category,
-          subcategory: item.subcategory,
-        },
-      })
-    )
-  );
-  return updates.length;
-}
-
 async function ensureHostUser(hostId: string, hostName: string) {
   const existing = await prisma.user.findUnique({ where: { id: hostId } });
   if (existing) return existing;
@@ -166,32 +135,127 @@ async function ensureHostUser(hostId: string, hostName: string) {
 }
 
 export async function listListings(): Promise<SubmittedListing[]> {
-  await ensureListingFilterColumns();
-  const rows = await prisma.listing.findMany({ orderBy: { createdAt: "desc" } });
+  const rows = await prisma.listing.findMany({
+    orderBy: { createdAt: "desc" },
+    take: LISTINGS_QUERY_HARD_CAP,
+  });
   return rows.map(toRow);
 }
 
 export async function listListingsByHost(hostId: string): Promise<SubmittedListing[]> {
-  await ensureListingFilterColumns();
   const rows = await prisma.listing.findMany({
     where: { hostId },
     orderBy: { createdAt: "desc" },
+    take: LISTINGS_QUERY_HARD_CAP,
   });
   return rows.map(toRow);
 }
 
-export async function searchListings(
-  filters: ListingSearchFilters
-): Promise<SubmittedListing[]> {
-  await ensureListingFilterColumns();
-  const rows = await prisma.listing.findMany({
-    where: listingSearchWhere(filters),
-    orderBy: [{ featured: "desc" }, { createdAt: "desc" }],
-  });
-  const listings = rows.map(toRow);
+export type ListingSearchPageResult = {
+  listings: SubmittedListing[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+/**
+ * Paginated listing search. Always bounded — pass `unlimited: true` only for
+ * admin tooling (still capped by LISTINGS_QUERY_HARD_CAP).
+ */
+export async function searchListingsPage(
+  filters: ListingSearchFilters,
+  opts?: {
+    page?: number;
+    pageSize?: number;
+    /** Load as many as the hard cap allows (admin / internal). */
+    unlimited?: boolean;
+  }
+): Promise<ListingSearchPageResult> {
+  const where = listingSearchWhere(filters);
+  const orderBy = [{ featured: "desc" as const }, { createdAt: "desc" as const }];
   const city = filters.city?.trim().toLowerCase();
-  if (!city) return listings;
-  return listings.filter((listing) => listing.city.trim().toLowerCase() === city);
+  const statusWanted = filters.status?.trim() || "";
+
+  if (opts?.unlimited) {
+    const rows = await prisma.listing.findMany({
+      where,
+      orderBy,
+      take: LISTINGS_QUERY_HARD_CAP,
+    });
+    let listings = rows.map(toRow);
+    if (statusWanted) {
+      listings = listings.filter((listing) => listing.status === statusWanted);
+    }
+    if (city) {
+      listings = listings.filter((listing) => listing.city.trim().toLowerCase() === city);
+    }
+    return {
+      listings,
+      total: listings.length,
+      page: 1,
+      pageSize: listings.length || PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE,
+    };
+  }
+
+  const page = Math.max(1, Math.floor(opts?.page ?? 1) || 1);
+  const pageSize = Math.min(
+    PUBLIC_LISTINGS_MAX_PAGE_SIZE,
+    Math.max(1, Math.floor(opts?.pageSize ?? PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE) || PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE)
+  );
+  const skip = (page - 1) * pageSize;
+
+  // City is stored in JSON payload (not a filter column) — scan a bounded window,
+  // filter, then slice. Other filters paginate in Postgres.
+  if (city) {
+    const scanTake = Math.min(LISTINGS_QUERY_HARD_CAP, Math.max(pageSize * 20, 200));
+    const rows = await prisma.listing.findMany({
+      where,
+      orderBy,
+      take: scanTake,
+    });
+    let listings = rows.map(toRow);
+    if (statusWanted) {
+      listings = listings.filter((listing) => listing.status === statusWanted);
+    }
+    listings = listings.filter((listing) => listing.city.trim().toLowerCase() === city);
+    const total = listings.length;
+    return {
+      listings: listings.slice(skip, skip + pageSize),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  const [total, rows] = await Promise.all([
+    prisma.listing.count({ where }),
+    prisma.listing.findMany({
+      where,
+      orderBy,
+      skip,
+      take: pageSize,
+    }),
+  ]);
+
+  let listings = rows.map(toRow);
+  if (statusWanted) {
+    listings = listings.filter((listing) => listing.status === statusWanted);
+  }
+
+  return { listings, total, page, pageSize };
+}
+
+/** @deprecated Prefer searchListingsPage — kept for callers that only need the rows. */
+export async function searchListings(
+  filters: ListingSearchFilters,
+  opts?: {
+    page?: number;
+    pageSize?: number;
+    unlimited?: boolean;
+  }
+): Promise<SubmittedListing[]> {
+  const result = await searchListingsPage(filters, opts);
+  return result.listings;
 }
 
 export async function getListing(id: string): Promise<SubmittedListing | null> {
@@ -205,18 +269,23 @@ export async function createListing(input: SubmitListingInput): Promise<Submitte
   const listing: SubmittedListing = {
     ...input,
     id,
+    propertyReference: createPropertyReference(),
     status: "pending",
     submittedAt: new Date().toISOString(),
   };
   await prisma.listing.create({
     data: {
       id,
+      propertyReference: listing.propertyReference!,
       hostId: input.hostId,
       title: listing.title,
       status: listing.status,
       payload: JSON.stringify(listing),
       ...filterColumnsFromListing(listing),
-      maxGuests: listing.rooms?.[0]?.capacity ?? 4,
+      maxGuests:
+        listing.groupSizeMin && listing.groupSizeMin > 0
+          ? Math.max(listing.groupSizeMin, listing.rooms?.[0]?.capacity ?? 4)
+          : listing.rooms?.[0]?.capacity ?? 4,
       pricePerNight: listing.rooms?.[0]?.price ?? null,
     },
   });
@@ -324,6 +393,7 @@ export async function seedListingsIfEmpty(seed: SubmittedListing[]): Promise<num
     await prisma.listing.create({
       data: {
         id: item.id,
+        propertyReference: item.propertyReference || createPropertyReference(),
         hostId: item.hostId,
         title: item.title,
         status: item.status,

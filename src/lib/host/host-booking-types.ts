@@ -2,7 +2,7 @@ import type { HostBooking, HostBookingStatus } from "@/lib/mock/dashboard-data";
 
 export type CheckInOutStatus = "pending" | "checked_in" | "checked_out";
 export type RefundStatus = "none" | "pending" | "partial" | "full";
-export type BookingTimelineTab = "requests" | "upcoming" | "ongoing" | "past" | "all";
+export type BookingTimelineTab = "upcoming" | "ongoing" | "past" | "all";
 
 export type DisputeStatus = "none" | "open" | "resolved";
 
@@ -15,9 +15,15 @@ export interface BookingAuditEntry {
 }
 
 export interface HostBookingRecord extends HostBooking {
+  bookingReference?: string;
   hostId?: string;
   hostName?: string;
   listingId?: string;
+  /** ISO currency code for this booking (INR, AED, …). */
+  currency?: string;
+  propertyReference?: string;
+  /** Total ÷ nights — may include tax/discounts/extras. */
+  averageNightlyTotal?: string;
   expiresAt?: string;
   policyId?: string;
   specialRequests?: string;

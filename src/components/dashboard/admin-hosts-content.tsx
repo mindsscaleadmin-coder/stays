@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Link, useRouter } from "@/i18n/routing";
+import { useSearchParams } from "next/navigation";
 import {
   Ban,
   Building2,
@@ -24,6 +25,7 @@ import {
   type HostListingStats,
 } from "@/lib/admin/host-helpers";
 import { useAdminUsers } from "@/lib/admin/use-admin-users";
+import { ensureAdminHostUser } from "@/lib/admin/user-data";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useAdminStaffAccess } from "@/lib/admin/use-admin-staff-access";
@@ -32,6 +34,7 @@ import type { AdminUserRecord, UserAccountStatus } from "@/lib/admin/user-types"
 import { useListingSubmissions } from "@/lib/listings/use-listing-submissions";
 import { useHostVerification } from "@/lib/host/use-host-verification";
 import { findHostVerification } from "@/lib/host/verification-data";
+import type { HostVerificationRequest } from "@/lib/host/verification-types";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -91,11 +94,13 @@ function StatCard({
   value,
   hint,
   tone = "default",
+  onClick,
 }: {
   label: string;
   value: number | string;
   hint?: string;
   tone?: "default" | "amber" | "green" | "orange" | "red" | "blue";
+  onClick?: () => void;
 }) {
   const tones = {
     default: "bg-white border-gray-200",
@@ -114,18 +119,53 @@ function StatCard({
     blue: "text-blue-700",
   };
 
+  const content = (
+    <>
+      <p
+        className="truncate text-[10px] font-semibold uppercase tracking-wide text-gray-500"
+        title={label}
+      >
+        {label}
+      </p>
+      <p className={cn("mt-0.5 text-lg font-bold font-display leading-tight", valueTones[tone])}>
+        {value}
+      </p>
+      {hint && (
+        <p className="mt-0.5 truncate text-[10px] text-gray-500" title={hint}>
+          {hint}
+        </p>
+      )}
+    </>
+  );
+
+  if (!onClick) {
+    return (
+      <div className={cn("min-w-0 rounded-xl border p-2.5 shadow-sm sm:p-3", tones[tone])}>
+        {content}
+      </div>
+    );
+  }
+
   return (
-    <div className={cn("rounded-2xl border p-4 shadow-sm", tones[tone])}>
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
-      <p className={cn("text-2xl font-bold font-display mt-1", valueTones[tone])}>{value}</p>
-      {hint && <p className="text-xs text-gray-500 mt-1">{hint}</p>}
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "min-w-0 rounded-xl border p-2.5 text-start shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-green-500 sm:p-3",
+        tones[tone]
+      )}
+    >
+      {content}
+    </button>
   );
 }
 
 function HostRowCard({
   host,
   stats,
+  verificationRequest,
+  canApprove,
+  canRestrict,
   canImpersonate,
   onOpen,
   onVerify,
@@ -136,6 +176,9 @@ function HostRowCard({
 }: {
   host: AdminUserRecord;
   stats: HostListingStats;
+  verificationRequest: HostVerificationRequest | null;
+  canApprove: boolean;
+  canRestrict: boolean;
   canImpersonate: boolean;
   onOpen: () => void;
   onVerify: () => void;
@@ -144,7 +187,7 @@ function HostRowCard({
   onReinstate: () => void;
   onImpersonate: () => void;
 }) {
-  const verifyReq = findHostVerification(host);
+  const verifyReq = verificationRequest;
   const detailHref = `/admin/hosts/${encodeURIComponent(host.id)}`;
   const isRestricted = host.status === "suspended" || host.status === "banned";
 
@@ -215,7 +258,7 @@ function HostRowCard({
           className="flex flex-wrap items-center justify-end gap-2 shrink-0 border-t lg:border-t-0 pt-3 lg:pt-0"
           onClick={(e) => e.stopPropagation()}
         >
-          {host.status === "pending" && (
+          {host.status === "pending" && canApprove && (
             <button
               type="button"
               onClick={onVerify}
@@ -224,7 +267,7 @@ function HostRowCard({
               <UserCheck className="w-3.5 h-3.5" /> Approve
             </button>
           )}
-          {isRestricted ? (
+          {isRestricted && canRestrict ? (
             <button
               type="button"
               onClick={onReinstate}
@@ -232,7 +275,7 @@ function HostRowCard({
             >
               <CheckCircle2 className="w-3.5 h-3.5" /> Reinstate
             </button>
-          ) : (
+          ) : !isRestricted && canRestrict ? (
             <>
               <button
                 type="button"
@@ -258,7 +301,7 @@ function HostRowCard({
                 </button>
               )}
             </>
-          )}
+          ) : null}
           <Link
             href={detailHref}
             className="inline-flex items-center gap-1.5 text-sm font-semibold text-green-700 border border-green-200 hover:bg-green-50 px-4 py-2.5 rounded-xl transition-colors"
@@ -274,16 +317,27 @@ function HostRowCard({
 
 export function AdminHostsContent() {
   const { users, suspend, ban, verify, reinstate } = useAdminUsers();
-  const { startImpersonatingHost } = useAuth();
+  const { isDemo, startImpersonatingHost } = useAuth();
   const { can } = useAdminStaffAccess();
-  const canImpersonate = can("impersonate_hosts");
+  const canApprove = can("approve_kyc");
+  const canRestrict = can("suspend_hosts");
+  const canImpersonate = isDemo && can("impersonate_hosts");
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { all: listings } = useListingSubmissions();
   const { data: taxonomy } = useAdminTaxonomy();
   const { all: verifications, pendingCount } = useHostVerification();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<UserAccountStatus | "">("");
-  const [verification, setVerification] = useState<VerificationFilter>("");
+  const [verification, setVerification] = useState<VerificationFilter>(() => {
+    const requested = searchParams.get("verification");
+    return requested === "pending" ||
+      requested === "verified" ||
+      requested === "rejected" ||
+      requested === "none"
+      ? requested
+      : "";
+  });
   const [country, setCountry] = useState("");
   const [state, setState] = useState("");
   const [parentCategory, setParentCategory] = useState("");
@@ -433,8 +487,18 @@ export function AdminHostsContent() {
       return;
     }
     if (!confirm(`Suspend host ${user.name}? They will lose host access.`)) return;
-    suspend(user.id);
-    flash(`${user.name} has been suspended.`);
+    ensureAdminHostUser({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      country: user.country,
+    });
+    flash(
+      suspend(user.id)
+        ? `${user.name} has been suspended.`
+        : `Could not suspend ${user.name}. Please try again.`
+    );
   }
 
   function handleBan(user: AdminUserRecord) {
@@ -444,18 +508,48 @@ export function AdminHostsContent() {
     }
     if (!confirm(`Ban host ${user.name}? This permanently blocks host access until reinstated.`))
       return;
-    ban(user.id);
-    flash(`${user.name} has been banned.`);
+    ensureAdminHostUser({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      country: user.country,
+    });
+    flash(
+      ban(user.id)
+        ? `${user.name} has been banned.`
+        : `Could not ban ${user.name}. Please try again.`
+    );
   }
 
   function handleVerify(user: AdminUserRecord) {
-    verify(user.id);
-    flash(`${user.name} has been verified.`);
+    ensureAdminHostUser({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      country: user.country,
+    });
+    flash(
+      verify(user.id)
+        ? `${user.name} has been verified.`
+        : `Could not verify ${user.name}. Please try again.`
+    );
   }
 
   function handleReinstate(user: AdminUserRecord) {
-    reinstate(user.id);
-    flash(`${user.name} has been reinstated.`);
+    ensureAdminHostUser({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      country: user.country,
+    });
+    flash(
+      reinstate(user.id)
+        ? `${user.name} has been reinstated.`
+        : `Could not reinstate ${user.name}. Please try again.`
+    );
   }
 
   function handleImpersonate(user: AdminUserRecord) {
@@ -493,13 +587,44 @@ export function AdminHostsContent() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-          <StatCard label="Hosts" value={hosts.length} />
-          <StatCard label="Active" value={activeHosts} tone="blue" hint="Verified accounts" />
-          <StatCard label="Pending" value={pendingHosts} tone="amber" hint="Needs approval" />
-          <StatCard label="ID verification" value={pendingCount} tone="amber" hint="Docs to review" />
-          <StatCard label="Suspended" value={suspendedHosts} tone="orange" />
-          <StatCard label="Banned" value={bannedHosts} tone="red" />
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 sm:gap-3">
+          <StatCard label="Hosts" value={hosts.length} onClick={() => applyQuickFilter("all")} />
+          <StatCard
+            label="Active"
+            value={activeHosts}
+            tone="blue"
+            hint="Verified accounts"
+            onClick={() => {
+              clearFilters();
+              setStatus("verified");
+            }}
+          />
+          <StatCard
+            label="Pending"
+            value={pendingHosts}
+            tone="amber"
+            hint="Needs approval"
+            onClick={() => applyQuickFilter("pending")}
+          />
+          <StatCard
+            label="ID verification"
+            value={pendingCount}
+            tone="amber"
+            hint="Docs to review"
+            onClick={() => applyQuickFilter("id_pending")}
+          />
+          <StatCard
+            label="Suspended"
+            value={suspendedHosts}
+            tone="orange"
+            onClick={() => applyQuickFilter("suspended")}
+          />
+          <StatCard
+            label="Banned"
+            value={bannedHosts}
+            tone="red"
+            onClick={() => applyQuickFilter("banned")}
+          />
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -724,6 +849,16 @@ export function AdminHostsContent() {
                 key={u.id}
                 host={u}
                 stats={statsForHost(listingStats, u)}
+                verificationRequest={
+                  verifications.find(
+                    (row) =>
+                      row.hostId === u.id ||
+                      row.hostEmail.toLowerCase() === u.email.toLowerCase() ||
+                      row.hostName.toLowerCase() === u.name.toLowerCase()
+                  ) ?? findHostVerification(u)
+                }
+                canApprove={canApprove}
+                canRestrict={canRestrict}
                 canImpersonate={canImpersonate}
                 onOpen={() => openHost(u.id)}
                 onVerify={() => handleVerify(u)}

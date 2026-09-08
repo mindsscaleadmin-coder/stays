@@ -78,8 +78,8 @@ interface AdminTaxonomyContextValue {
   addSubcategory: (name: string, categoryId: string) => void;
   editSubcategory: (id: string, name: string, categoryId: string) => void;
   deleteSubcategory: (id: string) => void;
-  addExtraFilter: (name: string, type: string) => void;
-  editExtraFilter: (id: string, name: string) => void;
+  addExtraFilter: (name: string, type: string, parentId?: string) => void;
+  editExtraFilter: (id: string, name: string, parentId?: string) => void;
   deleteExtraFilter: (id: string) => void;
   addFeatureFilter: (name: string, parentId: string, subcategoryId?: string) => void;
   editFeatureFilter: (
@@ -838,12 +838,16 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const addExtraFilter = useCallback(
-    (name: string, type: string) =>
+    (name: string, type: string, parentId?: string) =>
       update((prev) => {
         const trimmed = name.trim();
+        const scope = parentId?.trim() || "";
         if (
           prev.extraFilters.some(
-            (ef) => ef.type === type && namesMatch(ef.name, trimmed)
+            (ef) =>
+              ef.type === type &&
+              (ef.parentId ?? "") === scope &&
+              namesMatch(ef.name, trimmed)
           )
         ) {
           return prev;
@@ -852,7 +856,12 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
           ...prev,
           extraFilters: [
             ...prev.extraFilters,
-            { id: newId("ef"), name: trimmed, type },
+            {
+              id: newId("ef"),
+              name: trimmed,
+              type,
+              ...(scope ? { parentId: scope } : {}),
+            },
           ],
         };
       }),
@@ -860,8 +869,9 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const editExtraFilter = useCallback(
-    (id: string, name: string) => {
+    (id: string, name: string, parentId?: string) => {
       const trimmed = name.trim();
+      const scope = parentId?.trim() || "";
       update((prev) => {
         const from = prev.extraFilters.find((ef) => ef.id === id)?.name;
         if (from && from !== trimmed) {
@@ -870,7 +880,13 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
         return {
           ...prev,
           extraFilters: prev.extraFilters.map((ef) =>
-            ef.id === id ? { ...ef, name: trimmed } : ef
+            ef.id === id
+              ? {
+                  ...ef,
+                  name: trimmed,
+                  parentId: scope || undefined,
+                }
+              : ef
           ),
         };
       });

@@ -25,8 +25,9 @@ import { StarRating, CountdownTimer } from "@/components/ui/star-rating";
 import { BOOKING_ACTIVITY, HERO_BG } from "@/lib/mock/data";
 import { getFavoriteIds, setFavoriteIds } from "@/lib/mock/guest-data";
 import { usePublicListings } from "@/lib/listings/use-public-listings";
+import { PUBLIC_LISTINGS_MAX_PAGE_SIZE } from "@/lib/listings/listings-pagination";
 import { HeroSearchBar } from "@/components/search/hero-search-bar";
-import { formatStoredMoney, locationMatchesCountry } from "@/lib/currency";
+import { BASE_CURRENCY, formatStoredMoney, locationMatchesCountry  } from "@/lib/currency";
 import { useCountry } from "@/components/providers/country-provider";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import {
@@ -60,6 +61,7 @@ export function HomePageContent() {
   const { data: taxonomy } = useAdminTaxonomy();
   const { listings: publicListings } = usePublicListings(undefined, {
     country: headerCountry.name,
+    pageSize: PUBLIC_LISTINGS_MAX_PAGE_SIZE,
   });
   const {
     location: guestLocation,
@@ -301,7 +303,7 @@ export function HomePageContent() {
               </div>
             </div>
           </div>
-          <div className="mt-6 sm:mt-8 w-full min-w-0 max-w-3xl lg:max-w-4xl">
+          <div className="mt-6 sm:mt-8 w-full min-w-0 max-w-xl lg:max-w-2xl">
             <HeroSearchBar resultsPath="/listings" />
           </div>
         </div>
@@ -487,7 +489,7 @@ export function HomePageContent() {
                           ? stay.originalPrice
                           : stay.price,
                         {
-                          storedCurrency: stay.currency || stay.flashDealCurrency || "AED",
+                          storedCurrency: stay.currency || stay.flashDealCurrency || BASE_CURRENCY,
                           currency: headerCountry.currency,
                           exchangeRateToAED: headerCountry.exchangeRateToAED,
                           locale,
@@ -552,7 +554,7 @@ export function HomePageContent() {
                   <div className="flex items-center gap-2 mt-2">
                     <span className="text-green-700 font-bold">
                       {formatStoredMoney(deal.flashDealPrice, {
-                        storedCurrency: deal.flashCurrency || deal.currency || "AED",
+                        storedCurrency: deal.flashCurrency || deal.currency || BASE_CURRENCY,
                         currency: headerCountry.currency,
                         exchangeRateToAED: headerCountry.exchangeRateToAED,
                         locale,

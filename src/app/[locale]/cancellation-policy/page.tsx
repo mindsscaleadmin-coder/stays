@@ -15,8 +15,8 @@ export default async function CancellationPolicyPage({
         the amount already paid. Hosts see the same rules on the booking.
       </p>
       <p>
-        To cancel, open the booking and use Cancel. Pending requests that expire are dropped
-        automatically and do not charge the guest.
+        To cancel, open the booking and use Cancel. Refunds follow the listing policy and the
+        amount already paid.
       </p>
     </SiteInfoPage>
   );

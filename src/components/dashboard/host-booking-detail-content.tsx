@@ -5,7 +5,6 @@ import { Link } from "@/i18n/routing";
 import {
   ArrowLeft,
   CalendarDays,
-  CheckCircle,
   Clock,
   DoorClosed,
   DoorOpen,
@@ -15,7 +14,6 @@ import {
   Phone,
   Printer,
   User,
-  XCircle,
   type LucideIcon,
 } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
@@ -31,7 +29,7 @@ import { cn } from "@/lib/utils";
 export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
   const id = decodeURIComponent(bookingId);
   const { user } = useAuth();
-  const { booking, ready, accept, decline, cancel, checkIn, checkOut, update, previewCancelRefund } =
+  const { booking, ready, cancel, checkIn, checkOut, update, previewCancelRefund } =
     useHostBookings(id);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -90,6 +88,15 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
     minute: "2-digit",
   });
 
+  const moneyCurrency =
+    booking.currency ||
+    booking.total.match(/^([A-Z]{3})\b/)?.[1] ||
+    "AED";
+
+  function formatMoneyAmount(amount: number): string {
+    return `${moneyCurrency} ${amount.toLocaleString()}`;
+  }
+
   const policy = getCancellationRule(booking.policyId);
 
   const canCheckIn =
@@ -121,47 +128,13 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
     }
   }
 
-  const expiresLabel = booking.expiresAt
-    ? new Date(booking.expiresAt).toLocaleString("en-GB", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      })
-    : null;
-
-  async function runAccept() {
-    setBusy(true);
-    try {
-      await accept(booking!.id);
-      flash("Booking accepted — dates blocked if paid.");
-    } catch (error) {
-      flash(error instanceof Error ? error.message : "Could not accept booking.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function runDecline() {
-    setBusy(true);
-    try {
-      await decline(booking!.id);
-      flash("Booking declined — guest refunded when paid.");
-    } catch (error) {
-      flash(error instanceof Error ? error.message : "Could not decline booking.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   function openCancel() {
     const preview = previewCancelRefund(booking!, "host");
     setRefundStatus(
       preview.band === "full" ? "full" : preview.band === "partial" ? "partial" : "none"
     );
     setRefundAmount(
-      preview.refundAmount > 0 ? `AED ${preview.refundAmount.toLocaleString()}` : ""
+      preview.refundAmount > 0 ? formatMoneyAmount(preview.refundAmount) : ""
     );
     setCancelOpen(true);
   }
@@ -178,7 +151,12 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
             Bookings
           </Link>
           <div className="flex items-center gap-2">
-            <span className="hidden sm:inline text-[11px] text-gray-400 font-mono">{booking.id}</span>
+            <span className="hidden sm:inline text-[11px] text-gray-500">
+              Booking{" "}
+              <span className="font-mono font-semibold text-green-800">
+                {booking.bookingReference || booking.id}
+              </span>
+            </span>
             <button
               type="button"
               onClick={handlePrint}
@@ -196,14 +174,7 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
           </div>
         )}
 
-        <section
-          className={cn(
-            "rounded-2xl border overflow-hidden print:hidden",
-            booking.status === "pending"
-              ? "border-amber-200 bg-[linear-gradient(180deg,#fffbeb_0%,#ffffff_42%)]"
-              : "border-gray-200 bg-white"
-          )}
-        >
+        <section className="rounded-2xl border overflow-hidden print:hidden border-gray-200 bg-white">
           <div className="p-5 sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="flex items-start gap-3.5 min-w-0">
@@ -220,12 +191,16 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
                 </div>
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-green)]">
-                    {booking.status === "pending" ? "Request to book" : "Stay"}
+                    Stay
                   </p>
                   <h1 className="text-2xl font-bold text-gray-900 font-display mt-0.5 tracking-tight">
                     {booking.guest}
                   </h1>
                   <p className="text-sm text-gray-500 mt-1">{booking.property}</p>
+                  <p className="text-xs text-gray-400 mt-1 font-mono">
+                    Ref {booking.bookingReference || booking.id}
+                    {booking.propertyReference ? ` · Property ${booking.propertyReference}` : ""}
+                  </p>
                 </div>
               </div>
               <div className="text-end">
@@ -235,6 +210,10 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
                   {booking.status}
                 </span>
                 <p className="text-xl font-bold text-gray-900 mt-2 tabular-nums">{booking.total}</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  {booking.paymentStatus}
+                  {booking.currency ? ` · ${booking.currency}` : ""}
+                </p>
               </div>
             </div>
 
@@ -253,43 +232,15 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
               <HeroStat icon={Clock} label="Nights" value={`${booking.nights}`} />
             </div>
 
-            {booking.status === "pending" && expiresLabel && (
-              <p className="mt-4 text-xs text-amber-900/80 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 flex items-start gap-2">
-                <Clock className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                Respond by {expiresLabel}. Unanswered requests expire and paid guests are refunded.
-              </p>
-            )}
             {booking.status === "expired" && (
               <p className="mt-4 text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
-                This request expired because it wasn’t answered in time.
+                This booking expired before it could be completed.
               </p>
             )}
           </div>
 
-          {(booking.status === "pending" || canCheckIn || canCheckOut || canCancel) && (
+          {(canCheckIn || canCheckOut || canCancel) && (
             <div className="px-5 sm:px-6 py-3.5 border-t border-gray-100/80 bg-white/80 flex flex-wrap items-center gap-2">
-              {booking.status === "pending" && (
-                <>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void runAccept()}
-                    className="inline-flex items-center gap-1.5 text-sm bg-[var(--brand-green)] hover:bg-[var(--brand-green-dark)] text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-50"
-                  >
-                    <CheckCircle className="w-4 h-4" />
-                    Accept
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void runDecline()}
-                    className="inline-flex items-center gap-1.5 text-sm border border-gray-200 hover:border-red-300 text-gray-700 hover:text-red-700 px-4 py-2 rounded-xl font-semibold disabled:opacity-50"
-                  >
-                    <XCircle className="w-4 h-4" />
-                    Decline
-                  </button>
-                </>
-              )}
               {canCheckIn && (
                 <button
                   type="button"
@@ -353,6 +304,10 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
                 Stay
               </h2>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+                <CardRow label="Booking ref" value={booking.bookingReference || booking.id} />
+                {booking.propertyReference ? (
+                  <CardRow label="Property ref" value={booking.propertyReference} />
+                ) : null}
                 <CardRow label="Property" value={booking.property} />
                 <CardRow label="Room" value={booking.roomType} />
                 <CardRow
@@ -361,6 +316,11 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
                   icon={MapPin}
                 />
                 <CardRow label="Booked" value={formatBookingDate(booking.bookedAt)} />
+                <CardRow
+                  label="Dates"
+                  value={`${formatBookingDate(booking.checkIn)} → ${formatBookingDate(booking.checkOut)}`}
+                />
+                <CardRow label="Nights" value={String(booking.nights)} />
               </dl>
             </section>
 
@@ -410,15 +370,29 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
                 Payment
               </h2>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-                <CardRow label="Nightly" value={`${booking.nightlyRate} × ${booking.nights}`} />
+                <CardRow
+                  label="Listed nightly"
+                  value={`${booking.nightlyRate} × ${booking.nights}`}
+                />
+                {booking.averageNightlyTotal ? (
+                  <CardRow
+                    label="Avg / night (incl. fees)"
+                    value={booking.averageNightlyTotal}
+                  />
+                ) : null}
                 <CardRow label="Cleaning" value={booking.cleaningFee} />
                 <CardRow label="Service" value={booking.serviceFee} />
                 <CardRow label="Method" value={booking.paymentMethod} />
                 <CardRow label="Status" value={booking.paymentStatus} />
+                {booking.currency ? <CardRow label="Currency" value={booking.currency} /> : null}
               </dl>
+              <p className="mt-3 text-[11px] text-gray-500 leading-relaxed">
+                Total may include room selection, seasonal rates, discounts, extras, and tax from
+                checkout — so listed nightly × nights can differ from the amount paid.
+              </p>
               <div className="flex items-center justify-between mt-4 pt-4 border-t border-dashed border-gray-200">
                 <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                  Total
+                  Total paid
                 </span>
                 <span className="text-lg font-bold text-gray-900 tabular-nums">{booking.total}</span>
               </div>
@@ -549,7 +523,12 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
                 Greenfield Farm Stays
               </p>
               <h1 className="text-xl font-bold text-gray-900 font-display mt-1">Booking confirmation</h1>
-              <p className="text-sm text-gray-500 mt-1 font-mono">{booking.id}</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Booking reference{" "}
+                <span className="font-mono font-semibold text-gray-900">
+                  {booking.bookingReference || booking.id}
+                </span>
+              </p>
             </div>
             <div className="text-end shrink-0">
               <span
@@ -666,7 +645,7 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
                   value={refundAmount}
                   onChange={(e) => setRefundAmount(e.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="e.g. AED 2,280"
+                  placeholder={`e.g. ${moneyCurrency} 2,280`}
                 />
               </label>
             )}

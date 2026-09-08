@@ -1,6 +1,6 @@
 import type { Stay } from "@/lib/mock/data";
-import { isInstantBookingEffective } from "@/lib/admin/platform-config-data";
 import { currencyForCountryName } from "@/lib/currency";
+import { payingGuestsCapacity, readGuestPartyFromFilters } from "./guest-capacity";
 import type { SubmittedListing } from "./submission-types";
 
 const DEFAULT_IMG =
@@ -57,8 +57,12 @@ export function submissionToStay(listing: SubmittedListing): Stay {
     flashPct > 0 && !Number.isNaN(flashEnds) && flashEnds > Date.now();
   const dealPrice = flashLive ? Math.round(basePrice * (1 - Math.min(100, flashPct) / 100)) : basePrice;
 
+  const party = readGuestPartyFromFilters(listing.customFilters, Math.max(beds * 2, 2));
+  const guestCapacity = payingGuestsCapacity(party);
+
   return {
     id: listing.id,
+    propertyReference: listing.propertyReference,
     hostId: listing.hostId,
     name: listing.title,
     location: [listing.city, listing.district, listing.state, listing.country]
@@ -67,7 +71,7 @@ export function submissionToStay(listing: SubmittedListing): Stay {
     price: dealPrice,
     rating: listing.guestReviewCount ? listing.guestRating ?? 0 : 0,
     reviews: listing.guestReviewCount ?? 0,
-    guests: Math.max(beds * 2, 2),
+    guests: guestCapacity,
     beds,
     baths,
     badge: listing.featured
@@ -97,7 +101,7 @@ export function submissionToStay(listing: SubmittedListing): Stay {
     flashDealDiscountPct: flashLive ? Math.min(100, flashPct) : undefined,
     flashDealCurrency: flashLive ? listing.flashDealCurrency : undefined,
     currency: listing.flashDealCurrency || currencyForCountryName(listing.country),
-    instantBook: typeof window !== "undefined" ? isInstantBookingEffective() : false,
+    instantBook: true,
     amenities:
       (() => {
         const merged = [

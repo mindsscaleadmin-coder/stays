@@ -31,8 +31,7 @@ const TABS: { id: TabId; label: string }[] = [
 const inputClass =
   "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500";
 
-const HOST_FEATURE_LABELS: Record<HostFeatureKey, string> = {
-  instantBooking: "Instant booking (host opt-in)",
+const HOST_FEATURE_LABELS: Record<Exclude<HostFeatureKey, "instantBooking">, string> = {
   dynamicPricing: "Dynamic pricing tools",
   hostMessaging: "Guest messaging",
   calendarSync: "External calendar sync",
@@ -269,33 +268,14 @@ export function AdminPlatformConfigContent() {
               <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                 <ToggleLeft className="w-4 h-4 text-green-700" /> Platform-wide booking
               </h3>
-              <label className="flex items-center justify-between gap-3 border border-gray-100 rounded-xl px-4 py-3 cursor-pointer">
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">Instant booking (platform-wide)</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    When off, hosts cannot enable instant book and listings won&apos;t show instant confirmation.
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={config.features.instantBookingPlatformWide}
-                  onChange={(e) => {
-                    patch((prev) => ({
-                      ...prev,
-                      features: {
-                        ...prev.features,
-                        instantBookingPlatformWide: e.target.checked,
-                      },
-                    }));
-                    flash(
-                      e.target.checked
-                        ? "Instant booking enabled platform-wide."
-                        : "Instant booking disabled platform-wide."
-                    );
-                  }}
-                  className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-                />
-              </label>
+              <div className="border border-gray-100 rounded-xl px-4 py-3 bg-gray-50/80">
+                <p className="text-sm font-semibold text-gray-900">Instant confirmation</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Guest bookings confirm automatically when dates are available. Hosts control
+                  inventory with calendar blocks and listing visibility — there is no separate
+                  accept/decline step.
+                </p>
+              </div>
             </section>
 
             <section className="bg-white rounded-2xl border p-5 space-y-3">
@@ -305,7 +285,7 @@ export function AdminPlatformConfigContent() {
               <p className="text-xs text-gray-500">
                 Master switches — when off, hosts cannot use that capability regardless of their own settings.
               </p>
-              {(Object.keys(HOST_FEATURE_LABELS) as HostFeatureKey[]).map((key) => (
+              {(Object.keys(HOST_FEATURE_LABELS) as Array<keyof typeof HOST_FEATURE_LABELS>).map((key) => (
                 <label
                   key={key}
                   className="flex items-center justify-between gap-3 border border-gray-100 rounded-xl px-4 py-3 cursor-pointer"

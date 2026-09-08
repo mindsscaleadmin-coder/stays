@@ -8,6 +8,7 @@ import type {
   PlatformFeatureToggles,
   SecuritySettings,
 } from "./platform-config-types";
+import { BASE_CURRENCY } from "@/lib/currency";
 
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
 const STORAGE_KEY = "farm-stays-platform-config";
@@ -34,7 +35,7 @@ export const DEFAULT_HOST_BOUNDS: HostFeatureBounds = {
 
 export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
   global: {
-    defaultCurrency: "AED",
+    defaultCurrency: BASE_CURRENCY,
     supportedCurrencies: ["AED", "SAR", "OMR", "QAR", "USD"],
     supportedLanguages: [
       { code: "en", label: "English", enabled: true },
@@ -303,15 +304,9 @@ export function isAdminIpAllowed(
   return list.includes(ip.trim());
 }
 
-/** Host-level instant book toggle raw value (ignores platform gates). */
-export function getHostInstantBookToggleRaw(): boolean {
-  if (typeof window === "undefined") return false;
-  return localStorage.getItem("farm-stays-host-instant-book-enabled") === "true";
-}
-
+/** Bookings always confirm instantly when dates are available. */
 export function isInstantBookingEffective(): boolean {
-  if (!isInstantBookingPlatformEnabled()) return false;
-  return getHostInstantBookToggleRaw();
+  return true;
 }
 
 export function countDisabledIntegrations(config = loadPlatformConfig()): number {

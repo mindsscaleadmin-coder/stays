@@ -287,7 +287,7 @@ function matchesAdvancedFilter(
     return stay.price > 1500;
   }
   if (name.includes("instant")) {
-    return stay.instantBook === true;
+    return true;
   }
 
   const tags = [

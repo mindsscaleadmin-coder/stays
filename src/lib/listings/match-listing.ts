@@ -1,4 +1,5 @@
 import { locationMatchesCountry } from "@/lib/currency";
+import { richTextToPlain } from "./rich-text";
 import type { SubmittedListing } from "./submission-types";
 
 export type ListingSearchFilters = {
@@ -81,7 +82,7 @@ export function submittedListingMatches(
     const q = normalize(filters.q);
     const haystack = [
       listing.title,
-      listing.description,
+      richTextToPlain(listing.description ?? ""),
       listing.country,
       listing.state,
       listing.district,

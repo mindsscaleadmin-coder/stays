@@ -7,8 +7,8 @@ export function todayIso(): string {
 export function getBookingTimeline(
   booking: HostBookingRecord,
   today: string = todayIso()
-): BookingTimelineTab | "past" {
-  if (booking.status === "pending") return "requests";
+): BookingTimelineTab {
+  // Legacy pending (request-to-book retired) — place on the stay timeline.
   if (
     booking.status === "declined" ||
     booking.status === "cancelled" ||
@@ -17,7 +17,7 @@ export function getBookingTimeline(
   ) {
     return "past";
   }
-  if (booking.status === "confirmed") {
+  if (booking.status === "confirmed" || booking.status === "pending") {
     if (booking.checkIn <= today && booking.checkOut >= today) return "ongoing";
     if (booking.checkIn > today) return "upcoming";
     return "past";
@@ -54,8 +54,6 @@ export function displaySpecialRequests(booking: HostBookingRecord): string {
 
 export function timelineTabLabel(tab: BookingTimelineTab): string {
   switch (tab) {
-    case "requests":
-      return "Requests";
     case "upcoming":
       return "Upcoming";
     case "ongoing":

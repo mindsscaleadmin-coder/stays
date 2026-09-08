@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { BASE_CURRENCY } from "@/lib/currency";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -13,9 +14,20 @@ export function formatAmount(amount: number): string {
   return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-export function formatPrice(amount: number, currency = "AED") {
+export function formatPrice(amount: number, currency = BASE_CURRENCY) {
   const formatted = formatAmount(amount);
   return `${currency} ${formatted}`;
+}
+
+/** Open the native date/time picker when the user clicks anywhere on the field. */
+export function openNativeDatePicker(event: { currentTarget: HTMLInputElement }) {
+  const input = event.currentTarget;
+  if (typeof input.showPicker !== "function") return;
+  try {
+    input.showPicker();
+  } catch {
+    /* already open, or the browser blocked it */
+  }
 }
 
 /** Trigger a browser download for a file stored as a data URL (e.g. uploaded ID docs). */

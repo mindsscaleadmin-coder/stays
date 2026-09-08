@@ -10,12 +10,15 @@ import { loadPricingSettings, savePricingSettings } from "@/lib/host/host-pricin
 import { fetchPricingFromApi, shouldUseSharedPricingStore } from "@/lib/host/host-pricing-api";
 import type { ListingPricingSettings } from "@/lib/host/host-pricing-types";
 import { calculateStayQuote, countNights } from "@/lib/host/calculate-stay-price";
-import { formatMoney, formatStoredMoney } from "@/lib/currency";
+import { BASE_CURRENCY, formatMoney, formatStoredMoney  } from "@/lib/currency";
 import { listingHref } from "@/lib/guest/stay-search-dates";
 import { resolveCatalogListingHost } from "@/lib/listings/catalog-listing-hosts";
 import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { useLocale } from "next-intl";
+import { computeExperienceQuote } from "@/lib/booking/compute-experience-quote";
+import { normalizeExperienceSessions } from "@/lib/booking/experience-session-types";
+import { isExperienceListing } from "@/lib/booking/is-experience-listing";
 
 const EXPERIENCE_PRICES: Record<string, { title: string; amount: number }> = {
   "farm-tour": { title: "Farm Tour", amount: 75 },
@@ -26,8 +29,11 @@ const EXPERIENCE_PRICES: Record<string, { title: string; amount: number }> = {
 
 type Props = {
   listingId: string;
+  kind?: "stay" | "experience";
   checkIn: string;
   checkOut: string;
+  date?: string;
+  sessionKey?: string;
   guests: number;
   rooms: string[];
   experienceIds: string[];
@@ -36,8 +42,11 @@ type Props = {
 
 export function CheckoutContent({
   listingId,
+  kind = "stay",
   checkIn,
   checkOut,
+  date = "",
+  sessionKey = "",
   guests,
   rooms,
   experienceIds,
@@ -56,6 +65,15 @@ export function CheckoutContent({
     () => listings.find((s) => s.id === listingId),
     [listings, listingId]
   );
+
+  const asExperience =
+    kind === "experience" ||
+    isExperienceListing({
+      parentCategory: stay?.parentCategory,
+      type: stay?.type,
+    });
+
+  const experienceDate = date || checkIn;
 
   const countryPricing = useMemo(
     () => resolveCountryPricingConfig(taxonomy.countries, stay?.location),
@@ -97,7 +115,7 @@ export function CheckoutContent({
   const quotePreview = useMemo(() => {
     if (!stay || !pricing || !checkIn || !checkOut || nights < 1) return null;
     const currency =
-      pricing.currency || countryPricing.currency || "AED";
+      pricing.currency || countryPricing.currency || BASE_CURRENCY;
     const experiencesTotal =
       experienceIds.reduce((sum, id) => sum + (EXPERIENCE_PRICES[id]?.amount ?? 0), 0) *
       Math.max(1, guests);
@@ -179,8 +197,87 @@ export function CheckoutContent({
     locale,
   ]);
 
+  const experienceQuote = useMemo(() => {
+    if (!asExperience || !pricing || !sessionKey) return null;
+    const sessions = normalizeExperienceSessions(pricing.sessions);
+    const session = sessions.find((s) => s.key === sessionKey);
+    if (!session) return null;
+    const currency =
+      pricing.currency || countryPricing.currency || BASE_CURRENCY;
+    const quote = computeExperienceQuote({
+      session,
+      guestCount: guests,
+      taxPct: pricing.taxPct,
+      taxLabel: pricing.taxLabel,
+      currency,
+    });
+    return { quote, session, currency };
+  }, [asExperience, pricing, sessionKey, guests, countryPricing.currency]);
+
   async function handlePay() {
-    if (!stay || !quotePreview?.stayQuote || !user) return;
+    if (!stay || !user) return;
+
+    if (asExperience) {
+      if (!experienceDate || !sessionKey || !experienceQuote) {
+        setError("Select a date and session before checkout.");
+        return;
+      }
+      setPaying(true);
+      setError(null);
+      try {
+        const catalogHost = resolveCatalogListingHost(stay.id);
+        const res = await fetch("/api/bookings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind: "experience",
+            listingId: stay.id,
+            date: experienceDate,
+            sessionKey,
+            guestCount: guests,
+            currency: experienceQuote.currency,
+            guestId: user.id,
+            guestName: user.fullName,
+            guestEmail: user.email,
+            demoPay: true,
+            listing: {
+              id: stay.id,
+              title: stay.name,
+              hostId: catalogHost?.hostId ?? stay.hostId,
+              hostName: catalogHost?.hostName,
+              location: stay.location,
+              maxGuests: stay.guests,
+              pricePerNight: experienceQuote.session.price,
+              instantBook: stay.instantBook,
+              currency: experienceQuote.currency,
+              parentCategory: stay.parentCategory,
+              type: stay.type,
+            },
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Could not create booking");
+        if (data.mode === "stripe" && data.checkoutUrl) {
+          window.location.href = data.checkoutUrl as string;
+          return;
+        }
+        const booking = data.booking as { id: string };
+        if (data.mode === "demo" && !data.paid && booking.id) {
+          const payRes = await fetch(`/api/bookings/${booking.id}/demo-pay`, {
+            method: "POST",
+          });
+          const payData = await payRes.json();
+          if (!payRes.ok) throw new Error(payData.error || "Payment failed");
+        }
+        router.push(`/booking/${stay.id}/success?bookingId=${booking.id}`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+        setPaying(false);
+      }
+      return;
+    }
+
+    if (!quotePreview?.stayQuote) return;
     if (!checkIn || !checkOut || nights < 1) {
       setError("Select valid check-in and check-out dates.");
       return;
@@ -255,6 +352,88 @@ export function CheckoutContent({
         <Link href="/listings" className="text-sm text-green-700 font-semibold mt-3 inline-block">
           Browse listings
         </Link>
+      </div>
+    );
+  }
+
+  if (asExperience) {
+    if (!experienceDate || !sessionKey || !experienceQuote) {
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-16 text-center">
+          <p className="text-gray-800 font-medium">Choose a date and session before checkout</p>
+          <Link
+            href={`/listing/${listingId}`}
+            className="text-sm text-green-700 font-semibold mt-3 inline-block"
+          >
+            Back to listing
+          </Link>
+        </div>
+      );
+    }
+
+    const currency = experienceQuote.currency;
+    const money = (amount: number) =>
+      formatStoredMoney(amount, {
+        storedCurrency: currency,
+        currency,
+        exchangeRateToAED: countryPricing.exchangeRateToAED,
+        locale,
+      });
+
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-10">
+        <h1 className="text-2xl font-bold text-gray-900 font-display mb-6">Checkout</h1>
+        <div className="bg-white rounded-2xl border p-6 space-y-4">
+          <div className="flex gap-4">
+            <div className="relative w-24 h-20 rounded-xl overflow-hidden bg-gray-100 shrink-0">
+              <Image src={stay.img} alt={stay.name} fill className="object-cover" unoptimized />
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900">{stay.name}</p>
+              <p className="text-sm text-gray-500 mt-1 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5" />
+                {experienceDate} · {experienceQuote.session.label}
+              </p>
+              <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5" />
+                {guests} guest{guests === 1 ? "" : "s"}
+              </p>
+            </div>
+          </div>
+          <div className="border-t border-gray-100 pt-4 space-y-2 text-sm">
+            {experienceQuote.quote.lines.map((line) => (
+              <div key={line.label} className="flex justify-between gap-2 text-gray-600">
+                <span>{line.label}</span>
+                <span>{money(line.amount)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between gap-2 font-semibold text-gray-900 pt-2">
+              <span>Total</span>
+              <span>{money(experienceQuote.quote.total)}</span>
+            </div>
+          </div>
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={paying || !user}
+            onClick={() => void handlePay()}
+            className="w-full bg-green-700 hover:bg-green-800 disabled:opacity-60 text-white font-semibold py-3 rounded-xl text-sm inline-flex items-center justify-center gap-2"
+          >
+            {paying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+            {paying
+              ? "Processing…"
+              : paymentMode === "stripe"
+                ? "Pay with Stripe"
+                : "Confirm & pay (demo)"}
+          </button>
+          {!user && (
+            <p className="text-xs text-center text-gray-500">Sign in to complete booking.</p>
+          )}
+        </div>
       </div>
     );
   }

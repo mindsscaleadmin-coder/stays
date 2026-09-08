@@ -1,12 +1,33 @@
 /**
  * Marketplace money rules:
- * - Listing prices are stored / quoted in AED (platform baseline).
+ * - Listing prices are stored / quoted in the platform base currency.
  * - Display currency follows the selected country (search or header).
  * - exchangeRateToAED = how many AED equal 1 unit of that currency
  *   (e.g. OMR 9.54 → 1 OMR = 9.54 AED → AED→OMR = amount / 9.54).
+ *
+ * Single source of truth for the platform default currency. Prefer
+ * Country.currencyCode / taxonomy country.currency when a market is known;
+ * fall back here only when no country context exists yet.
  */
 
+/** Platform baseline currency (DB `Country.currencyCode` default matches this). */
 export const BASE_CURRENCY = "AED";
+
+/** @deprecated Use BASE_CURRENCY — kept for older call sites. */
+export const DEFAULT_CURRENCY = BASE_CURRENCY;
+
+/** Resolve a currency code, falling back to the platform baseline. */
+export function normalizeCurrency(
+  code?: string | null,
+  fallback: string = BASE_CURRENCY
+): string {
+  const trimmed = (code ?? "").trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(trimmed) ? trimmed : fallback;
+}
+
+export function defaultCurrency(): string {
+  return BASE_CURRENCY;
+}
 
 export type MoneyDisplayOptions = {
   currency?: string;
@@ -54,6 +75,7 @@ export const DEFAULT_RATES_TO_AED: Record<string, number> = {
   SAR: 0.98,
   QAR: 1.01,
   OMR: 9.54,
+  INR: 0.043,
 };
 
 /** Listing-country currency when the host has not set a pricing currency. */
@@ -63,11 +85,12 @@ export function currencyForCountryName(country?: string): string {
   if (n.includes("oman") || n === "om") return "OMR";
   if (n.includes("saudi") || n === "ksa" || n === "sa") return "SAR";
   if (n.includes("qatar") || n === "qa") return "QAR";
+  if (n.includes("india") || n === "in") return "INR";
   return BASE_CURRENCY;
 }
 
 export type StoredMoneyOptions = MoneyDisplayOptions & {
-  /** Currency the amount is already stored in. Default AED. */
+  /** Currency the amount is already stored in. Default platform baseline. */
   storedCurrency?: string;
   /** AED per 1 unit of the stored currency. */
   storedRateToAED?: number;
@@ -75,8 +98,8 @@ export type StoredMoneyOptions = MoneyDisplayOptions & {
 
 /** Format a stored listing/quote amount in the guest's display currency. */
 export function formatStoredMoney(amount: number, options: StoredMoneyOptions = {}): string {
-  const stored = (options.storedCurrency || BASE_CURRENCY).toUpperCase();
-  const display = (options.currency || BASE_CURRENCY).toUpperCase();
+  const stored = normalizeCurrency(options.storedCurrency);
+  const display = normalizeCurrency(options.currency);
   const storedRate =
     options.storedRateToAED ?? DEFAULT_RATES_TO_AED[stored] ?? 1;
   const aed = stored === BASE_CURRENCY ? amount : toAed(amount, storedRate);
@@ -88,7 +111,7 @@ export function formatStoredMoney(amount: number, options: StoredMoneyOptions = 
 
 /** Format an AED-stored amount for a target country currency. */
 export function formatMoney(amountAed: number, options: MoneyDisplayOptions = {}): string {
-  const currency = (options.currency || BASE_CURRENCY).toUpperCase();
+  const currency = normalizeCurrency(options.currency);
   const rate = options.exchangeRateToAED ?? 1;
   const converted = fromAed(amountAed, rate);
   const digits = formatDigits(converted, currency);
@@ -107,13 +130,13 @@ export const COUNTRY_SEARCH_ALIASES: Record<string, string[]> = {
   saudi: ["saudi", "ksa", "sa", "saudi arabia"],
   oman: ["oman", "om", "سلطنة عمان"],
   qatar: ["qatar", "qa", "دولة قطر"],
+  india: ["india", "in", "bharat"],
 };
 
 export function countryMatchTokens(countryName: string): string[] {
   const key = countryName.trim().toLowerCase();
   const aliases = COUNTRY_SEARCH_ALIASES[key];
   if (aliases) return aliases;
-  // Also try partial keys
   for (const [name, toks] of Object.entries(COUNTRY_SEARCH_ALIASES)) {
     if (key.includes(name) || name.includes(key)) return toks;
   }

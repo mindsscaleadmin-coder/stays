@@ -38,6 +38,7 @@ model User {
 /// country/state/district names stay denormalized; countryId/locationId are the future source of truth.
 model Listing {
   id            String         @id
+  propertyReference String     @unique
   hostId        String
   host          User           @relation(fields: [hostId], references: [id])
   title         String
@@ -65,10 +66,12 @@ model Listing {
   showExactLocation Boolean    @default(false)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
-  bookings      Booking[]
-  reviews       Review[]
-  availability  Availability[]
-  promotions    ListingPromotion[]
+  bookings         Booking[]
+  bookingNights    BookingNight[]
+  experienceSlots  ExperienceSlot[]
+  reviews          Review[]
+  availability     Availability[]
+  promotions       ListingPromotion[]
   /// Mirrors active featured promotion for fast search ranking
   featured      Boolean        @default(false)
   pricing       ListingPricing?
@@ -114,6 +117,7 @@ model ListingAvailabilityMeta {
 
 model Booking {
   id            String    @id @default(cuid())
+  bookingReference String  @unique
   listingId     String
   listing       Listing   @relation(fields: [listingId], references: [id])
   guestId       String
@@ -151,11 +155,50 @@ model Booking {
   auditLog           String    @default("[]")
   createdAt     DateTime  @default(now())
   messages      BookingMessage[]
+  nights        BookingNight[]
+  /// Set for experience (session) bookings; null for stay night bookings.
+  experienceSlotId String?
+  experienceSlot   ExperienceSlot? @relation(fields: [experienceSlotId], references: [id], onDelete: SetNull)
 
   @@index([listingId, checkIn, checkOut])
   @@index([status, expiresAt])
   @@index([guestId, status])
   @@index([listingId, status])
+  @@index([experienceSlotId])
+}
+
+/// One row per occupied stay night — @@unique enforces no double-booking at the DB.
+model BookingNight {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  date      DateTime
+
+  @@unique([listingId, date])
+  @@index([bookingId])
+  @@index([listingId, date])
+}
+
+/// One capacity bucket per listing + date + session (Morning/Evening/…).
+/// @@unique + row lock in confirmExperienceBooking prevent overselling spots.
+model ExperienceSlot {
+  id          String    @id @default(cuid())
+  listingId   String
+  listing     Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  /// Calendar day (UTC midnight)
+  date        DateTime
+  /// Stable key matching pricing session template (e.g. morning)
+  sessionKey  String
+  capacity    Int
+  bookedCount Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  bookings    Booking[]
+
+  @@unique([listingId, date, sessionKey])
+  @@index([listingId, date])
 }
 
 /// Singleton platform configuration (admin)
@@ -342,7 +385,7 @@ model Country {
   iso3                      String?
   numericCode               String?
   phoneCode                 String?
-  currencyCode              String     @default("AED")
+  currencyCode              String     @default("AED") // keep in sync with src/lib/currency.ts BASE_CURRENCY
   currencySymbol            String?
   /// AED per 1 unit of this currency (existing marketplace rule)
   exchangeRateToAed         Float      @default(1)

@@ -7,6 +7,7 @@ import type {
 } from "./host-pricing-types";
 import { normalizeExtraChargeBilling } from "./host-pricing-types";
 import { emitSyncEvent } from "@/lib/emit-sync-event";
+import { BASE_CURRENCY } from "@/lib/currency";
 
 const STORAGE_KEY = "farm-stays-host-pricing";
 export const HOST_PRICING_SYNC_EVENT = "farm-stays-host-pricing-updated";
@@ -19,7 +20,7 @@ export function defaultForListing(
   return {
     listingId,
     basePrice: Math.max(0, seed?.basePrice ?? 0),
-    currency: country?.currency ?? "AED",
+    currency: country?.currency ?? BASE_CURRENCY,
     weekendPrice: null,
     monthlyPrice: null,
     roomPrices: [],
@@ -41,6 +42,7 @@ export function defaultForListing(
     extraChargesEnabled: true,
     taxPct: country?.taxPct ?? 5,
     taxLabel: country?.taxLabel ?? "VAT",
+    sessions: [],
   };
 }
 
@@ -215,6 +217,7 @@ export function seedPricingFromListingForm(input: {
   listingId: string;
   country?: CountryPricingConfig;
   similarListingIds?: string[];
+  seedSessions?: ListingPricingSettings["sessions"];
 }): ListingPricingSettings {
   const map = readAll();
   const existing = map[input.listingId];
@@ -223,6 +226,9 @@ export function seedPricingFromListingForm(input: {
   let base = defaultForListing(input.listingId, input.country);
   if (input.country) {
     base = applyCountryPricing(base, input.country);
+  }
+  if (input.seedSessions?.length) {
+    base = { ...base, sessions: input.seedSessions };
   }
 
   if (!alreadyCustomized && input.similarListingIds?.length) {
@@ -262,6 +268,10 @@ export function seedPricingFromListingForm(input: {
     }
   } else if (alreadyCustomized && input.country) {
     base = applyCountryPricing({ ...existing!, listingId: input.listingId }, input.country);
+  }
+
+  if (input.seedSessions?.length && !(existing?.sessions?.length)) {
+    base = { ...base, sessions: input.seedSessions };
   }
 
   savePricingSettings(base);

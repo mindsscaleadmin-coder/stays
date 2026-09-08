@@ -1,5 +1,6 @@
 import type { Country as TaxonomyCountry } from "@/lib/admin/taxonomy-types";
 import { ALL_COUNTRIES, type Country as PlatformCountry } from "@/lib/mock/countries";
+import { BASE_CURRENCY } from "@/lib/currency";
 
 /** Common listing country name aliases → ISO code for lookup. */
 const COUNTRY_NAME_ALIASES: Record<string, string> = {
@@ -11,6 +12,7 @@ const COUNTRY_NAME_ALIASES: Record<string, string> = {
   saudi: "SA",
   oman: "OM",
   qatar: "QA",
+  india: "IN",
 };
 
 export interface CountryPricingConfig {
@@ -74,7 +76,7 @@ export function countryPricingConfig(country: TaxonomyCountry): CountryPricingCo
     countryId: country.id,
     countryName: country.name,
     flag: country.flag ?? "🏳️",
-    currency: country.currency ?? "AED",
+    currency: country.currency ?? BASE_CURRENCY,
     currencySymbol: country.currencySymbol ?? "د.إ",
     exchangeRateToAED: country.exchangeRateToAED ?? 1,
     taxPct: country.taxPct ?? 5,
@@ -97,7 +99,7 @@ export function resolveCountryPricingConfig(
       countryId: "",
       countryName: "United Arab Emirates",
       flag: "🇦🇪",
-      currency: "AED",
+      currency: BASE_CURRENCY,
       currencySymbol: "د.إ",
       exchangeRateToAED: 1,
       taxPct: 5,
@@ -139,7 +141,7 @@ export function toPlatformCountry(c: TaxonomyCountry): PlatformCountry {
     code: (c.code ?? c.id).toUpperCase(),
     name: c.name,
     flag: c.flag ?? "🏳️",
-    currency: c.currency ?? "AED",
+    currency: c.currency ?? BASE_CURRENCY,
     currencySymbol: c.currencySymbol ?? "د.إ",
     exchangeRateToAED: c.exchangeRateToAED ?? 1,
     dialCode: c.dialCode ?? "",

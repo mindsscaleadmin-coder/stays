@@ -1,7 +1,7 @@
 import { canManageListings } from "@/lib/auth/roles";
 import type { GuestUser } from "@/lib/auth/types";
 
-export const LIST_PROPERTY_PATH = "/host/listings/new";
+export const LIST_PROPERTY_PATH = "/host/new-listing";
 
 export const LIST_PROPERTY_SIGNUP_HREF = `/host/signup?next=${encodeURIComponent(LIST_PROPERTY_PATH)}`;
 

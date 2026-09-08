@@ -8,6 +8,7 @@ import {
   evaluateCancellationRefund,
   refundStatusFromBand,
 } from "@/lib/booking/policies";
+import { BASE_CURRENCY } from "@/lib/currency";
 
 function parseTotalPrice(booking: GuestBookingSummary): number {
   if (typeof booking.totalPrice === "number" && Number.isFinite(booking.totalPrice)) {
@@ -61,7 +62,7 @@ export async function cancelGuestBooking(input: {
     refundStatus: refundStatusFromBand(preview.band),
     refundAmount:
       preview.refundAmount > 0
-        ? `AED ${preview.refundAmount.toLocaleString()}`
+        ? `${BASE_CURRENCY} ${preview.refundAmount.toLocaleString()}`
         : undefined,
   });
 

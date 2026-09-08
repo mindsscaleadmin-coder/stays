@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { BookingError } from "@/lib/booking/confirm-booking";
 import { createQuotedBooking } from "@/lib/booking/create-quoted-booking";
+import { createQuotedExperienceBooking } from "@/lib/booking/create-quoted-experience-booking";
+import { isExperienceListing } from "@/lib/booking/is-experience-listing";
 import { markBookingPaid } from "@/lib/booking/mark-paid";
 import {
   queryBookings,
@@ -19,6 +21,8 @@ import { expirePendingBookings } from "@/lib/booking/lifecycle";
 import { prisma } from "@/lib/prisma";
 import { resolveSessionActor } from "@/lib/auth/resolve-actor";
 import { canAccessAdmin } from "@/lib/auth/roles";
+import { BASE_CURRENCY } from "@/lib/currency";
+import { getListingPricingMap } from "@/lib/server/listing-pricing-repo";
 
 function supabaseConfigured() {
   return isSupabaseConfigured();
@@ -63,22 +67,24 @@ export async function GET(request: Request) {
       );
     }
 
-    // Expire stale pending requests before listing so host calendar / guest trips stay current.
     await expirePendingBookings();
 
-    // Host list: without hostId returns all (local demo / single-operator).
-    // Pass hostId to scope when listings are owned by a real host user.
     const rows = await queryBookings({ role, hostId, guestId, listingId });
+    const pricingById = await getListingPricingMap(rows.map((row) => row.listingId));
 
     if (role === "guest") {
       return NextResponse.json({
-        bookings: rows.map(toGuestBookingSummary),
+        bookings: rows.map((row) =>
+          toGuestBookingSummary(row, pricingById.get(row.listingId)?.currency)
+        ),
         source: "prisma" as const,
       });
     }
 
     return NextResponse.json({
-      bookings: rows.map(toHostBookingRecord),
+      bookings: rows.map((row) =>
+        toHostBookingRecord(row, pricingById.get(row.listingId)?.currency)
+      ),
       source: "prisma" as const,
     });
   } catch (error) {
@@ -93,8 +99,23 @@ export async function GET(request: Request) {
   }
 }
 
-const bodySchema = z.object({
+const listingSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  hostId: z.string().optional(),
+  hostName: z.string().optional(),
+  location: z.string().optional(),
+  maxGuests: z.number().optional(),
+  pricePerNight: z.number(),
+  instantBook: z.boolean().optional(),
+  currency: z.string().optional(),
+  parentCategory: z.string().optional(),
+  type: z.string().optional(),
+});
+
+const stayBodySchema = z.object({
   listingId: z.string().min(1),
+  kind: z.literal("stay").optional(),
   checkIn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   checkOut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   guestCount: z.number().int().min(1).max(50),
@@ -103,42 +124,38 @@ const bodySchema = z.object({
   experiencesTotal: z.number().min(0).optional().default(0),
   extrasTotal: z.number().min(0).optional().default(0),
   taxAmount: z.number().min(0).optional().default(0),
-  currency: z.string().min(3).max(3).optional().default("AED"),
-  listing: z.object({
-    id: z.string(),
-    title: z.string(),
-    hostId: z.string().optional(),
-    hostName: z.string().optional(),
-    location: z.string().optional(),
-    maxGuests: z.number().optional(),
-    pricePerNight: z.number(),
-    instantBook: z.boolean().optional(),
-    currency: z.string().optional(),
-  }),
+  currency: z.string().min(3).max(3).optional().default(BASE_CURRENCY),
+  listing: listingSchema,
   guestName: z.string().optional(),
   guestEmail: z.string().email().optional(),
   roomIds: z.array(z.string()).optional(),
   experienceIds: z.array(z.string()).optional(),
   extraIds: z.array(z.string()).optional(),
-  /** When true and Stripe is not configured, mark paid immediately (local demo). */
+  demoPay: z.boolean().optional().default(false),
+});
+
+const experienceBodySchema = z.object({
+  listingId: z.string().min(1),
+  kind: z.literal("experience"),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  sessionKey: z.string().min(1),
+  guestCount: z.number().int().min(1).max(50),
+  currency: z.string().min(3).max(3).optional().default(BASE_CURRENCY),
+  listing: listingSchema,
+  guestName: z.string().optional(),
+  guestEmail: z.string().email().optional(),
   demoPay: z.boolean().optional().default(false),
 });
 
 export async function POST(request: Request) {
   try {
     const json = await request.json();
-    const parsed = bodySchema.safeParse(json);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid booking payload", details: parsed.error.flatten() },
-        { status: 400 }
-      );
-    }
-    const body = parsed.data;
 
     let resolvedGuestId: string | null = null;
-    let guestEmail = body.guestEmail;
-    let guestName = body.guestName;
+    let guestEmail: string | undefined =
+      typeof json.guestEmail === "string" ? json.guestEmail : undefined;
+    let guestName: string | undefined =
+      typeof json.guestName === "string" ? json.guestName : undefined;
 
     if (supabaseConfigured()) {
       const user = await requireSessionUser();
@@ -151,7 +168,6 @@ export async function POST(request: Request) {
         undefined;
     }
 
-    // Demo auth: accept guestId from body only when Supabase is not configured
     const guestId =
       resolvedGuestId ||
       (!supabaseConfigured() && typeof json.guestId === "string" && json.guestId
@@ -162,14 +178,138 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Sign in required to book" }, { status: 401 });
     }
 
+    const listingRow = await prisma.listing.findUnique({
+      where: { id: typeof json.listingId === "string" ? json.listingId : "" },
+      select: { parentCategory: true, payload: true },
+    });
+    let payloadType = "";
+    try {
+      if (listingRow?.payload) {
+        payloadType = (JSON.parse(listingRow.payload) as { type?: string }).type ?? "";
+      }
+    } catch {
+      // ignore
+    }
+    const treatAsExperience =
+      json.kind === "experience" ||
+      isExperienceListing({
+        parentCategory: listingRow?.parentCategory,
+        type: payloadType || json.listing?.type,
+      });
+
+    if (treatAsExperience) {
+      const parsed = experienceBodySchema.safeParse({
+        ...json,
+        kind: "experience",
+        date: json.date || json.checkIn,
+      });
+      if (!parsed.success) {
+        return NextResponse.json(
+          { error: "Invalid experience booking payload", details: parsed.error.flatten() },
+          { status: 400 }
+        );
+      }
+      const body = parsed.data;
+
+      const { booking, quote, session } = await createQuotedExperienceBooking({
+        listingId: body.listingId,
+        dateIso: body.date,
+        sessionKey: body.sessionKey,
+        guestCount: body.guestCount,
+        guestId,
+        guestName: guestName || body.guestName,
+        guestEmail: guestEmail || body.guestEmail,
+        currency: body.currency,
+        listing: body.listing,
+      });
+
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      const successUrl = `${appUrl}/booking/${body.listingId}/success?bookingId=${booking.id}&session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${appUrl}/booking/${body.listingId}/checkout?date=${body.date}&session=${body.sessionKey}&guests=${body.guestCount}&kind=experience`;
+
+      if (isStripeConfigured()) {
+        const stripe = getStripe()!;
+        const stripeSession = await stripe.checkout.sessions.create({
+          mode: "payment",
+          success_url: successUrl,
+          cancel_url: cancelUrl,
+          customer_email: guestEmail || body.guestEmail,
+          expires_at: Math.floor(Date.now() / 1000) + 23 * 60 * 60,
+          line_items: [
+            {
+              quantity: 1,
+              price_data: {
+                currency: quote.currency.toLowerCase(),
+                unit_amount: toStripeAmount(quote.total, quote.currency),
+                product_data: {
+                  name: body.listing.title,
+                  description: `${body.date} · ${session.label} · ${body.guestCount} guest${body.guestCount === 1 ? "" : "s"}`,
+                },
+              },
+            },
+          ],
+          metadata: {
+            bookingId: booking.id,
+            bookingIds: booking.id,
+            bookingReference: booking.bookingReference,
+            listingId: body.listingId,
+          },
+        });
+
+        const withSession = await prisma.booking.update({
+          where: { id: booking.id },
+          data: {
+            stripeSessionId: stripeSession.id,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          },
+        });
+
+        return NextResponse.json({
+          booking: withSession,
+          quote,
+          mode: "stripe" as const,
+          checkoutUrl: stripeSession.url,
+          sessionId: stripeSession.id,
+        });
+      }
+
+      if (body.demoPay) {
+        const paid = await markBookingPaid(booking.id);
+        void enqueueBookingConfirmedJob({ bookingId: paid.id, guestId: paid.guestId });
+        return NextResponse.json({
+          booking: paid,
+          quote,
+          mode: "demo" as const,
+          paid: true,
+        });
+      }
+
+      return NextResponse.json({
+        booking,
+        quote,
+        mode: "demo" as const,
+        paid: false,
+        demoPayAvailable: true,
+      });
+    }
+
+    const parsed = stayBodySchema.safeParse(json);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid booking payload", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+    const body = parsed.data;
+
     const { booking, quote } = await createQuotedBooking({
       listingId: body.listingId,
       checkIn: body.checkIn,
       checkOut: body.checkOut,
       guestCount: body.guestCount,
       guestId,
-      guestName,
-      guestEmail,
+      guestName: guestName || body.guestName,
+      guestEmail: guestEmail || body.guestEmail,
       roomIds: body.roomIds,
       experienceIds: body.experienceIds,
       extraIds: body.extraIds,
@@ -187,7 +327,7 @@ export async function POST(request: Request) {
         mode: "payment",
         success_url: successUrl,
         cancel_url: cancelUrl,
-        customer_email: guestEmail,
+        customer_email: guestEmail || body.guestEmail,
         expires_at: Math.floor(Date.now() / 1000) + 23 * 60 * 60,
         line_items: [
           {
@@ -205,6 +345,7 @@ export async function POST(request: Request) {
         metadata: {
           bookingId: booking.id,
           bookingIds: booking.id,
+          bookingReference: booking.bookingReference,
           listingId: body.listingId,
         },
       });
@@ -226,7 +367,6 @@ export async function POST(request: Request) {
       });
     }
 
-    // Demo path: optional immediate pay
     if (body.demoPay) {
       const paid = await markBookingPaid(booking.id);
       void enqueueBookingConfirmedJob({ bookingId: paid.id, guestId: paid.guestId });

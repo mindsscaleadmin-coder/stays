@@ -1,4 +1,5 @@
 import { countNights } from "@/lib/host/calculate-stay-price";
+import { BASE_CURRENCY, normalizeCurrency } from "@/lib/currency";
 
 export type BookingQuoteInput = {
   checkIn: string;
@@ -44,7 +45,7 @@ export function computeBookingQuote(input: BookingQuoteInput): BookingQuote {
   const extrasTotal = Math.max(0, Math.min(Number(input.extrasTotal) || 0, 50_000));
   const taxAmount = Math.max(0, Math.min(Number(input.taxAmount) || 0, 100_000));
   const total = accommodation + experiencesTotal + extrasTotal + taxAmount;
-  const currency = (input.currency || "AED").toUpperCase();
+  const currency = normalizeCurrency(input.currency || BASE_CURRENCY);
 
   const lines: { label: string; amount: number }[] = [
     {

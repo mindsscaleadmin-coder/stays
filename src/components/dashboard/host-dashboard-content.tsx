@@ -83,7 +83,7 @@ export function HostDashboardContent() {
             </p>
           </div>
           <Link
-            href="/host/listings/new"
+            href="/host/new-listing"
             className="inline-flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
           >
             <Plus className="w-4 h-4" /> Add New Listing

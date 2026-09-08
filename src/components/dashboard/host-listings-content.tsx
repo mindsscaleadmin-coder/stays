@@ -109,7 +109,7 @@ export function HostListingsContent() {
             </p>
           </div>
           <Link
-            href="/host/listings/new"
+            href="/host/new-listing"
             className="inline-flex items-center gap-2 border border-gray-300 hover:border-green-400 text-gray-700 hover:text-green-700 text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
           >
             <Plus className="w-4 h-4" /> Add Property
@@ -121,7 +121,7 @@ export function HostListingsContent() {
             <div className="bg-white rounded-2xl border p-8 text-center text-sm text-gray-500">
               <p>No listings yet. Create your first property, then add rooms to it.</p>
               <Link
-                href="/host/listings/new"
+                href="/host/new-listing"
                 className="inline-flex items-center gap-2 mt-4 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
               >
                 <Plus className="w-4 h-4" /> Add Property
@@ -226,6 +226,18 @@ function ListingCard({
               {roomCount} room{roomCount === 1 ? "" : "s"} · {listing.bookings} bookings ·{" "}
               {rateLabel} ·{" "}
               {listing.rating > 0 ? `${listing.rating} ★` : "No reviews yet"}
+              {submission?.propertyReference && (
+                <>
+                  {" · "}
+                  <span
+                    className="font-mono text-xs font-semibold text-green-800"
+                    title="Property reference"
+                    aria-label={`Property reference ${submission.propertyReference}`}
+                  >
+                    {submission.propertyReference}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>

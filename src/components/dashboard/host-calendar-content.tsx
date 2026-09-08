@@ -13,6 +13,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import { Link } from "@/i18n/routing";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
@@ -37,10 +38,19 @@ import {
   exportBlockedDatesIcal,
   importBlockedDatesFromIcal,
 } from "@/lib/host/ical-utils";
-import { cn } from "@/lib/utils";
+import { cn, openNativeDatePicker } from "@/lib/utils";
 import { usePlatformConfig } from "@/lib/admin/use-admin-platform-config";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Presets only fill the feed name — each site still needs its own iCal URL. */
+const CHANNEL_SITE_PRESETS = [
+  { name: "Airbnb", hint: "Listing → Availability → Export calendar" },
+  { name: "Booking.com", hint: "Rates & Availability → Sync calendars → Export" },
+  { name: "VRBO", hint: "Calendar → Export calendar (.ics link)" },
+  { name: "Google Calendar", hint: "Settings → Integrate calendar → Secret address in iCal" },
+  { name: "Other", hint: "Any https:// … .ics URL from another OTA or calendar" },
+] as const;
 
 export function HostCalendarContent() {
   const { user } = useAuth();
@@ -153,6 +163,25 @@ export function HostCalendarContent() {
     () => daysInMonthGrid(viewYear, viewMonth),
     [viewYear, viewMonth]
   );
+  const monthBookings = useMemo(() => {
+    const monthStart = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-01`;
+    const nextMonth = new Date(viewYear, viewMonth + 1, 1);
+    const monthEnd = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}-01`;
+
+    return bookings
+      .filter((booking) => {
+        const matchesListing =
+          (booking.listingId && booking.listingId === listingId) ||
+          (!booking.listingId && booking.property === selectedTitle);
+        return (
+          matchesListing &&
+          (booking.status === "confirmed" || booking.status === "pending") &&
+          booking.checkIn < monthEnd &&
+          booking.checkOut > monthStart
+        );
+      })
+      .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+  }, [bookings, listingId, selectedTitle, viewMonth, viewYear]);
 
   function flash(text: string) {
     setMessage(text);
@@ -396,9 +425,9 @@ export function HostCalendarContent() {
                   onClick={() => handleDayClick(date)}
                   title={
                     booked
-                      ? "Booked — cannot change"
+                        ? "Booked — cannot change"
                       : pending
-                        ? "Pending request — cannot change"
+                        ? "Confirmed hold — cannot change"
                       : imported
                         ? "Busy on a connected calendar — cannot change"
                       : seasonal
@@ -433,6 +462,46 @@ export function HostCalendarContent() {
               );
             })}
           </div>
+          {monthBookings.length > 0 && (
+            <div className="border-t border-gray-100 pt-4">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+                Bookings this month
+              </h4>
+              <div className="space-y-2">
+                {monthBookings.map((booking) => (
+                  <Link
+                    key={booking.id}
+                    href={`/host/bookings/${booking.id}`}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2.5 hover:border-green-200 hover:bg-green-50/40 transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">
+                        {booking.guest}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {formatShortDate(booking.checkIn)} → {formatShortDate(booking.checkOut)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="font-mono text-xs font-semibold text-green-800">
+                        {booking.bookingReference || booking.id}
+                      </span>
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-[10px] font-bold capitalize",
+                          booking.status === "confirmed"
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-violet-100 text-violet-700"
+                        )}
+                      >
+                        {booking.status}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
           <p className="text-xs text-gray-500">
             Click an open date to block it, click again to reopen. Booked nights and dates from
             connected calendars stay locked.
@@ -449,8 +518,9 @@ export function HostCalendarContent() {
             ) : (
               <>
                 <p className="text-xs text-gray-500">
-                  Paste this export URL into Airbnb or Booking.com so those sites see Farm Stays
-                  bookings. Add their calendar URLs here so their bookings block this calendar.
+                  Two-way busy sync via iCal. Give other platforms your export URL so they see
+                  Farm Stays bookings. Add as many import URLs as you need (Airbnb, Booking.com,
+                  VRBO, Google Calendar, etc.) so their bookings block this calendar.
                 </p>
                 <label className="block">
                   <span className="text-xs font-medium text-gray-600 mb-1 block">
@@ -486,14 +556,17 @@ export function HostCalendarContent() {
                       const parsed = new URL(feedUrl.trim());
                       if (parsed.protocol !== "https:") throw new Error("https");
                     } catch {
-                      flash("Enter an https:// calendar URL from Airbnb or Booking.com.");
+                      flash("Enter an https:// calendar URL from the other site.");
                       return;
                     }
-                    void addIcalFeed({ name: feedName, url: feedUrl.trim() })
+                    void addIcalFeed({
+                      name: feedName.trim() || "External calendar",
+                      url: feedUrl.trim(),
+                    })
                       .then(() => {
                         setFeedName("");
                         setFeedUrl("");
-                        flash("External calendar added. Click Sync now to pull busy dates.");
+                        flash("Calendar added. Click Sync now to pull busy dates.");
                       })
                       .catch((err: unknown) => {
                         flash(err instanceof Error ? err.message : "Could not add that calendar.");
@@ -502,18 +575,41 @@ export function HostCalendarContent() {
                   className="space-y-2"
                 >
                   <span className="text-xs font-medium text-gray-600 block">
-                    Import URL (from Airbnb / Booking.com)
+                    Add another site (import their iCal URL)
                   </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CHANNEL_SITE_PRESETS.map((site) => (
+                      <button
+                        key={site.name}
+                        type="button"
+                        title={site.hint}
+                        onClick={() => setFeedName(site.name === "Other" ? "" : site.name)}
+                        className={cn(
+                          "text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors",
+                          feedName === site.name || (site.name === "Other" && feedName === "")
+                            ? "bg-green-700 border-green-700 text-white"
+                            : "bg-white border-gray-200 text-gray-600 hover:border-green-300 hover:text-green-800"
+                        )}
+                      >
+                        {site.name}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    {(CHANNEL_SITE_PRESETS.find((s) => s.name === feedName) ??
+                      CHANNEL_SITE_PRESETS[CHANNEL_SITE_PRESETS.length - 1]
+                    ).hint}
+                  </p>
                   <input
                     value={feedName}
                     onChange={(e) => setFeedName(e.target.value)}
-                    placeholder="Airbnb"
+                    placeholder="Site name e.g. Airbnb"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm"
                   />
                   <input
                     value={feedUrl}
                     onChange={(e) => setFeedUrl(e.target.value)}
-                    placeholder="https://www.airbnb.com/calendar/ical/..."
+                    placeholder="https://…/calendar.ics"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm"
                   />
                   <button
@@ -547,9 +643,32 @@ export function HostCalendarContent() {
                         <button
                           type="button"
                           onClick={() => {
-                            void removeIcalFeed(feed.id).catch((err: unknown) => {
-                              flash(err instanceof Error ? err.message : "Could not remove calendar.");
-                            });
+                            const remaining = (settings.icalFeeds ?? []).filter(
+                              (f) => f.id !== feed.id
+                            );
+                            void removeIcalFeed(feed.id)
+                              .then(async () => {
+                                if (remaining.length === 0) {
+                                  await updateSettings({ icalImportedDates: [] });
+                                  flash(`${feed.name} removed. External busy dates cleared.`);
+                                  return;
+                                }
+                                setSyncing(true);
+                                try {
+                                  const saved = await syncIcalFeeds();
+                                  const n = saved?.icalImportedDates?.length ?? 0;
+                                  flash(
+                                    `${feed.name} removed. Resynced ${n} busy date(s) from remaining calendars.`
+                                  );
+                                } finally {
+                                  setSyncing(false);
+                                }
+                              })
+                              .catch((err: unknown) => {
+                                flash(
+                                  err instanceof Error ? err.message : "Could not remove calendar."
+                                );
+                              });
                           }}
                           className="text-gray-400 hover:text-red-600 shrink-0"
                           aria-label={`Remove ${feed.name}`}
@@ -729,16 +848,18 @@ export function HostCalendarContent() {
                 type="date"
                 value={newSeason.startDate}
                 onChange={(e) => setNewSeason((p) => ({ ...p, startDate: e.target.value }))}
+                onClick={openNativeDatePicker}
                 required
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 cursor-pointer"
               />
               <input
                 type="date"
                 value={newSeason.endDate}
                 onChange={(e) => setNewSeason((p) => ({ ...p, endDate: e.target.value }))}
+                onClick={openNativeDatePicker}
                 required
                 min={newSeason.startDate || undefined}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 cursor-pointer"
               />
               <label className="inline-flex items-center gap-2 text-sm text-gray-700 px-1">
                 <input

@@ -151,7 +151,7 @@ export function HostDailyOpsPanel() {
             </p>
             <div className="flex flex-wrap gap-2 mt-3">
               <Link
-                href="/host/listings/new"
+                href="/host/new-listing"
                 className="text-xs font-semibold bg-green-700 text-white px-3 py-1.5 rounded-lg hover:bg-green-800"
               >
                 Add a listing

@@ -5,6 +5,7 @@ import { SlidersHorizontal } from "lucide-react";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { filterActiveCountries } from "@/lib/admin/country-utils";
 import { isExcludedFromListingForm, isFilterEnabled } from "@/lib/admin/taxonomy-types";
+import { extraFilterMatchesParent } from "@/lib/admin/extra-filter-scope";
 import type { ListingFilterValues } from "@/lib/listings/submission-types";
 import { EMPTY_LISTING_FILTERS } from "@/lib/listings/submission-types";
 import { ListingHighlightsField } from "@/components/dashboard/listing-highlights-field";
@@ -263,7 +264,11 @@ export function ListingFilterFields({
     const filteredAdvanced = advancedIds.filter((id) => {
       if (
         data.extraFilters.some(
-          (ef) => ef.id === id && ef.enabled !== false && extraTabOn(ef.type)
+          (ef) =>
+            ef.id === id &&
+            ef.enabled !== false &&
+            extraTabOn(ef.type) &&
+            extraFilterMatchesParent(ef, activeParentId)
         )
       ) {
         return true;
@@ -497,16 +502,32 @@ export function ListingFilterFields({
           <p className="text-sm text-gray-400">No advanced filters configured.</p>
         ) : (
           <div className="space-y-4">
+            {!parentId ? (
+              <p className="text-xs text-gray-400">
+                Select a parent category to see advanced filters tagged for that category.
+              </p>
+            ) : null}
             {extraTabs.map((tab) => {
-              const items = extraFilters.filter((ef) => ef.type === tab.id);
+              const items = extraFilters.filter(
+                (ef) =>
+                  ef.type === tab.id && extraFilterMatchesParent(ef, parentId || null)
+              );
+              if (!parentId && items.every((ef) => ef.parentId)) {
+                return null;
+              }
 
               return (
                 <div key={tab.id}>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                     {tab.label}
                   </p>
-                  {items.length === 0 ? (
-                    <p className="text-xs text-gray-400">No options configured yet.</p>
+                  {!parentId ? (
+                    <p className="text-xs text-gray-400">
+                      Shared options appear after you pick a parent; tagged options need a parent
+                      first.
+                    </p>
+                  ) : items.length === 0 ? (
+                    <p className="text-xs text-gray-400">No options for this category yet.</p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
                       {items.map((item) => {

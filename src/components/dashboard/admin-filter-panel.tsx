@@ -138,8 +138,10 @@ export function AdminExtraFiltersPanel() {
           Extra filters
         </h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          Amenities, tags, price ranges, and activities for search and listing filters. Toggle Active
-          to show or hide options.
+          Amenities, tags, price ranges, and activities for search and listing filters. Optionally
+          tag each option to a parent category (Stays, Experiences, …) so listing forms only show
+          relevant choices. Leave parent as All to show everywhere. Toggle Active to show or hide
+          options.
         </p>
       </div>
 
@@ -705,9 +707,18 @@ function ExtraTabContent({
         id: ef.id,
         name: ef.name,
         enabled: isFilterEnabled(ef),
+        parentId: ef.parentId,
+        parentLabel: ef.parentId
+          ? data.parents.find((p) => p.id === ef.parentId)?.name ?? "—"
+          : "All parents",
       }))}
-      onAdd={(name) => addExtraFilter(name, tabId)}
-      onEdit={(id, name) => editExtraFilter(id, name)}
+      parentOptions={data.parents
+        .filter((p) => isFilterEnabled(p))
+        .map((p) => ({ value: p.id, label: p.name }))}
+      parentLabel="Parent category"
+      parentOptional
+      onAdd={(name, pid) => addExtraFilter(name, tabId, pid)}
+      onEdit={(id, name, pid) => editExtraFilter(id, name, pid)}
       onDelete={deleteExtraFilter}
       onToggleEnabled={setExtraFilterEnabled}
       placeholder="Enter filter value..."

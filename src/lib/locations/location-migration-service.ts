@@ -11,6 +11,7 @@ import {
   normalizeLocationName,
   slugifyLocationName,
 } from "@/lib/locations/location-slug";
+import { BASE_CURRENCY } from "@/lib/currency";
 import type {
   ListingMatch,
   LocationMigrationMode,
@@ -340,7 +341,7 @@ function buildGeoPlan(taxonomy: TaxonomyData, defaultCountryCode?: string): Omit
       iso2,
       iso3: ISO3_BY_ISO2[iso2] ?? null,
       phoneCode: source.dialCode?.trim() || suggested?.dialCode || null,
-      currencyCode: (source.currency || suggested?.currency || "AED").toUpperCase(),
+      currencyCode: (source.currency || suggested?.currency || BASE_CURRENCY).toUpperCase(),
       currencySymbol: source.currencySymbol ?? suggested?.currencySymbol ?? null,
       exchangeRateToAed: source.exchangeRateToAED ?? suggested?.exchangeRateToAED ?? 1,
       taxPct: source.taxPct ?? null,

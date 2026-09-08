@@ -34,7 +34,7 @@ export function defaultHostPublicProfile(
     city: "",
     whatsapp: "",
     preferWhatsapp: false,
-    instantBookEnabled: false,
+    instantBookEnabled: true,
   };
 }
 
@@ -50,7 +50,7 @@ export function loadHostPublicProfile(
     ...stored,
     hostId,
     companyName: stored.companyName ?? "",
-    instantBookEnabled: stored.instantBookEnabled ?? false,
+    instantBookEnabled: true,
   };
 }
 
@@ -71,7 +71,7 @@ export function saveHostPublicProfile(
     logoBytes: input.logoBytes,
     logoWidth: input.logoWidth,
     logoHeight: input.logoHeight,
-    instantBookEnabled: input.instantBookEnabled ?? false,
+    instantBookEnabled: true,
   };
   const store = loadStore();
   store[hostId] = next;

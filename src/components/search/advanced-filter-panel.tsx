@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { ExtraFilter, FeatureFilter, ParentCategory } from "@/lib/admin/taxonomy-types";
+import { extraFilterMatchesParent } from "@/lib/admin/extra-filter-scope";
 import { cn } from "@/lib/utils";
 
 const VISIBLE_PILL_COUNT = 5;
@@ -174,7 +175,11 @@ export function AdvancedFilterPanel({
               <FilterSection
                 key={tab.id}
                 title={tab.label}
-                items={extraFilters.filter((ef) => ef.type === tab.id)}
+                items={extraFilters.filter(
+                  (ef) =>
+                    ef.type === tab.id &&
+                    extraFilterMatchesParent(ef, parentCategoryId || null)
+                )}
                 selectedIds={selectedIds}
                 onToggle={toggle}
                 viewMoreLabel={t("viewMore")}

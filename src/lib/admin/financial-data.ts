@@ -13,6 +13,7 @@ import type {
   HostCommissionOverride,
   RefundRequest,
 } from "./financial-types";
+import { BASE_CURRENCY } from "@/lib/currency";
 
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
 const STORAGE_KEY = "farm-stays-financial-settings";
@@ -85,7 +86,7 @@ export const DEFAULT_FINANCIAL_SETTINGS: FinancialSettings = {
       guestName: "Priya Sharma",
       hostName: "Ahmed Al Farsi",
       amount: "AED 800",
-      currency: "AED",
+      currency: BASE_CURRENCY,
       reason: "Partial refund — pool unavailable during stay",
       status: "pending",
       requestedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
@@ -96,7 +97,7 @@ export const DEFAULT_FINANCIAL_SETTINGS: FinancialSettings = {
       guestName: "Fatima Noor",
       hostName: "Ahmed Al Farsi",
       amount: "AED 2,280",
-      currency: "AED",
+      currency: BASE_CURRENCY,
       reason: "Full cancellation refund per policy",
       status: "approved",
       requestedAt: new Date(Date.now() - 22 * 24 * 60 * 60 * 1000).toISOString(),
@@ -358,7 +359,7 @@ export function computeFinancialReport(
   payouts = aggregateAllPayouts(),
   refunds?: RefundRequest[]
 ): FinancialReport {
-  const currency = transactions[0]?.currency ?? "AED";
+  const currency = transactions[0]?.currency ?? BASE_CURRENCY;
   const platformRevenue = transactions.reduce((sum, tx) => sum + tx.platformFee, 0);
   const hostEarnings = transactions.reduce((sum, tx) => sum + tx.netEarnings, 0);
   const taxCollected = transactions.reduce((sum, tx) => sum + tx.taxAmount, 0);

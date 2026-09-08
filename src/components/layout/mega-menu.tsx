@@ -136,16 +136,24 @@ export function MegaMenu() {
         >
           <div className="border-t border-gray-100 bg-white shadow-[0_28px_60px_-24px_rgba(27,67,50,0.28)]">
             <div className="max-w-7xl mx-auto px-4">
-              <div className="grid grid-cols-12 min-h-[360px]">
-                <div className="col-span-4 xl:col-span-3 border-e border-gray-100 bg-[#f6f4ef] -mx-4 ps-4 pe-0 xl:mx-0 xl:ps-0">
-                  <div className="px-4 xl:px-5 pt-5 pb-3">
+              <div className="grid grid-cols-12 h-[min(380px,calc(100vh-5.5rem))]">
+                <div className="col-span-4 xl:col-span-3 border-e border-gray-100 bg-[#f6f4ef] -mx-4 ps-4 pe-0 xl:mx-0 xl:ps-0 flex flex-col min-h-0">
+                  <div className="px-4 xl:px-5 pt-5 pb-3 shrink-0">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">
                       {active.label}
                     </p>
                   </div>
-                  <div className="max-h-[320px] overflow-y-auto px-2 xl:px-3 pb-4">
+                  <div className="flex-1 min-h-0 overflow-y-auto px-2 xl:px-3 pb-4">
                     {groups.map((group) => {
                       const isSelected = group.title === selected.title;
+                      const linkUnit =
+                        active.id === "destinations"
+                          ? group.links.length === 1
+                            ? "place"
+                            : "places"
+                          : group.links.length === 1
+                            ? "type"
+                            : "types";
                       return (
                         <button
                           key={group.title}
@@ -175,8 +183,7 @@ export function MegaMenu() {
                               {group.title}
                             </span>
                             <span className="block text-[11px] text-gray-400 truncate">
-                              {group.links.length}{" "}
-                              {group.links.length === 1 ? "type" : "types"}
+                              {group.links.length} {linkUnit}
                             </span>
                           </span>
                           <ChevronRight
@@ -191,8 +198,8 @@ export function MegaMenu() {
                   </div>
                 </div>
 
-                <div className="col-span-5 xl:col-span-6 px-7 py-6 flex flex-col">
-                  <div className="flex items-end justify-between gap-4 mb-5">
+                <div className="col-span-5 xl:col-span-6 px-7 py-6 flex flex-col min-h-0">
+                  <div className="flex items-end justify-between gap-4 mb-5 shrink-0">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-400">
                         Browse
@@ -211,7 +218,7 @@ export function MegaMenu() {
                     </Link>
                   </div>
 
-                  <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
+                  <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 flex-1 min-h-0 overflow-y-auto content-start">
                     {selected.links.map((link) => (
                       <li key={`${link.href}-${link.label}`}>
                         <Link
@@ -226,7 +233,7 @@ export function MegaMenu() {
                     ))}
                   </ul>
 
-                  <div className="mt-auto pt-6">
+                  <div className="mt-auto pt-4 shrink-0">
                     <Link
                       href={active.href}
                       onClick={dismiss}
@@ -238,11 +245,11 @@ export function MegaMenu() {
                   </div>
                 </div>
 
-                <div className="col-span-3 py-6 pe-0">
+                <div className="col-span-3 py-6 pe-0 min-h-0">
                   <Link
                     href={categoryHref}
                     onClick={dismiss}
-                    className="relative block h-full min-h-[300px] rounded-2xl overflow-hidden group"
+                    className="relative block h-full rounded-2xl overflow-hidden group"
                   >
                     {featuredImg ? (
                       <Image

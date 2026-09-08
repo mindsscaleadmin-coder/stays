@@ -12,6 +12,7 @@ import {
   qualityInputFromListing,
 } from "@/lib/listings/listing-quality-validation";
 import { useListingQualityRules } from "@/components/providers/listing-quality-rules-provider";
+import { RichTextView } from "@/components/listing/rich-text-view";
 import { ListingQualityChecklist } from "./listing-quality-checklist";
 import { ListingDetailRow } from "./listing-detail-row";
 
@@ -169,7 +170,7 @@ export function PendingListingReviewPanel({
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
               Description
             </p>
-            <p className="text-sm text-gray-700 whitespace-pre-wrap">{selected.description}</p>
+            <RichTextView value={selected.description} className="text-gray-700" />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">

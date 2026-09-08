@@ -5,6 +5,7 @@ export const GUEST_BOOKINGS_SYNC_EVENT = "farm-stays-guest-bookings-updated";
 
 export type GuestBookingSummary = {
   id: string;
+  bookingReference?: string;
   listingId: string;
   property: string;
   location: string;

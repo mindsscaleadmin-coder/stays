@@ -20,7 +20,7 @@ function mergeProfile(
     ...stored,
     hostId,
     companyName: stored.companyName ?? "",
-    instantBookEnabled: stored.instantBookEnabled ?? false,
+    instantBookEnabled: true,
   };
 }
 
@@ -38,7 +38,7 @@ async function ensureHostUser(hostId: string, fallbackName = "Host") {
   });
 }
 
-async function syncListingInstantBook(hostId: string, enabled: boolean) {
+async function syncListingInstantBook(hostId: string) {
   const listings = await prisma.listing.findMany({
     where: { hostId },
     select: { id: true, payload: true },
@@ -46,10 +46,10 @@ async function syncListingInstantBook(hostId: string, enabled: boolean) {
   for (const listing of listings) {
     try {
       const payload = JSON.parse(listing.payload) as Record<string, unknown>;
-      if (payload.instantBook === enabled) continue;
+      if (payload.instantBook === true) continue;
       await prisma.listing.update({
         where: { id: listing.id },
-        data: { payload: JSON.stringify({ ...payload, instantBook: enabled }) },
+        data: { payload: JSON.stringify({ ...payload, instantBook: true }) },
       });
     } catch {
       // keep listing payload if it is not JSON
@@ -88,7 +88,7 @@ export async function saveHostProfile(
     logoBytes: input.logoBytes,
     logoWidth: input.logoWidth,
     logoHeight: input.logoHeight,
-    instantBookEnabled: input.instantBookEnabled ?? false,
+    instantBookEnabled: true,
   };
 
   const { hostId: _, ...payload } = next;
@@ -98,11 +98,10 @@ export async function saveHostProfile(
     update: { payload: JSON.stringify(payload) },
   });
 
-  await syncListingInstantBook(hostId, Boolean(next.instantBookEnabled));
+  await syncListingInstantBook(hostId);
   return next;
 }
 
-export async function isHostInstantBookEnabled(hostId: string): Promise<boolean> {
-  const profile = await getHostProfile(hostId);
-  return profile?.instantBookEnabled ?? false;
+export async function isHostInstantBookEnabled(_hostId: string): Promise<boolean> {
+  return true;
 }

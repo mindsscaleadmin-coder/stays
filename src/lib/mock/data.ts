@@ -413,6 +413,8 @@ type StayBase = (typeof STAYS)[number];
 
 export type Stay = Omit<StayBase, "type"> & {
   type: StayBase["type"] | "venue" | "experience";
+  /** Short public code used by guests, hosts, and support. */
+  propertyReference?: string;
   /** Host taxonomy parent category when from a submission */
   parentCategory?: string;
   /** Leaf subcategory when from a host listing */

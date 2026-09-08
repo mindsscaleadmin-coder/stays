@@ -51,7 +51,8 @@ export {
 };
 
 async function fetchSharedListings(): Promise<SubmittedListing[]> {
-  const res = await fetch("/api/listings", { cache: "no-store" });
+  // Host/admin dashboards need the full (hard-capped) set, not a public search page.
+  const res = await fetch("/api/listings?all=1", { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to load listings");
   const data = (await res.json()) as { listings: SubmittedListing[] };
   const listings = (data.listings ?? []).map(normalizeSubmittedListing);

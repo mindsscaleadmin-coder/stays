@@ -11,6 +11,7 @@ import {
   getActiveFlashDeal,
   isFlashDealExpired,
 } from "@/lib/host/flash-deal-utils";
+import { normalizeExperienceSessions } from "@/lib/booking/experience-session-types";
 
 function parsePayload(raw: string): Omit<ListingPricingSettings, "listingId"> {
   return JSON.parse(raw) as Omit<ListingPricingSettings, "listingId">;
@@ -56,6 +57,7 @@ function mergeStored(
       ...c,
       billing: normalizeExtraChargeBilling(c),
     })),
+    sessions: normalizeExperienceSessions(stored.sessions ?? base.sessions),
   };
   const resolved = country ? applyCountryPricing(merged, country) : merged;
   return disableExpiredFlashDeal(resolved);

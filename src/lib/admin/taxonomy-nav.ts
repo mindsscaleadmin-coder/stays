@@ -142,37 +142,19 @@ function destinationsNav(data: TaxonomyData): HeaderNavItem | null {
     const states = tabEnabled(data, "state")
       ? data.states.filter((s) => s.enabled !== false && s.countryId === country.id)
       : [];
-    const links: NavLink[] = [];
-    if (states.length > 0) {
-      for (const state of states.slice(0, 8)) {
-        const districts = tabEnabled(data, "district")
-          ? data.districts.filter((d) => d.enabled !== false && d.stateId === state.id)
-          : [];
-        if (districts.length > 0) {
-          for (const district of districts.slice(0, 4)) {
-            links.push({
-              label: district.name,
-              href: listingsHref({
-                country: country.name,
-                state: state.name,
-                district: district.name,
-                q: district.name,
-              }),
-            });
-          }
-        } else {
-          links.push({
+    // Keep Destinations comparable to other mega menus: country → states (not a district dump).
+    const links: NavLink[] =
+      states.length > 0
+        ? states.slice(0, 12).map((state) => ({
             label: state.name,
             href: listingsHref({ country: country.name, state: state.name, q: state.name }),
-          });
-        }
-      }
-    } else {
-      links.push({
-        label: country.name,
-        href: listingsHref({ country: country.name }),
-      });
-    }
+          }))
+        : [
+            {
+              label: country.name,
+              href: listingsHref({ country: country.name }),
+            },
+          ];
     if (links.length > 0) {
       groups.push({
         title: country.name,

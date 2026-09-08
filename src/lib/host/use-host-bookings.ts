@@ -3,18 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   HOST_BOOKINGS_SYNC_EVENT,
-  acceptHostBooking,
   cancelHostBooking,
-  declineHostBooking,
   getHostBookingRecord,
-  getHostInstantBookEnabled,
   loadHostBookings,
   previewCancelRefund,
   saveHostBookings,
-  setHostInstantBookEnabled,
   updateHostBookingRecord,
 } from "./host-booking-data";
-import { PLATFORM_CONFIG_SYNC_EVENT } from "@/lib/admin/platform-config-data";
 import type { HostBookingRecord, HostBookingUpdate } from "./host-booking-types";
 import { refundStatusFromBand } from "@/lib/booking/policies";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -93,48 +88,33 @@ export function useHostBookings(bookingId?: string) {
   const hostId = resolveHostId(user);
   const [bookings, setBookings] = useState<HostBookingRecord[]>([]);
   const [booking, setBooking] = useState<HostBookingRecord | null>(null);
-  const [instantBookEnabled, setInstantBookEnabledState] = useState(false);
   const [ready, setReady] = useState(false);
 
-  const refresh = useCallback(async (opts?: { force?: boolean }) => {
-    const [server, profileEnabled] = await Promise.all([
-      fetchServerHostBookings(hostId, opts?.force),
-      hostId
-        ? fetch(`/api/hosts/${encodeURIComponent(hostId)}/profile`)
-            .then(async (res) => {
-              if (!res.ok) return getHostInstantBookEnabled();
-              const data = (await res.json()) as { profile?: { instantBookEnabled?: boolean } };
-              return Boolean(data.profile?.instantBookEnabled);
-            })
-            .catch(() => getHostInstantBookEnabled())
-        : Promise.resolve(getHostInstantBookEnabled()),
-    ]);
-    const all =
-      server !== null
-        ? server
-        : loadHostBookings().filter((row) => !row.id.startsWith("GF-"));
-    if (server !== null) {
-      saveHostBookings(server, { silent: true });
-    }
-    setBookings(all);
-    setBooking(
-      bookingId
-        ? all.find((b) => b.id === bookingId) ?? getHostBookingRecord(bookingId) ?? null
-        : null
-    );
-    setHostInstantBookEnabled(profileEnabled, { silent: true });
-    setInstantBookEnabledState(profileEnabled);
-    setReady(true);
-  }, [bookingId, hostId]);
+  const refresh = useCallback(
+    async (opts?: { force?: boolean }) => {
+      const server = await fetchServerHostBookings(hostId, opts?.force);
+      const all =
+        server !== null
+          ? server
+          : loadHostBookings().filter((row) => !row.id.startsWith("GF-"));
+      if (server !== null) {
+        saveHostBookings(server, { silent: true });
+      }
+      setBookings(all);
+      setBooking(
+        bookingId
+          ? all.find((b) => b.id === bookingId) ?? getHostBookingRecord(bookingId) ?? null
+          : null
+      );
+      setReady(true);
+    },
+    [bookingId, hostId]
+  );
 
   useEffect(() => {
     void refresh();
     function onStorage(e: StorageEvent) {
-      if (
-        e.key === "farm-stays-host-bookings" ||
-        e.key === "farm-stays-host-instant-book-enabled" ||
-        e.key === "farm-stays-platform-config"
-      ) {
+      if (e.key === "farm-stays-host-bookings") {
         void refresh();
       }
     }
@@ -142,11 +122,9 @@ export function useHostBookings(bookingId?: string) {
       void refresh();
     }
     window.addEventListener(HOST_BOOKINGS_SYNC_EVENT, onSync);
-    window.addEventListener(PLATFORM_CONFIG_SYNC_EVENT, onSync);
     window.addEventListener("storage", onStorage);
     return () => {
       window.removeEventListener(HOST_BOOKINGS_SYNC_EVENT, onSync);
-      window.removeEventListener(PLATFORM_CONFIG_SYNC_EVENT, onSync);
       window.removeEventListener("storage", onStorage);
     };
   }, [refresh]);
@@ -155,49 +133,8 @@ export function useHostBookings(bookingId?: string) {
     ready,
     bookings,
     booking,
-    instantBookEnabled,
-    pendingCount: bookings.filter((b) => b.status === "pending").length,
     refresh,
     previewCancelRefund,
-    setInstantBookEnabled: async (enabled: boolean) => {
-      setHostInstantBookEnabled(enabled);
-      setInstantBookEnabledState(enabled);
-      if (hostId) {
-        const result = await tryServer(`/api/hosts/${encodeURIComponent(hostId)}/profile`, {
-          method: "PATCH",
-          body: JSON.stringify({ instantBookEnabled: enabled }),
-        });
-        if (!result.ok) {
-          throw new Error(result.error || "Could not save instant book");
-        }
-      }
-      await refresh({ force: true });
-    },
-    accept: async (id: string) => {
-      if (looksLikeServerBooking(id)) {
-        const result = await tryServer(`/api/bookings/${id}/accept`, { method: "POST" });
-        if (!result.ok) throw new Error(result.error || "Could not accept booking");
-        await refresh({ force: true });
-        return getHostBookingRecord(id);
-      }
-      const saved = acceptHostBooking(id);
-      await refresh({ force: true });
-      return saved;
-    },
-    decline: async (id: string) => {
-      if (looksLikeServerBooking(id)) {
-        const result = await tryServer(`/api/bookings/${id}/decline`, {
-          method: "POST",
-          body: JSON.stringify({ reason: "Host declined the request" }),
-        });
-        if (!result.ok) throw new Error(result.error || "Could not decline booking");
-        await refresh({ force: true });
-        return getHostBookingRecord(id);
-      }
-      const saved = declineHostBooking(id);
-      await refresh({ force: true });
-      return saved;
-    },
     cancel: async (
       id: string,
       input: {
@@ -221,6 +158,8 @@ export function useHostBookings(bookingId?: string) {
         await refresh({ force: true });
         return getHostBookingRecord(id);
       }
+      const currency =
+        existing?.currency || existing?.total.match(/^([A-Z]{3})\b/)?.[1] || "AED";
       const saved = cancelHostBooking(id, {
         reason: input.reason,
         refundStatus:
@@ -229,7 +168,7 @@ export function useHostBookings(bookingId?: string) {
         refundAmount:
           input.refundAmount ||
           (preview && preview.refundAmount > 0
-            ? `AED ${preview.refundAmount.toLocaleString()}`
+            ? `${currency} ${preview.refundAmount.toLocaleString()}`
             : undefined),
       });
       await refresh({ force: true });

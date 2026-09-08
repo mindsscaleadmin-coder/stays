@@ -2,6 +2,11 @@ import { setRequestLocale } from "next-intl/server";
 import { SearchResultsContent } from "@/components/search/search-results-content";
 import type { SortOption } from "@/lib/listings/public-listings";
 import { getPublicStaysFromStore } from "@/lib/listings/public-listings-server";
+import {
+  parseListingPagination,
+  parsePublicPageSize,
+  PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE,
+} from "@/lib/listings/listings-pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -45,26 +50,50 @@ export default async function ListingsPage({
   }>;
 }) {
   const { locale } = await params;
-  const { q, filter, country, state, district, city, parent, category, subcategory, checkIn, checkOut, guests, adults, children, infants, advanced, sort, page, perPage } =
-    await searchParams;
+  const {
+    q,
+    filter,
+    country,
+    state,
+    district,
+    city,
+    parent,
+    category,
+    subcategory,
+    checkIn,
+    checkOut,
+    guests,
+    adults,
+    children,
+    infants,
+    advanced,
+    sort,
+    page,
+    perPage,
+  } = await searchParams;
   setRequestLocale(locale);
 
-  const pageNum = Math.max(1, Number.parseInt(page ?? "1", 10) || 1);
-  const perPageNum = Number.parseInt(perPage ?? "25", 10) || 25;
-  const initialListings = await getPublicStaysFromStore({
-    country: country || undefined,
-    state: state || undefined,
-    district: district || undefined,
-    city: city || undefined,
-    parentCategory: parent || undefined,
-    category: category || undefined,
-    subcategory: subcategory || undefined,
-    q: q || undefined,
-  });
+  const perPageNum = parsePublicPageSize(perPage ?? PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE);
+  const { page: pageNum } = parseListingPagination({ page, perPage: perPageNum });
+  const { stays, total } = await getPublicStaysFromStore(
+    {
+      country: country || undefined,
+      state: state || undefined,
+      district: district || undefined,
+      city: city || undefined,
+      parentCategory: parent || undefined,
+      category: category || undefined,
+      subcategory: subcategory || undefined,
+      q: q || undefined,
+    },
+    { page: pageNum, pageSize: perPageNum }
+  );
 
   return (
     <SearchResultsContent
-      initialListings={initialListings}
+      initialListings={stays}
+      totalCount={total}
+      serverPaginated
       query={q ?? ""}
       filter={filter ?? ""}
       country={country ?? ""}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { Link, useRouter } from "@/i18n/routing";
 import { useSearchParams } from "next/navigation";
@@ -13,6 +13,7 @@ import {
   Clock,
   MessageSquare,
   Ban,
+  Camera,
 } from "lucide-react";
 import { useTranslations, useLocale } from "next-intl";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -45,6 +46,41 @@ import {
 } from "@/lib/guest/cancel-guest-booking";
 
 type Tab = "profile" | "bookings" | "favorites" | "settings";
+
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const AVATAR_MAX_EDGE = 512;
+
+function readAvatarFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read file"));
+    reader.onload = () => {
+      const dataUrl = String(reader.result ?? "");
+      const img = new window.Image();
+      img.onload = () => {
+        const scale = Math.min(1, AVATAR_MAX_EDGE / Math.max(img.naturalWidth, img.naturalHeight, 1));
+        if (scale >= 1 && file.size < 400_000) {
+          resolve(dataUrl);
+          return;
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const mime = file.type === "image/png" ? "image/png" : "image/jpeg";
+        resolve(canvas.toDataURL(mime, 0.86));
+      };
+      img.onerror = () => reject(new Error("Invalid image"));
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 const STATUS_STYLES = {
   confirmed: "bg-green-100 text-green-700",
@@ -92,6 +128,9 @@ export function AccountContent() {
   const [cancelReason, setCancelReason] = useState("");
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState("");
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState("");
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -248,12 +287,104 @@ export function AccountContent() {
     setLiveBookings(loadGuestBookings());
   }
 
+  async function handleAvatarChange(file: File | null) {
+    if (!file || !user) return;
+    setAvatarError("");
+    if (!file.type.startsWith("image/")) {
+      setAvatarError("Please choose a PNG or JPG image.");
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      setAvatarError("Image must be 2 MB or smaller.");
+      return;
+    }
+    setAvatarBusy(true);
+    try {
+      const dataUrl = await readAvatarFile(file);
+      const result = await updateProfile({ avatarUrl: dataUrl });
+      if (result.error) setAvatarError(result.error);
+    } catch {
+      setAvatarError("Could not process that image.");
+    } finally {
+      setAvatarBusy(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    }
+  }
+
+  async function removeAvatar() {
+    if (!user) return;
+    setAvatarBusy(true);
+    setAvatarError("");
+    try {
+      const result = await updateProfile({ avatarUrl: undefined });
+      if (result.error) setAvatarError(result.error);
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
   return (
     <DashboardShell title="Guest" subtitle="Your account" navItems={GUEST_NAV}>
       <div className="space-y-6">
         <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.06)] p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <div className="w-16 h-16 bg-green-700 rounded-full flex items-center justify-center text-white text-xl font-bold shrink-0">
-            {getInitials(user.fullName)}
+          <div className="flex items-center gap-3 shrink-0">
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={(e) => void handleAvatarChange(e.target.files?.[0] ?? null)}
+            />
+            <button
+              type="button"
+              disabled={avatarBusy}
+              onClick={() => avatarInputRef.current?.click()}
+              className="relative w-16 h-16 rounded-full overflow-hidden bg-green-700 flex items-center justify-center text-white text-xl font-bold shrink-0 group focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-60"
+              aria-label={user.avatarUrl ? "Change profile photo" : "Upload profile photo"}
+            >
+              {user.avatarUrl ? (
+                <Image
+                  src={user.avatarUrl}
+                  alt=""
+                  fill
+                  className="object-cover"
+                  unoptimized
+                />
+              ) : (
+                getInitials(user.fullName)
+              )}
+              <span className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                {avatarBusy ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-white" />
+                ) : (
+                  <Camera className="w-5 h-5 text-white" />
+                )}
+              </span>
+            </button>
+            <div className="min-w-0">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={avatarBusy}
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="text-xs font-semibold text-green-700 hover:text-green-800 disabled:opacity-50"
+                >
+                  {user.avatarUrl ? "Change photo" : "Upload photo"}
+                </button>
+                {user.avatarUrl ? (
+                  <button
+                    type="button"
+                    disabled={avatarBusy}
+                    onClick={() => void removeAvatar()}
+                    className="text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1">Square JPG/PNG · max 2 MB</p>
+              {avatarError ? <p className="text-[11px] text-red-600 mt-1">{avatarError}</p> : null}
+            </div>
           </div>
           <div className="flex-1">
             <h1 className="text-xl font-bold text-gray-900 font-display">{user.fullName}</h1>
@@ -465,7 +596,7 @@ export function AccountContent() {
                       viewerId={user.id}
                       viewerName={user.fullName}
                       title="Messages with host"
-                      subtitle={`${b.property} · booking ${b.id}`}
+                      subtitle={`${b.property} · booking ${b.bookingReference || b.id}`}
                       compact
                     />
                   )}

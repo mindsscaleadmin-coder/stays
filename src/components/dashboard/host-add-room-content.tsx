@@ -205,7 +205,10 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
     const form = new FormData(formRef.current);
     const name = roomName.trim() || typeName;
     const price = Number(form.get("price"));
-    const capacity = Number(form.get("capacity"));
+    const maxAdults = Math.max(1, Number(form.get("maxAdults")) || 1);
+    const maxChildren = Math.max(0, Number(form.get("maxChildren")) || 0);
+    const maxInfants = Math.max(0, Number(form.get("maxInfants")) || 0);
+    const capacity = maxAdults + maxChildren;
     const beds = Number(form.get("beds"));
     const baths = Number(form.get("baths"));
     const mode = submitModeRef.current;
@@ -229,6 +232,9 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
         description: "",
         price,
         capacity: capacity || 2,
+        maxAdults,
+        maxChildren,
+        maxInfants,
         beds: beds || 1,
         baths: baths || 1,
         img,
@@ -320,6 +326,13 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
                   </span>
                   <span className="text-xs text-gray-500 shrink-0">
                     {room.price}/night · {room.capacity} guests
+                    {room.maxAdults != null || room.maxChildren != null || room.maxInfants != null
+                      ? ` (${room.maxAdults ?? room.capacity} adults${
+                          (room.maxChildren ?? 0) > 0 ? `, ${room.maxChildren} children` : ""
+                        }${
+                          (room.maxInfants ?? 0) > 0 ? `, ${room.maxInfants} infants` : ""
+                        })`
+                      : ""}
                   </span>
                 </li>
               ))}
@@ -407,7 +420,7 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
             />
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <div>
               <label htmlFor="price" className="block text-sm font-medium text-gray-700 mb-1.5">
                 Nightly rate <span className="text-red-500">*</span>
@@ -420,19 +433,6 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
                 required
                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                 placeholder="This room’s rate"
-              />
-            </div>
-            <div>
-              <label htmlFor="capacity" className="block text-sm font-medium text-gray-700 mb-1.5">
-                Guests
-              </label>
-              <input
-                id="capacity"
-                name="capacity"
-                type="number"
-                min={1}
-                defaultValue={2}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               />
             </div>
             <div>
@@ -460,6 +460,57 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
                 defaultValue={1}
                 className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               />
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-medium text-gray-700 mb-1.5">Guest capacity</p>
+            <p className="text-xs text-gray-500 mb-2">
+              Paying guests = adults + children. Infants do not count toward the room limit.
+            </p>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label htmlFor="maxAdults" className="block text-xs font-medium text-gray-600 mb-1">
+                  Adults
+                </label>
+                <input
+                  id="maxAdults"
+                  name="maxAdults"
+                  type="number"
+                  min={1}
+                  max={20}
+                  defaultValue={2}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="maxChildren" className="block text-xs font-medium text-gray-600 mb-1">
+                  Children
+                </label>
+                <input
+                  id="maxChildren"
+                  name="maxChildren"
+                  type="number"
+                  min={0}
+                  max={20}
+                  defaultValue={0}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="maxInfants" className="block text-xs font-medium text-gray-600 mb-1">
+                  Infants
+                </label>
+                <input
+                  id="maxInfants"
+                  name="maxInfants"
+                  type="number"
+                  min={0}
+                  max={10}
+                  defaultValue={0}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
             </div>
           </div>
 

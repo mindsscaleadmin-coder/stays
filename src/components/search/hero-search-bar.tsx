@@ -203,15 +203,15 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
 
   const cellClass = (panel: OpenPanel) =>
     cn(
-      "relative flex-1 min-w-0 text-start px-6 py-3.5 rounded-xl transition-colors",
-      openPanel === panel ? "bg-white shadow-md" : "hover:bg-gray-100"
+      "relative flex-1 min-w-0 text-start px-4 py-2 rounded-lg transition-colors",
+      openPanel === panel ? "bg-white shadow-sm" : "hover:bg-gray-100"
     );
 
   return (
     <div ref={rootRef} className="w-full">
       <div
         className={cn(
-          "flex flex-col sm:flex-row sm:items-center shadow-2xl border border-black/5 rounded-2xl",
+          "flex flex-col sm:flex-row sm:items-center shadow-lg border border-black/5 rounded-xl p-1",
           openPanel ? "bg-gray-100" : "bg-white"
         )}
       >
@@ -226,7 +226,7 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
             }}
             aria-expanded={openPanel === "where"}
           >
-            <span className="block text-xs font-bold text-gray-900">{t("where")}</span>
+            <span className="block text-[11px] font-bold text-gray-900">{t("where")}</span>
             {openPanel === "where" ? (
               <input
                 ref={whereInputRef}
@@ -241,14 +241,14 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
                 }}
                 onClick={(e) => e.stopPropagation()}
                 placeholder={t("wherePlaceholder")}
-                className="mt-0.5 w-full bg-transparent text-sm text-gray-700 placeholder:text-gray-400 outline-none"
+                className="w-full bg-transparent text-[13px] text-gray-700 placeholder:text-gray-400 outline-none"
                 aria-label={t("wherePlaceholder")}
                 autoComplete="off"
               />
             ) : (
               <span
                 className={cn(
-                  "block text-sm truncate",
+                  "block text-[13px] truncate",
                   selectedLabel ? "text-gray-800 font-medium" : "text-gray-400"
                 )}
               >
@@ -281,7 +281,7 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
           )}
         </div>
 
-        <div className="hidden sm:block w-px h-8 bg-gray-200 shrink-0" />
+        <div className="hidden sm:block w-px h-6 bg-gray-200 shrink-0" />
 
         <div className={cellClass("when")}>
           <button
@@ -290,10 +290,10 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
             onClick={() => setOpenPanel(openPanel === "when" ? null : "when")}
             aria-expanded={openPanel === "when"}
           >
-            <span className="block text-xs font-bold text-gray-900">{t("when")}</span>
+            <span className="block text-[11px] font-bold text-gray-900">{t("when")}</span>
             <span
               className={cn(
-                "block text-sm truncate",
+                "block text-[13px] truncate",
                 dateLabel ? "text-gray-800 font-medium" : "text-gray-400"
               )}
             >
@@ -312,19 +312,19 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
           />
         </div>
 
-        <div className="hidden sm:block w-px h-8 bg-gray-200 shrink-0" />
+        <div className="hidden sm:block w-px h-6 bg-gray-200 shrink-0" />
 
-        <div className={cn(cellClass("who"), "sm:pe-2 flex items-center gap-2")}>
+        <div className={cn(cellClass("who"), "sm:pe-1 flex items-center gap-2")}>
           <button
             type="button"
             className="flex-1 min-w-0 text-start"
             onClick={() => setOpenPanel(openPanel === "who" ? null : "who")}
             aria-expanded={openPanel === "who"}
           >
-            <span className="block text-xs font-bold text-gray-900">{t("who")}</span>
+            <span className="block text-[11px] font-bold text-gray-900">{t("who")}</span>
             <span
               className={cn(
-                "block text-sm truncate",
+                "block text-[13px] truncate",
                 guestLabel ? "text-gray-800 font-medium" : "text-gray-400"
               )}
             >
@@ -336,9 +336,9 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
             type="button"
             onClick={handleSearch}
             aria-label={t("button")}
-            className="shrink-0 w-12 h-12 rounded-full bg-green-700 hover:bg-green-800 text-white flex items-center justify-center shadow-md"
+            className="shrink-0 w-9 h-9 rounded-full bg-green-700 hover:bg-green-800 text-white flex items-center justify-center shadow-sm"
           >
-            <Search className="w-5 h-5" />
+            <Search className="w-4 h-4" />
           </button>
 
           {openPanel === "who" && (

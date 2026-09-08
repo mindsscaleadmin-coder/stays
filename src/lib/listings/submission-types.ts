@@ -10,7 +10,14 @@ export interface ListingRoom {
   name: string;
   description: string;
   price: number;
+  /** Paying guests (adults + children). Infants are separate. */
   capacity: number;
+  /** Max adults allowed (defaults derived from capacity when omitted). */
+  maxAdults?: number;
+  /** Max children allowed. */
+  maxChildren?: number;
+  /** Max infants allowed (do not count toward capacity). */
+  maxInfants?: number;
   beds: number;
   baths: number;
   img: string;
@@ -50,6 +57,7 @@ export const EMPTY_LISTING_FILTERS: ListingFilterValues = {
 
 export interface SubmittedListing {
   id: string;
+  propertyReference?: string;
   title: string;
   description: string;
   hostId: string;
@@ -100,6 +108,16 @@ export interface SubmittedListing {
   flashDealCurrency?: string;
   /** Google Maps / OSM embed URL for the listing location section */
   mapEmbedUrl?: string;
+  /** Experience listings — sequenced activity steps */
+  itinerary?: { step: number; title: string; description?: string }[];
+  /** Experience — where guests meet / pickup details */
+  meetingPoint?: string;
+  /** Experience — safety, age, clothing, liability notes */
+  requirements?: string;
+  /** Experience — tourism license / certification number */
+  licenseNumber?: string;
+  /** Experience — minimum group size (max uses listing/session capacity) */
+  groupSizeMin?: number;
 }
 
 export interface SubmitListingInput {
@@ -130,6 +148,11 @@ export interface SubmitListingInput {
   cancellationPolicyId?: string;
   rooms?: ListingRoom[];
   mapEmbedUrl?: string;
+  itinerary?: { step: number; title: string; description?: string }[];
+  meetingPoint?: string;
+  requirements?: string;
+  licenseNumber?: string;
+  groupSizeMin?: number;
 }
 
 /** Fields a host can change when editing an existing listing. */

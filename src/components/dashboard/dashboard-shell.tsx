@@ -356,7 +356,7 @@ function DashboardShellInner({
   return (
     <div className="min-h-[calc(100vh-120px)] bg-gray-100 lg:flex lg:items-start">
       <aside
-        className="hidden lg:flex flex-col shrink-0 bg-white border-e border-gray-100 sticky z-0 overflow-y-auto pointer-events-auto"
+        className="hidden lg:flex flex-col shrink-0 bg-white border-e border-gray-100 sticky z-20 overflow-y-auto pointer-events-auto"
         style={{
           width: DASHBOARD_SIDEBAR_WIDTH_PX,
           top: "4.5rem",

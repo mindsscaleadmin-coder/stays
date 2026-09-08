@@ -1,19 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { BookingError } from "@/lib/booking/confirm-booking";
 import { computePendingExpiresAt } from "@/lib/booking/policies";
-
-function getDatesInRange(checkIn: Date, checkOut: Date): Date[] {
-  const dates: Date[] = [];
-  const cursor = new Date(checkIn);
-  cursor.setHours(0, 0, 0, 0);
-  const end = new Date(checkOut);
-  end.setHours(0, 0, 0, 0);
-  while (cursor < end) {
-    dates.push(new Date(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return dates;
-}
+import { stayNightDates } from "@/lib/booking/stay-night-dates";
 
 /** Mark booking paid and block calendar dates when status is confirmed. */
 export async function markBookingPaid(bookingId: string) {
@@ -36,7 +24,7 @@ export async function markBookingPaid(bookingId: string) {
     });
 
     if (updated.status === "confirmed" && updated.checkOut) {
-      const dates = getDatesInRange(updated.checkIn, updated.checkOut);
+      const dates = stayNightDates(updated.checkIn, updated.checkOut);
       for (const date of dates) {
         await tx.availability.upsert({
           where: {

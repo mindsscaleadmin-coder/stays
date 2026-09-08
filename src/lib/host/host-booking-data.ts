@@ -1,6 +1,5 @@
 import { HOST_BOOKINGS, type HostBooking } from "@/lib/mock/dashboard-data";
 import { resolveBookingHost } from "@/lib/admin/booking-oversight-utils";
-import { isInstantBookingPlatformEnabled } from "@/lib/admin/platform-config-data";
 import type {
   BookingAuditEntry,
   HostBookingRecord,
@@ -427,10 +426,12 @@ export function cancelHostBooking(
   const refundStatus =
     input.refundStatus ||
     (preview ? refundStatusFromBand(preview.band) : "none");
+  const currency =
+    existing?.currency || existing?.total.match(/^([A-Z]{3})\b/)?.[1] || "AED";
   const refundAmount =
     input.refundAmount ||
     (preview && preview.refundAmount > 0
-      ? `AED ${preview.refundAmount.toLocaleString()}`
+      ? `${currency} ${preview.refundAmount.toLocaleString()}`
       : undefined);
 
   return updateHostBookingRecord(id, {
@@ -468,21 +469,15 @@ export function markHostBookingCheckedOut(id: string): HostBookingRecord | null 
 }
 
 export function getHostInstantBookEnabled(): boolean {
-  if (typeof window === "undefined") return false;
-  if (!isInstantBookingPlatformEnabled()) return false;
-  return localStorage.getItem(INSTANT_BOOK_KEY) === "true";
+  return true;
 }
 
 export function setHostInstantBookEnabled(
-  enabled: boolean,
-  opts?: { silent?: boolean }
+  _enabled: boolean,
+  _opts?: { silent?: boolean }
 ): void {
   if (typeof window === "undefined") return;
-  if (enabled && !isInstantBookingPlatformEnabled()) return;
-  const next = enabled ? "true" : "false";
-  if (localStorage.getItem(INSTANT_BOOK_KEY) === next) return;
-  localStorage.setItem(INSTANT_BOOK_KEY, next);
-  if (!opts?.silent) notify();
+  localStorage.setItem(INSTANT_BOOK_KEY, "true");
 }
 
 function newAuditId(): string {

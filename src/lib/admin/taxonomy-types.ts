@@ -91,6 +91,11 @@ export interface ExtraFilter {
   id: string;
   name: string;
   type: string;
+  /**
+   * Optional parent category scope. Empty/undefined = shown for every parent
+   * (Stays, Experiences, Venues). When set, only that parent sees the filter.
+   */
+  parentId?: string;
   enabled?: boolean;
 }
 

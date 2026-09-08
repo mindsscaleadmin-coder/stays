@@ -33,6 +33,13 @@ import {
 import { ListingQualityChecklist } from "@/components/dashboard/listing-quality-checklist";
 import { STATUS_STYLES } from "@/lib/mock/dashboard-data";
 import { cn } from "@/lib/utils";
+import {
+  LISTING_TITLE_MAX_CHARS,
+  LISTING_TITLE_MAX_WORDS,
+  clampListingTitle,
+  listingTitleWordCount,
+} from "@/lib/listings/listing-title";
+import { RichTextEditor } from "@/components/dashboard/rich-text-editor";
 
 export function HostListingManageContent({ listingId }: { listingId: string }) {
   const router = useRouter();
@@ -65,7 +72,7 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
       setHydrated(true);
       return;
     }
-    setTitle(listing.title);
+    setTitle(clampListingTitle(listing.title));
     setDescription(listing.description);
     setAmenities(listing.amenities ?? []);
     setFarmType(listing.farmType ?? "");
@@ -135,7 +142,7 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
     setSubmitting(true);
 
     const ok = await update(listing.id, {
-      title: title.trim(),
+      title: clampListingTitle(title).trim(),
       description: description.trim(),
       country: listing.country,
       state: listing.state,
@@ -253,24 +260,29 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
             </Link>
           </div>
           <label className="block">
-            <span className="text-xs font-medium text-gray-600 mb-1 block">Title</span>
+            <span className="flex items-center justify-between gap-3 text-xs font-medium text-gray-600 mb-1">
+              Title
+              <span className="font-normal text-gray-400">
+                {listingTitleWordCount(title)}/{LISTING_TITLE_MAX_WORDS} words
+              </span>
+            </span>
             <input
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => setTitle(clampListingTitle(e.target.value))}
+              maxLength={LISTING_TITLE_MAX_CHARS}
               required
               className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
           </label>
-          <label className="block">
+          <div>
             <span className="text-xs font-medium text-gray-600 mb-1 block">Description</span>
-            <textarea
+            <RichTextEditor
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              required
-              rows={4}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-green-500"
+              onChange={setDescription}
+              rows={8}
+              className="rounded-xl"
             />
-          </label>
+          </div>
           <div className="flex flex-wrap gap-2">
             {(listing.photoUrls ?? []).slice(0, 4).map((url, i) => (
               <div key={url + i} className="relative w-16 h-16 rounded-lg overflow-hidden border">

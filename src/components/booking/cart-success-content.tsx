@@ -26,6 +26,20 @@ async function waitForPaidBooking(bookingId: string, maxAttempts = 12) {
   return false;
 }
 
+async function loadBookingReferences(bookingIds: string[]): Promise<string[]> {
+  const bookings = await Promise.all(
+    bookingIds.map(async (id) => {
+      const res = await fetch(`/api/bookings/${id}`);
+      if (!res.ok) return null;
+      const data = (await res.json()) as {
+        booking?: { bookingReference?: string };
+      };
+      return data.booking?.bookingReference || null;
+    })
+  );
+  return bookings.filter((reference): reference is string => Boolean(reference));
+}
+
 export function CartSuccessContent() {
   const searchParams = useSearchParams();
   const bookingIdsParam = searchParams.get("bookingIds") || "";
@@ -37,6 +51,7 @@ export function CartSuccessContent() {
   const count = Number(searchParams.get("count")) || ids.length;
   const [ready, setReady] = useState(ids.length === 0);
   const [paid, setPaid] = useState(ids.length === 0);
+  const [bookingReferences, setBookingReferences] = useState<string[]>([]);
 
   useEffect(() => {
     const bookingIds = bookingIdsParam
@@ -52,7 +67,11 @@ export function CartSuccessContent() {
         const ok =
           (sessionId ? await confirmStripeReturn(first, sessionId) : false) ||
           (await waitForPaidBooking(first));
-        if (!cancelled) setPaid(ok);
+        const references = ok ? await loadBookingReferences(bookingIds) : [];
+        if (!cancelled) {
+          setPaid(ok);
+          setBookingReferences(references);
+        }
       } catch {
         if (!cancelled) setPaid(false);
       } finally {
@@ -100,13 +119,33 @@ export function CartSuccessContent() {
   return (
     <div className="max-w-lg mx-auto px-4 py-16 text-center">
       <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-4" />
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+        Step 3 of 3 · Done
+      </p>
       <h1 className="text-2xl font-bold text-gray-900 font-display mb-2">
-        Bookings confirmed
+        Thank you
       </h1>
       <p className="text-sm text-gray-500 mb-6">
         {count} stay{count === 1 ? "" : "s"} booked from your cart.
         Hosts will see each booking on their calendar.
       </p>
+      {bookingReferences.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-green-200 bg-green-50 px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-green-700">
+            Booking {bookingReferences.length === 1 ? "reference" : "references"}
+          </p>
+          <div className="mt-2 flex flex-wrap justify-center gap-2">
+            {bookingReferences.map((reference) => (
+              <span
+                key={reference}
+                className="rounded-lg bg-white px-3 py-1.5 font-mono text-sm font-bold tracking-wide text-gray-900 shadow-sm"
+              >
+                {reference}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="flex flex-col sm:flex-row gap-3 justify-center">
         <Link
           href={

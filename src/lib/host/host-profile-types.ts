@@ -18,7 +18,7 @@ export interface HostPublicProfile {
   logoWidth?: number;
   /** Natural image height in px */
   logoHeight?: number;
-  /** Host opt-in for instant booking (requires platform-wide toggle) */
+  /** @deprecated Bookings always confirm instantly; kept for stored profile shape. */
   instantBookEnabled?: boolean;
 }
 

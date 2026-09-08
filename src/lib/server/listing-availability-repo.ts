@@ -1,10 +1,11 @@
 import { randomBytes } from "crypto";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type {
   ListingAvailabilitySettings,
   ListingIcalFeed,
 } from "@/lib/host/host-availability-types";
-import { isDateUnavailable } from "@/lib/host/host-availability-utils";
+import { bookingRulesViolation, isDateUnavailable } from "@/lib/host/host-availability-utils";
 import { fetchExternalIcalDates } from "@/lib/server/ical-fetch";
 
 const DEFAULT_SEASONAL = [
@@ -70,12 +71,13 @@ function mergeStored(
 }
 
 export async function getListingAvailability(
-  listingId: string
+  listingId: string,
+  client: Prisma.TransactionClient | typeof prisma = prisma
 ): Promise<ListingAvailabilitySettings | null> {
-  const listing = await prisma.listing.findUnique({ where: { id: listingId } });
+  const listing = await client.listing.findUnique({ where: { id: listingId } });
   if (!listing) return null;
 
-  const row = await prisma.listingAvailabilityMeta.findUnique({ where: { listingId } });
+  const row = await client.listingAvailabilityMeta.findUnique({ where: { listingId } });
   const stored = row ? parsePayload(row.payload) : null;
   return mergeStored(listingId, stored);
 }
@@ -84,49 +86,59 @@ export async function saveListingAvailability(
   settings: ListingAvailabilitySettings
 ): Promise<ListingAvailabilitySettings> {
   const { listingId } = settings;
-  const listing = await prisma.listing.findUnique({ where: { id: listingId } });
-  if (!listing) throw new Error("Listing not found");
 
-  const existing = await prisma.listingAvailabilityMeta.findUnique({ where: { listingId } });
-  let existingToken: string | undefined;
-  try {
-    existingToken = existing
-      ? (JSON.parse(existing.payload) as { icalToken?: string }).icalToken
-      : undefined;
-  } catch {
-    existingToken = undefined;
-  }
+  return prisma.$transaction(async (tx) => {
+    // Same listing lock as confirmBooking — host blocks cannot interleave with a checkout.
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM "Listing" WHERE id = ${listingId} FOR UPDATE
+    `;
+    if (locked.length === 0) throw new Error("Listing not found");
 
-  const next: ListingAvailabilitySettings = {
-    ...settings,
-    listingId,
-    icalToken: existingToken || settings.icalToken || newIcalToken(),
-    icalFeeds: settings.icalFeeds ?? [],
-    icalImportedDates: settings.icalImportedDates ?? [],
-  };
-  const { listingId: _id, ...rest } = next;
+    const existing = await tx.listingAvailabilityMeta.findUnique({ where: { listingId } });
+    let existingToken: string | undefined;
+    try {
+      existingToken = existing
+        ? (JSON.parse(existing.payload) as { icalToken?: string }).icalToken
+        : undefined;
+    } catch {
+      existingToken = undefined;
+    }
 
-  await prisma.listingAvailabilityMeta.upsert({
-    where: { listingId },
-    create: { listingId, payload: JSON.stringify(rest) },
-    update: { payload: JSON.stringify(rest) },
+    const next: ListingAvailabilitySettings = {
+      ...settings,
+      listingId,
+      icalToken: existingToken || settings.icalToken || newIcalToken(),
+      icalFeeds: settings.icalFeeds ?? [],
+      icalImportedDates: settings.icalImportedDates ?? [],
+    };
+    const { listingId: _id, ...rest } = next;
+
+    await tx.listingAvailabilityMeta.upsert({
+      where: { listingId },
+      create: { listingId, payload: JSON.stringify(rest) },
+      update: { payload: JSON.stringify(rest) },
+    });
+
+    await syncHostBlockedDates(listingId, next.blockedDates, tx);
+    return next;
   });
-
-  await syncHostBlockedDates(listingId, next.blockedDates);
-  return next;
 }
 
 /** Sync host manual blocks to Availability rows (booking blocks managed separately). */
-async function syncHostBlockedDates(listingId: string, blockedDates: string[]) {
+async function syncHostBlockedDates(
+  listingId: string,
+  blockedDates: string[],
+  client: Prisma.TransactionClient | typeof prisma = prisma
+) {
   const wanted = new Set(blockedDates);
 
-  const existing = await prisma.availability.findMany({
+  const existing = await client.availability.findMany({
     where: { listingId, isBlocked: true },
   });
 
   for (const iso of Array.from(wanted)) {
     const date = new Date(`${iso}T12:00:00`);
-    await prisma.availability.upsert({
+    await client.availability.upsert({
       where: { listingId_date: { listingId, date } },
       create: { listingId, date, isBlocked: true },
       update: { isBlocked: true },
@@ -136,7 +148,7 @@ async function syncHostBlockedDates(listingId: string, blockedDates: string[]) {
   for (const row of existing) {
     const iso = row.date.toISOString().slice(0, 10);
     if (!wanted.has(iso)) {
-      const hasBooking = await prisma.booking.findFirst({
+      const hasBooking = await client.booking.findFirst({
         where: {
           listingId,
           status: { in: ["pending", "confirmed"] },
@@ -145,7 +157,7 @@ async function syncHostBlockedDates(listingId: string, blockedDates: string[]) {
         },
       });
       if (!hasBooking) {
-        await prisma.availability.delete({ where: { id: row.id } }).catch(() => null);
+        await client.availability.delete({ where: { id: row.id } }).catch(() => null);
       }
     }
   }
@@ -188,10 +200,18 @@ export async function syncListingIcalFeeds(
 export async function assertDatesAvailableForListing(
   listingId: string,
   checkIn: Date,
-  checkOut: Date
+  checkOut: Date,
+  client: Prisma.TransactionClient | typeof prisma = prisma
 ) {
-  const settings = await getListingAvailability(listingId);
+  const settings = await getListingAvailability(listingId, client);
   if (!settings) return;
+
+  const checkInIso = checkIn.toISOString().slice(0, 10);
+  const checkOutIso = checkOut.toISOString().slice(0, 10);
+  const ruleError = bookingRulesViolation(checkInIso, checkOutIso, settings);
+  if (ruleError) {
+    throw new Error(ruleError);
+  }
 
   const cursor = new Date(checkIn);
   cursor.setHours(0, 0, 0, 0);

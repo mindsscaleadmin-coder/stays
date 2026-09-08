@@ -68,7 +68,7 @@ export function GuestSupportContent() {
     submitTicket({
       subject,
       message,
-      bookingRef: bookingRef || undefined,
+      bookingRef: booking?.bookingReference || bookingRef || undefined,
       property: booking?.property,
     });
     setSubject("");
@@ -134,7 +134,7 @@ export function GuestSupportContent() {
                 <option value="">No booking</option>
                 {bookingOptions.map((b) => (
                   <option key={b.id} value={b.id}>
-                    {b.property} · {b.checkIn} → {b.checkOut} ({b.status})
+                    {b.bookingReference || b.id} · {b.property} · {b.checkIn} → {b.checkOut} ({b.status})
                   </option>
                 ))}
               </select>

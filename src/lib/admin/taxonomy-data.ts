@@ -148,18 +148,18 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     { id: "sc19", name: "Desert Venues", parentId: "p4", categoryId: "cat-desert-v" },
   ],
   extraFilters: [
-    { id: "ef1", name: "Swimming Pool", type: "amenity" },
-    { id: "ef2", name: "BBQ Area", type: "amenity" },
+    { id: "ef1", name: "Swimming Pool", type: "amenity", parentId: "p1" },
+    { id: "ef2", name: "BBQ Area", type: "amenity", parentId: "p1" },
     { id: "ef3", name: "WiFi", type: "amenity" },
-    { id: "ef4", name: "Pet Friendly", type: "tag" },
+    { id: "ef4", name: "Pet Friendly", type: "tag", parentId: "p1" },
     { id: "ef5", name: "Family Friendly", type: "tag" },
     { id: "ef6", name: "Instant Booking", type: "tag" },
     { id: "ef7", name: "Budget (under AED 500)", type: "priceRange" },
     { id: "ef8", name: "Mid-range (AED 500–1500)", type: "priceRange" },
     { id: "ef9", name: "Luxury (AED 1500+)", type: "priceRange" },
-    { id: "ef10", name: "Horse Riding", type: "activity" },
-    { id: "ef11", name: "Fruit Picking", type: "activity" },
-    { id: "ef12", name: "Desert Safari", type: "activity" },
+    { id: "ef10", name: "Horse Riding", type: "activity", parentId: "p1" },
+    { id: "ef11", name: "Fruit Picking", type: "activity", parentId: "p1" },
+    { id: "ef12", name: "Desert Safari", type: "activity", parentId: "p3" },
   ],
   featureFilters: [
     { id: "ff1", name: "Private Pool", parentId: "p1" },
@@ -336,6 +336,18 @@ function dedupeByNameAndParent<
   });
 }
 
+function dedupeExtraFilters(
+  items: { id: string; name: string; type: string; parentId?: string; enabled?: boolean }[]
+) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${item.type}::${item.parentId ?? ""}::${normalizeFilterName(item.name)}`;
+    if (!normalizeFilterName(item.name) || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function dedupeCustomItems(
   customItems: Record<string, { id: string; name: string; enabled?: boolean }[]>
 ): Record<string, { id: string; name: string; enabled?: boolean }[]> {
@@ -470,10 +482,7 @@ export function normalizeTaxonomy(parsed: Partial<TaxonomyData>): TaxonomyData {
     mainTabs,
     extraTabs: mergeExtraTabs(parsed.extraTabs),
     customItems: cleanedCustom,
-    extraFilters: dedupeByNameAndParent(
-      parsed.extraFilters ?? SEED_TAXONOMY.extraFilters,
-      "type"
-    ),
+    extraFilters: dedupeExtraFilters(parsed.extraFilters ?? SEED_TAXONOMY.extraFilters),
     featureFilters: dedupeByNameAndParent(
       incoming.featureFilters ?? SEED_TAXONOMY.featureFilters,
       "parentId"

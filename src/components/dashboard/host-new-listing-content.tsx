@@ -33,8 +33,21 @@ import {
   buildQualityChecklist,
   validateListingQuality,
 } from "@/lib/listings/listing-quality-validation";
+import { isExperienceListing } from "@/lib/booking/is-experience-listing";
+import {
+  defaultExperienceSessions,
+} from "@/lib/booking/experience-session-types";
+import {
+  LISTING_TITLE_MAX_CHARS,
+  LISTING_TITLE_MAX_WORDS,
+  clampListingTitle,
+  listingTitleWordCount,
+} from "@/lib/listings/listing-title";
+import { RichTextEditor } from "@/components/dashboard/rich-text-editor";
 
 const MAX_PHOTOS = 12;
+
+type ItineraryStep = { step: number; title: string; description?: string };
 
 export function HostNewListingContent({ listingId }: { listingId?: string }) {
   const router = useRouter();
@@ -66,6 +79,13 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [mapEmbedInput, setMapEmbedInput] = useState("");
+  const [meetingPoint, setMeetingPoint] = useState("");
+  const [requirements, setRequirements] = useState("");
+  const [licenseNumber, setLicenseNumber] = useState("");
+  const [groupSizeMin, setGroupSizeMin] = useState(1);
+  const [itinerary, setItinerary] = useState<ItineraryStep[]>([
+    { step: 1, title: "", description: "" },
+  ]);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [hydrated, setHydrated] = useState(!listingId);
@@ -79,6 +99,11 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
     () => resolveListingLabels(taxonomy, filterValues),
     [taxonomy, filterValues]
   );
+
+  const isExperience = isExperienceListing({
+    parentCategory: draftLabels.parentCategory,
+    type: draftLabels.type,
+  });
 
   const qualityInput = useMemo(
     () => ({
@@ -125,9 +150,22 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
       return;
     }
 
-    setTitle(existing.title);
+    setTitle(clampListingTitle(existing.title));
     setDescription(existing.description);
     setMapEmbedInput(existing.mapEmbedUrl ?? "");
+    setMeetingPoint(existing.meetingPoint ?? "");
+    setRequirements(existing.requirements ?? "");
+    setLicenseNumber(existing.licenseNumber ?? "");
+    setGroupSizeMin(Math.max(1, existing.groupSizeMin ?? 1));
+    setItinerary(
+      existing.itinerary?.length
+        ? existing.itinerary.map((s, i) => ({
+            step: s.step || i + 1,
+            title: s.title ?? "",
+            description: s.description ?? "",
+          }))
+        : [{ step: 1, title: "", description: "" }]
+    );
     const tags = existing.photoTags ?? [];
     setPhotos(
       (existing.photoUrls ?? []).map((url, index) => ({
@@ -218,7 +256,7 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
       }
 
       const payload = {
-        title: title.trim() || "Untitled listing",
+        title: clampListingTitle(title).trim() || "Untitled listing",
         description: description.trim() || "",
         ...labels,
         photoUrls,
@@ -227,6 +265,24 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         highlightIds: filterValues.highlightIds,
         featureIconIds: filterValues.featureIconIds.slice(0, 4),
         mapEmbedUrl: mapEmbedUrl || "",
+        ...(isExperienceListing({
+          parentCategory: labels.parentCategory,
+          type: labels.type,
+        })
+          ? {
+              meetingPoint: meetingPoint.trim(),
+              requirements: requirements.trim(),
+              licenseNumber: licenseNumber.trim() || undefined,
+              groupSizeMin: Math.max(1, groupSizeMin),
+              itinerary: itinerary
+                .filter((s) => s.title.trim())
+                .map((s, i) => ({
+                  step: i + 1,
+                  title: s.title.trim(),
+                  description: s.description?.trim() || undefined,
+                })),
+            }
+          : {}),
       };
 
       let savedId = listingId ?? "";
@@ -265,6 +321,12 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         listingId: savedId,
         country: countryConfig,
         similarListingIds,
+        seedSessions: isExperienceListing({
+          parentCategory: labels.parentCategory,
+          type: labels.type,
+        })
+          ? defaultExperienceSessions()
+          : undefined,
       });
 
       router.push(`/host/pricing?listing=${encodeURIComponent(savedId)}&from=listing`);
@@ -303,7 +365,7 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
       <div className="space-y-6 max-w-2xl">
         <div>
           <h2 className="text-xl font-bold text-gray-900 font-display">
-            {isEdit ? "Edit Listing" : "Create New Listing"}
+            {isEdit ? "Edit Listing" : "New listing"}
           </h2>
           <p className="text-gray-500 text-sm mt-1">
             {isEdit
@@ -329,30 +391,38 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
           noValidate
         >
           <div>
-            <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1.5">
-              Title
-            </label>
+            <div className="flex items-center justify-between gap-3 mb-1.5">
+              <label htmlFor="title" className="block text-sm font-medium text-gray-700">
+                Title
+              </label>
+              <span className="text-xs text-gray-400">
+                {listingTitleWordCount(title)}/{LISTING_TITLE_MAX_WORDS} words
+              </span>
+            </div>
             <input
               id="title"
               name="title"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => setTitle(clampListingTitle(e.target.value))}
+              maxLength={LISTING_TITLE_MAX_CHARS}
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
               placeholder="Green Valley Farmhouse"
             />
+            <p className="text-xs text-gray-400 mt-1">
+              Short titles stay on one line on the listing page.
+            </p>
           </div>
 
           <div>
             <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1.5">
               Description
             </label>
-            <textarea
+            <RichTextEditor
               id="description"
               name="description"
-              rows={4}
+              rows={8}
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              onChange={setDescription}
               placeholder="Describe your property..."
             />
           </div>
@@ -481,6 +551,110 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
           </div>
 
           <ListingFilterFields values={filterValues} onChange={setFilterValues} />
+
+          {isExperience && (
+            <div className="space-y-4 border border-green-100 rounded-xl p-4 bg-green-50/40">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Experience details</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Guests see these on the listing before they pick a session.
+                </p>
+              </div>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Meeting point / pickup</span>
+                <textarea
+                  value={meetingPoint}
+                  onChange={(e) => setMeetingPoint(e.target.value)}
+                  rows={2}
+                  className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Hotel lobby pickup within 30 minutes of agreed time"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Requirements / safety</span>
+                <textarea
+                  value={requirements}
+                  onChange={(e) => setRequirements(e.target.value)}
+                  rows={3}
+                  className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Age limits, clothing advice, health notes…"
+                />
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-sm font-medium text-gray-700">License / certification</span>
+                  <input
+                    value={licenseNumber}
+                    onChange={(e) => setLicenseNumber(e.target.value)}
+                    className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="DCT license number"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-sm font-medium text-gray-700">Min group size</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={groupSizeMin}
+                    onChange={(e) => setGroupSizeMin(Math.max(1, Number(e.target.value) || 1))}
+                    className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </label>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-gray-700">Itinerary</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setItinerary((prev) => [
+                        ...prev,
+                        { step: prev.length + 1, title: "", description: "" },
+                      ])
+                    }
+                    className="text-xs font-semibold text-green-700 hover:text-green-800"
+                  >
+                    Add step
+                  </button>
+                </div>
+                {itinerary.map((step, index) => (
+                  <div
+                    key={`step-${index}`}
+                    className="grid grid-cols-1 sm:grid-cols-[2rem_1fr] gap-2 items-start bg-white border border-gray-100 rounded-lg p-3"
+                  >
+                    <span className="text-xs font-bold text-green-700 pt-2.5">{index + 1}</span>
+                    <div className="space-y-2">
+                      <input
+                        value={step.title}
+                        onChange={(e) =>
+                          setItinerary((prev) =>
+                            prev.map((s, i) =>
+                              i === index ? { ...s, title: e.target.value } : s
+                            )
+                          )
+                        }
+                        placeholder="Pickup from hotel"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
+                      <input
+                        value={step.description ?? ""}
+                        onChange={(e) =>
+                          setItinerary((prev) =>
+                            prev.map((s, i) =>
+                              i === index ? { ...s, description: e.target.value } : s
+                            )
+                          )
+                        }
+                        placeholder="Optional detail"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-3 border border-gray-100 rounded-xl p-4 bg-gray-50/60">
             <div className="flex items-start gap-2">

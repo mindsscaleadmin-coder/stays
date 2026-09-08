@@ -15,9 +15,9 @@ import type { HostPublicProfile } from "./host-profile-types";
 
 const INSTANT_BOOK_KEY = "farm-stays-host-instant-book-enabled";
 
-function syncInstantBookLocal(profile: HostPublicProfile) {
+function syncInstantBookLocal(_profile: HostPublicProfile) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(INSTANT_BOOK_KEY, profile.instantBookEnabled ? "true" : "false");
+  localStorage.setItem(INSTANT_BOOK_KEY, "true");
 }
 
 export function useHostPublicProfile(

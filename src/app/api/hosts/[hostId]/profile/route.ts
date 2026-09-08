@@ -49,7 +49,7 @@ export async function PATCH(
       logoBytes: body.logoBytes ?? current.logoBytes,
       logoWidth: body.logoWidth ?? current.logoWidth,
       logoHeight: body.logoHeight ?? current.logoHeight,
-      instantBookEnabled: body.instantBookEnabled ?? current.instantBookEnabled,
+      instantBookEnabled: true,
     });
 
     return NextResponse.json(

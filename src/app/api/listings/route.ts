@@ -7,7 +7,7 @@ import {
   listListings,
   listListingsByHost,
   relabelListingsInDb,
-  searchListings,
+  searchListingsPage,
   seedListingsIfEmpty,
   setListingStatus,
   updateListingFields,
@@ -36,6 +36,7 @@ import { canAccessAdmin } from "@/lib/auth/roles";
 import { hostDataErrorResponse, requireListingHostOrAdmin } from "@/lib/auth/listing-access";
 import { actingHostId, requireActor, requireAdmin, requireHost } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
+import { parseListingPagination } from "@/lib/listings/listings-pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +77,12 @@ export async function GET(request: Request) {
     await ensureSeeded();
     const filters = parseListingSearchParams(request);
     const publicCatalog = filters.status === "approved";
+    const url = new URL(request.url);
+    const pagination = parseListingPagination({
+      page: url.searchParams.get("page"),
+      perPage: url.searchParams.get("perPage") ?? url.searchParams.get("limit"),
+    });
+    const adminLoadAll = !publicCatalog && url.searchParams.get("all") === "1";
 
     if (!publicCatalog && !isDemoApiMode()) {
       const actor = await requireActor();
@@ -89,19 +96,37 @@ export async function GET(request: Request) {
           )
         );
         return NextResponse.json(
-          { listings: scoped, shared: true },
+          {
+            listings: scoped,
+            total: scoped.length,
+            page: 1,
+            pageSize: scoped.length,
+            shared: true,
+          },
           { headers: { "Cache-Control": "private, no-store" } }
         );
       }
     }
 
+    const pageResult =
+      publicCatalog || listingSearchHasFilters(filters)
+        ? await searchListingsPage(filters, {
+            page: pagination.page,
+            pageSize: pagination.pageSize,
+            unlimited: adminLoadAll,
+          })
+        : {
+            listings: await listListings(),
+            total: 0,
+            page: 1,
+            pageSize: pagination.pageSize,
+          };
+
     const listings = await attachPublicListingMeta(
-      await attachPricingToListings(
-        listingSearchHasFilters(filters)
-          ? await searchListings(filters)
-          : await listListings()
-      )
+      await attachPricingToListings(pageResult.listings)
     );
+    const total = pageResult.total > 0 ? pageResult.total : listings.length;
+
     const publicApproved =
       filters.status === "approved" &&
       !filters.country &&
@@ -111,8 +136,15 @@ export async function GET(request: Request) {
       !filters.category &&
       !filters.subcategory &&
       !filters.q;
+
     return NextResponse.json(
-      { listings, shared: true },
+      {
+        listings,
+        total,
+        page: pageResult.page,
+        pageSize: pageResult.pageSize,
+        shared: true,
+      },
       {
         headers: publicApproved
           ? { "Cache-Control": "public, s-maxage=20, stale-while-revalidate=60" }
@@ -144,9 +176,18 @@ export async function POST(request: Request) {
     }
 
     if (action === "status") {
-      await requireAdmin();
       const id = String(body.id || "");
-      const status = body.status;
+      const status = body.status as ListingReviewStatus;
+      if (!LISTING_STATUSES.has(status)) {
+        return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+      }
+      // Hosts may only re-submit for review (pending). Approve / reject / unpublish
+      // are admin-only — new properties must go through the moderation queue.
+      if (status === "pending") {
+        await requireListingHostOrAdmin(id);
+      } else {
+        await requireAdmin();
+      }
       const listing = await setListingStatus(id, status, body.extra);
       if (!listing) return NextResponse.json({ error: "Not found" }, { status: 404 });
       return NextResponse.json({ listing });

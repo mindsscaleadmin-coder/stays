@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 import { Loader2, Plus, Shield, Trash2 } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
 import { useAuth } from "@/components/providers/auth-provider";
-import { getDefaultHouseRulesFromTemplates } from "@/lib/admin/content-policy-data";
 import { useContentPolicyOptions } from "@/lib/admin/use-admin-content-policy";
 import {
   filterHostListings,
@@ -23,7 +22,8 @@ export function HostHouseRulesContent() {
   const hostName = resolveHostName(user);
   const { all, update, ready } = useListingSubmissions();
   const submissions = filterHostListings(all, hostId ?? "", hostName);
-  const { houseRuleTemplates, cancellationPolicies } = useContentPolicyOptions();
+  const { houseRuleTemplates, cancellationPolicies, defaultHouseRules } =
+    useContentPolicyOptions();
 
   const listingOptions = useMemo(() => {
     if (submissions.length > 0) {
@@ -65,21 +65,19 @@ export function HostHouseRulesContent() {
   useEffect(() => {
     if (!ready) return;
     if (!listing) {
-      setHouseRules(getDefaultHouseRulesFromTemplates());
+      setHouseRules(defaultHouseRules);
       setCancellationPolicyId(defaultCancellationId);
       setHydrated(true);
       return;
     }
     setHouseRules(
-      listing.houseRules?.length
-        ? listing.houseRules
-        : getDefaultHouseRulesFromTemplates()
+      listing.houseRules?.length ? listing.houseRules : defaultHouseRules
     );
     setCancellationPolicyId(
       listing.cancellationPolicyId ?? defaultCancellationId
     );
     setHydrated(true);
-  }, [listing, ready, defaultCancellationId]);
+  }, [listing, ready, defaultCancellationId, defaultHouseRules]);
 
   function flash(text: string) {
     setMessage(text);

@@ -12,6 +12,7 @@ import {
   countDraftAnnouncements,
   countDisabledTemplates,
   createAndPushAnnouncement,
+  getDefaultHouseRulesFromTemplates,
   getHostSelectableCancellationPolicies,
   loadContentPolicy,
   newContentPolicyId,
@@ -237,9 +238,15 @@ export function useContentPolicyOptions() {
     [settings]
   );
 
+  const defaultHouseRules = useMemo(
+    () => getDefaultHouseRulesFromTemplates(settings),
+    [settings]
+  );
+
   return {
     houseRuleTemplates,
     cancellationPolicies,
+    defaultHouseRules,
   };
 }
 

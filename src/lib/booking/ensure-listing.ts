@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { resolveCatalogListingHost } from "@/lib/listings/catalog-listing-hosts";
+import { createPropertyReference } from "@/lib/listings/property-reference";
 
 export type ListingBookingSnapshot = {
   id: string;
@@ -31,8 +32,9 @@ function resolveHost(snapshot: ListingBookingSnapshot) {
 }
 
 /**
- * Ensure a Listing row exists so confirmBooking can run for mock + host stays.
- * Uses catalog host map so paid bookings appear on the correct host calendar.
+ * Ensure a Listing row exists so confirmBooking can run for mock + catalog stays.
+ * Never upgrades an existing host submission to approved — moderation is admin-only.
+ * Synthetic shells created here are for booking infrastructure only (catalog IDs).
  */
 export async function ensureListingForBooking(
   snapshot: ListingBookingSnapshot
@@ -45,16 +47,22 @@ export async function ensureListingForBooking(
     const shouldReassign =
       wrongSyntheticHost && hostId !== existing.hostId && !hostId.startsWith("host-for-");
 
-    if (existing.status !== "approved" || shouldReassign) {
+    // Never auto-approve host submissions. Booking requires status=approved elsewhere.
+    if (shouldReassign) {
       await prisma.listing.update({
         where: { id: snapshot.id },
-        data: {
-          status: "approved",
-          ...(shouldReassign ? { hostId } : {}),
-        },
+        data: { hostId },
       });
     }
     return;
+  }
+
+  // Host-created listing IDs (L-…) must be submitted via the host form and approved
+  // by admin — do not invent an approved shell for them.
+  if (/^L-/i.test(snapshot.id)) {
+    throw new Error(
+      `Listing ${snapshot.id} is not approved yet. Host properties require admin approval before booking.`
+    );
   }
 
   const host = await prisma.user.findUnique({ where: { id: hostId } });
@@ -93,6 +101,7 @@ export async function ensureListingForBooking(
   await prisma.listing.create({
     data: {
       id: snapshot.id,
+      propertyReference: createPropertyReference(),
       hostId,
       title: snapshot.title,
       status: "approved",

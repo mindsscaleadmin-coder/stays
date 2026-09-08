@@ -8,6 +8,7 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { requireSessionUser, AuthError, authErrorResponse } from "@/lib/auth/session";
 import { enqueueBookingConfirmedJob } from "@/lib/queue/enqueue";
 import { prisma } from "@/lib/prisma";
+import { BASE_CURRENCY } from "@/lib/currency";
 
 const listingSchema = z.object({
   id: z.string(),
@@ -26,7 +27,7 @@ const lineSchema = z.object({
   checkIn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   checkOut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   guestCount: z.number().int().min(1).max(50),
-  currency: z.string().min(3).max(3).optional().default("AED"),
+  currency: z.string().min(3).max(3).optional().default(BASE_CURRENCY),
   roomIds: z.array(z.string()).optional(),
   experienceIds: z.array(z.string()).optional(),
   extraIds: z.array(z.string()).optional(),
@@ -150,6 +151,9 @@ export async function POST(request: Request) {
         metadata: {
           bookingId: bookingIds[0],
           bookingIds: bookingIds.join(","),
+          bookingReferences: created
+            .map((row) => row.booking.bookingReference)
+            .join(","),
         },
       });
 

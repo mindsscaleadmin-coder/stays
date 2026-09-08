@@ -3,25 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { Link, useRouter } from "@/i18n/routing";
-import { Calendar, Loader2, Lock, Users } from "lucide-react";
+import { Calendar, Lock, Users } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
-  clearBookingCart,
   loadBookingCart,
   type BookingCartLine,
 } from "@/lib/guest/booking-cart";
-import { quoteCartLine, quoteCartTotal } from "@/lib/guest/cart-quote";
+import { quoteCartTotal } from "@/lib/guest/cart-quote";
 import { useCartPricing } from "@/lib/guest/use-cart-pricing";
 import { formatMoney } from "@/lib/currency";
-import { resolveCatalogListingHost } from "@/lib/listings/catalog-listing-hosts";
 
 export function CartCheckoutContent() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [lines, setLines] = useState<BookingCartLine[]>([]);
-  const [paying, setPaying] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [paymentMode, setPaymentMode] = useState<"stripe" | "demo">("demo");
 
   useEffect(() => {
     setLines(loadBookingCart());
@@ -33,19 +28,6 @@ export function CartCheckoutContent() {
     }
   }, [loading, user, router]);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/payments/mode")
-      .then((res) => res.json())
-      .then((data: { mode?: string }) => {
-        if (!cancelled && data.mode === "stripe") setPaymentMode("stripe");
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const pricingByListing = useCartPricing(lines);
   const { quotes, total, currency } = useMemo(
     () => quoteCartTotal(lines, pricingByListing),
@@ -55,87 +37,6 @@ export function CartCheckoutContent() {
     () => new Map(quotes.map((q) => [q.lineId, q])),
     [quotes]
   );
-
-  async function handlePayAll() {
-    if (!user || lines.length === 0) return;
-    setPaying(true);
-    setError(null);
-
-    try {
-      const payloadLines = lines.map((line) => {
-        const quote = quoteCartLine(line, pricingByListing[line.listingId]);
-        if (!quote) throw new Error(`Invalid dates for ${line.title}`);
-        const catalogHost = resolveCatalogListingHost(line.listingId);
-        return {
-          listingId: line.listingId,
-          checkIn: line.checkIn,
-          checkOut: line.checkOut,
-          guestCount: line.guests,
-          currency: quote.currency,
-          roomIds: line.rooms,
-          experienceIds: line.experienceIds,
-          extraIds: line.extraIds,
-          listing: {
-            id: line.listingId,
-            title: line.title,
-            hostId: catalogHost?.hostId,
-            hostName: catalogHost?.hostName,
-            location: line.location,
-            maxGuests: line.maxGuests,
-            pricePerNight: line.pricePerNight,
-            instantBook: line.instantBook,
-            currency: quote.currency,
-          },
-        };
-      });
-
-      const res = await fetch("/api/bookings/cart", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lines: payloadLines,
-          guestId: user.id,
-          guestName: user.fullName,
-          guestEmail: user.email,
-          demoPay: true,
-        }),
-      });
-      const data = (await res.json()) as {
-        error?: string;
-        mode?: string;
-        checkoutUrl?: string;
-        paid?: boolean;
-        bookingIds?: string[];
-      };
-      if (!res.ok) {
-        throw new Error(data.error || "Could not book cart");
-      }
-
-      if (data.mode === "stripe" && data.checkoutUrl) {
-        window.location.href = data.checkoutUrl;
-        return;
-      }
-
-      const bookingIds = data.bookingIds ?? [];
-      if (data.mode === "demo" && !data.paid) {
-        for (const id of bookingIds) {
-          const payRes = await fetch(`/api/bookings/${id}/demo-pay`, { method: "POST" });
-          const payData = await payRes.json();
-          if (!payRes.ok) throw new Error(payData.error || "Payment failed");
-        }
-      }
-
-      clearBookingCart();
-      const qs = new URLSearchParams({
-        bookingIds: bookingIds.join(","),
-        count: String(bookingIds.length),
-      });
-      router.push(`/cart/success?${qs.toString()}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-      setPaying(false);
-    }
-  }
 
   if (loading || !user) {
     return (
@@ -159,11 +60,14 @@ export function CartCheckoutContent() {
   return (
     <div className="bg-gray-50 min-h-[70vh]">
       <div className="max-w-5xl mx-auto px-4 py-8 sm:py-10">
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
+          Step 1 of 3 · Review
+        </p>
         <h1 className="text-2xl font-bold text-gray-900 font-display mb-1">
           Checkout cart
         </h1>
         <p className="text-sm text-gray-500 mb-8">
-          Each stay becomes its own booking · one payment for all
+          Review your stays, then continue to payment
         </p>
 
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -213,7 +117,7 @@ export function CartCheckoutContent() {
 
           <div className="lg:col-span-2">
             <div className="bg-white rounded-2xl border border-gray-200 p-5 sticky top-24 shadow-sm">
-              <h2 className="text-sm font-bold text-gray-900 mb-3">Pay all</h2>
+              <h2 className="text-sm font-bold text-gray-900 mb-3">Order summary</h2>
               <div className="flex justify-between items-baseline border-b border-gray-100 pb-3 mb-4">
                 <span className="font-semibold text-gray-900">
                   {lines.length} stay{lines.length === 1 ? "" : "s"}
@@ -223,32 +127,16 @@ export function CartCheckoutContent() {
                 </span>
               </div>
 
-              {error && (
-                <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-3">
-                  {error}
-                </p>
-              )}
-
               <button
                 type="button"
-                disabled={paying || quotes.length !== lines.length}
-                onClick={() => void handlePayAll()}
+                disabled={quotes.length !== lines.length}
+                onClick={() => router.push("/cart/payment")}
                 className="w-full flex items-center justify-center gap-2 bg-green-700 hover:bg-green-800 disabled:opacity-60 text-white font-bold py-3.5 rounded-xl text-sm"
               >
-                {paying ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" /> Paying…
-                  </>
-                ) : (
-                  <>
-                    <Lock className="w-4 h-4" /> Confirm &amp; pay all
-                  </>
-                )}
+                <Lock className="w-4 h-4" /> Continue to payment
               </button>
               <p className="mt-3 text-[11px] text-gray-400 text-center leading-relaxed">
-                {paymentMode === "stripe"
-                  ? "You will be redirected to Stripe Checkout for every stay in this cart."
-                  : "Demo mode: payment is simulated and each stay is written to the host calendar."}
+                Next: enter card details, then see your thank-you confirmation.
               </p>
               <Link
                 href="/cart"

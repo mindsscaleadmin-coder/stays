@@ -41,13 +41,17 @@ export async function POST(request: Request) {
         const { activatePromotionInDb } = await import("@/lib/listings/promotions-repo");
         await activatePromotionInDb(session.metadata.promotionId, session.id ?? "");
       }
-      const bookingIds = (session.metadata?.bookingIds || session.metadata?.bookingId || "")
-        .split(",")
-        .map((id) => id.trim())
-        .filter(Boolean);
-      if (bookingIds[0]) {
+      const bookingIds = Array.from(
+        new Set(
+          (session.metadata?.bookingIds || session.metadata?.bookingId || "")
+            .split(",")
+            .map((id) => id.trim())
+            .filter(Boolean)
+        )
+      );
+      for (const bookingId of bookingIds) {
         await confirmPaidFromStripe({
-          bookingId: bookingIds[0],
+          bookingId,
           sessionId: session.id,
         });
       }

@@ -19,7 +19,7 @@ export default async function AboutPage({
       </p>
       <p>
         Hosts list properties, set availability, and manage bookings from one dashboard. Guests
-        get instant or request-to-book stays with transparent pricing.
+        get instant confirmation with transparent pricing.
       </p>
     </SiteInfoPage>
   );

@@ -12,9 +12,15 @@ async function fetchPendingCount(): Promise<number> {
     return getPendingCount();
   }
   try {
-    const res = await fetch("/api/listings?status=pending", { cache: "no-store" });
+    const res = await fetch("/api/listings?status=pending&page=1&perPage=1", {
+      cache: "no-store",
+    });
     if (!res.ok) return getPendingCount();
-    const data = (await res.json()) as { listings?: { status?: string }[] };
+    const data = (await res.json()) as {
+      listings?: { status?: string }[];
+      total?: number;
+    };
+    if (typeof data.total === "number") return data.total;
     return (data.listings ?? []).filter((l) => l.status === "pending").length;
   } catch {
     return getPendingCount();

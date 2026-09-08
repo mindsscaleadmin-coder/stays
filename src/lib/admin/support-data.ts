@@ -207,7 +207,8 @@ function syncDisputeTickets(tickets: SupportTicketRecord[]): SupportTicketRecord
 
   for (const booking of bookings) {
     if (booking.disputeStatus !== "open") continue;
-    const existing = byBooking.get(booking.id);
+    const reference = booking.bookingReference || booking.id;
+    const existing = byBooking.get(reference) ?? byBooking.get(booking.id);
     if (existing) {
       next = next.map((t) =>
         t.id === existing.id
@@ -240,7 +241,7 @@ function syncDisputeTickets(tickets: SupportTicketRecord[]): SupportTicketRecord
       requesterId: booking.guestEmail,
       requesterName: booking.guest,
       requesterEmail: booking.guestEmail,
-      bookingRef: booking.id,
+      bookingRef: reference,
       property: booking.property,
       hostName: booking.hostName,
       communicationLogs: [
@@ -253,7 +254,7 @@ function syncDisputeTickets(tickets: SupportTicketRecord[]): SupportTicketRecord
       ],
     };
     next = [disputeTicket, ...next];
-    byBooking.set(booking.id, disputeTicket);
+    byBooking.set(reference, disputeTicket);
   }
 
   return next;

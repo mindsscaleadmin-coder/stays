@@ -108,6 +108,7 @@ function mapSupabaseUser(user: User): GuestUser {
     country: meta.country,
     roles: meta.roles ?? ["guest"],
     language: meta.language ?? "en",
+    avatarUrl: meta.avatar_url ?? meta.avatarUrl ?? undefined,
   };
 }
 
@@ -621,21 +622,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateProfile = useCallback(
     async (updates: Partial<GuestUser>) => {
       if (supabase && user) {
-        const { error } = await supabase.auth.updateUser({
-          data: {
-            full_name: updates.fullName,
-            phone: updates.phone,
-            country: updates.country,
-            language: updates.language,
-          },
-        });
+        const data: Record<string, unknown> = {};
+        if (updates.fullName !== undefined) data.full_name = updates.fullName;
+        if (updates.phone !== undefined) data.phone = updates.phone;
+        if (updates.country !== undefined) data.country = updates.country;
+        if (updates.language !== undefined) data.language = updates.language;
+        if ("avatarUrl" in updates) data.avatar_url = updates.avatarUrl ?? null;
+        const { error } = await supabase.auth.updateUser({ data });
         if (error) return { error: error.message };
-        setUser((prev) => (prev ? { ...prev, ...updates } : prev));
+        setUser((prev) => {
+          if (!prev) return prev;
+          const next = { ...prev, ...updates };
+          if ("avatarUrl" in updates && !updates.avatarUrl) {
+            delete next.avatarUrl;
+          }
+          return next;
+        });
         return {};
       }
 
       const updated = updateDemoUser(updates);
-      if (updated) setUser(updated);
+      if (updated) {
+        if ("avatarUrl" in updates && !updates.avatarUrl) {
+          const { avatarUrl: _, ...rest } = updated;
+          setDemoUser(rest);
+          setUser(rest);
+        } else {
+          setUser(updated);
+        }
+      }
       return {};
     },
     [supabase, user]

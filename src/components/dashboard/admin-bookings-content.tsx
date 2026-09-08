@@ -127,7 +127,7 @@ function BookingRowCard({
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-bold text-gray-900 truncate">{booking.guest}</h3>
               <span className="text-[10px] font-mono text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-md">
-                {booking.id}
+                {booking.bookingReference || booking.id}
               </span>
             </div>
 
@@ -233,7 +233,9 @@ function BookingDetailPanel({
       <div className="bg-white w-full max-w-xl h-full overflow-y-auto shadow-xl flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white z-10">
           <div>
-            <h3 className="font-semibold text-gray-900">{booking.id}</h3>
+            <h3 className="font-semibold text-gray-900">
+              {booking.bookingReference || booking.id}
+            </h3>
             <p className="text-xs text-gray-500">{booking.guest} · {booking.property}</p>
           </div>
           <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100">
@@ -538,6 +540,7 @@ export function AdminBookingsContent() {
       if (!q) return true;
       const haystack = [
         b.id,
+        b.bookingReference,
         b.guest,
         b.hostName,
         b.property,
@@ -654,7 +657,7 @@ export function AdminBookingsContent() {
           <div className="space-y-5">
             <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-3">
               <StatCard label="Total bookings" value={bookingStats.total} />
-              <StatCard label="Pending" value={bookingStats.pending} tone="amber" hint="Awaiting host action" />
+              <StatCard label="Pending" value={bookingStats.pending} tone="amber" hint="Legacy / edge cases" />
               <StatCard label="Confirmed" value={bookingStats.active} tone="green" hint="Upcoming & ongoing" />
               <StatCard label="Completed" value={bookingStats.completed} tone="gray" />
               <StatCard

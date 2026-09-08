@@ -36,7 +36,9 @@ function DisputeIntervenePanel({
       <div className="bg-white w-full max-w-xl h-full overflow-y-auto shadow-xl flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white z-10">
           <div>
-            <h3 className="font-semibold text-gray-900">{booking.id}</h3>
+            <h3 className="font-semibold text-gray-900">
+              {booking.bookingReference || booking.id}
+            </h3>
             <p className="text-xs text-gray-500">
               {booking.guest} vs {booking.hostName ?? "Host"} · {booking.property}
             </p>
@@ -220,7 +222,7 @@ export function AdminOpenDisputesPanel({
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div>
                   <h3 className="font-bold text-gray-900">
-                    {b.id} · {b.guest} vs {b.hostName}
+                    {b.bookingReference || b.id} · {b.guest} vs {b.hostName}
                   </h3>
                   <p className="text-sm text-gray-500 mt-0.5">{b.property}</p>
                   {b.disputeSummary && (

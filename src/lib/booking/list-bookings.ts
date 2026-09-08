@@ -7,6 +7,7 @@ import { formatAmount } from "@/lib/utils";
 import type { HostBookingStatus } from "@/lib/mock/dashboard-data";
 import { parseAuditLog } from "@/lib/booking/booking-audit";
 import { mapDisputeStatus, mapRefundStatusFromRow } from "@/lib/booking/booking-ops";
+import { BASE_CURRENCY, currencyForCountryName, normalizeCurrency } from "@/lib/currency";
 
 function ymd(d: Date): string {
   const y = d.getFullYear();
@@ -26,24 +27,54 @@ function parseListingPayload(payload: string): {
   location?: string;
   hostName?: string;
   currency?: string;
+  country?: string;
+  state?: string;
+  district?: string;
+  city?: string;
+  photoUrl?: string;
 } {
   try {
     const p = JSON.parse(payload) as {
       district?: string;
       country?: string;
       state?: string;
+      city?: string;
       hostName?: string;
       currency?: string;
+      photoUrls?: string[];
+      coverImage?: string;
+      img?: string;
     };
-    const location = [p.district, p.state, p.country].filter(Boolean).join(", ");
+    const location = [p.city, p.district, p.state, p.country]
+      .filter(Boolean)
+      .filter((part, i, arr) => arr.indexOf(part) === i)
+      .join(", ");
     return {
       location: location || undefined,
       hostName: p.hostName,
       currency: p.currency,
+      country: p.country,
+      state: p.state,
+      district: p.district,
+      city: p.city,
+      photoUrl: p.photoUrls?.[0] || p.coverImage || p.img,
     };
   } catch {
     return {};
   }
+}
+
+function resolveBookingCurrency(
+  meta: { currency?: string; country?: string },
+  listingCountry?: string | null,
+  pricingCurrency?: string | null
+) {
+  return normalizeCurrency(
+    pricingCurrency ||
+      meta.currency ||
+      currencyForCountryName(listingCountry || meta.country) ||
+      BASE_CURRENCY
+  );
 }
 
 function mapStatus(status: string): HostBookingStatus {
@@ -75,6 +106,7 @@ function paymentLabel(paymentStatus: string): string {
 
 type BookingRow = {
   id: string;
+  bookingReference: string;
   listingId: string;
   guestId: string;
   checkIn: Date;
@@ -113,6 +145,10 @@ type BookingRow = {
     title: string;
     payload: string;
     pricePerNight: number | null;
+    propertyReference?: string | null;
+    country?: string | null;
+    state?: string | null;
+    district?: string | null;
   };
 };
 
@@ -167,39 +203,51 @@ export async function queryBookings(opts: {
   });
 }
 
-export function toHostBookingRecord(row: BookingRow): HostBookingRecord {
+export function toHostBookingRecord(
+  row: BookingRow,
+  pricingCurrency?: string | null
+): HostBookingRecord {
   const meta = parseListingPayload(row.listing.payload);
-  const currency = meta.currency || "AED";
+  const currency = resolveBookingCurrency(meta, row.listing.country, pricingCurrency);
   const checkIn = ymd(row.checkIn);
   const checkOut = row.checkOut ? ymd(row.checkOut) : checkIn;
   const nights = countNights(row.checkIn, row.checkOut);
-  const nightly =
-    row.listing.pricePerNight ??
-    (nights > 0 ? row.totalPrice / nights : row.totalPrice);
+  const listedNightly = row.listing.pricePerNight;
+  const averageNightly =
+    nights > 0 ? Math.round(row.totalPrice / nights) : row.totalPrice;
+  const location =
+    meta.location ||
+    [row.listing.district, row.listing.state, row.listing.country]
+      .filter(Boolean)
+      .join(", ");
 
   return {
     id: row.id,
+    bookingReference: row.bookingReference,
     listingId: row.listingId,
     hostId: row.listing.hostId,
     hostName: meta.hostName,
     guest: row.guest.fullName,
     guestEmail: row.guest.email || "",
     guestPhone: row.guest.phone || "",
-    guestCountry: "",
+    guestCountry: meta.country || row.listing.country || "",
     guestNotes: "",
     property: row.listing.title,
-    propertyLocation: meta.location || "",
+    propertyLocation: location || "",
+    propertyReference: row.listing.propertyReference || undefined,
     roomType: "Entire place",
     checkIn,
     checkOut,
     nights,
     guests: row.guestCount,
-    adults: row.guestCount,
+    adults: Math.max(1, row.guestCount),
     children: 0,
-    nightlyRate: `${currency} ${formatAmount(nightly)}`,
+    currency,
+    nightlyRate: `${currency} ${formatAmount(listedNightly ?? averageNightly)}`,
     cleaningFee: `${currency} 0`,
     serviceFee: `${currency} 0`,
     total: `${currency} ${formatAmount(row.totalPrice)}`,
+    averageNightlyTotal: `${currency} ${formatAmount(averageNightly)}`,
     paymentStatus: paymentLabel(row.paymentStatus),
     paymentMethod: row.paymentStatus.toLowerCase() === "paid" ? "Checkout" : "Pending",
     bookedAt: ymd(row.createdAt),
@@ -242,22 +290,25 @@ export function toHostBookingRecord(row: BookingRow): HostBookingRecord {
   };
 }
 
-export function toGuestBookingSummary(row: BookingRow): GuestBookingSummary {
+export function toGuestBookingSummary(
+  row: BookingRow,
+  pricingCurrency?: string | null
+): GuestBookingSummary {
   const meta = parseListingPayload(row.listing.payload);
-  const currency = meta.currency || "AED";
-  let img = "";
-  try {
-    const p = JSON.parse(row.listing.payload) as { coverImage?: string; img?: string };
-    img = p.coverImage || p.img || "";
-  } catch {
-    img = "";
-  }
+  const currency = resolveBookingCurrency(meta, row.listing.country, pricingCurrency);
+  const img = meta.photoUrl || "";
+  const location =
+    meta.location ||
+    [row.listing.district, row.listing.state, row.listing.country]
+      .filter(Boolean)
+      .join(", ");
 
   return {
     id: row.id,
+    bookingReference: row.bookingReference,
     listingId: row.listingId,
     property: row.listing.title,
-    location: meta.location || "",
+    location: location || "",
     img,
     checkIn: ymd(row.checkIn),
     checkOut: row.checkOut ? ymd(row.checkOut) : ymd(row.checkIn),

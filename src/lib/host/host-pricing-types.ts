@@ -1,4 +1,7 @@
 import type { ExtraChargeBilling } from "@/lib/admin/extra-charges-catalog-types";
+import type { ExperienceSessionTemplate } from "@/lib/booking/experience-session-types";
+
+export type { ExperienceSessionTemplate, ExperiencePriceMode } from "@/lib/booking/experience-session-types";
 
 export interface ListingPricingSettings {
   listingId: string;
@@ -6,6 +9,12 @@ export interface ListingPricingSettings {
   /** Property-level nightly rate — used when the listing has no room types */
   basePrice: number;
   currency: string;
+
+  /**
+   * Experience listings: named session templates (Morning/Evening/…).
+   * Stay listings leave this empty/undefined.
+   */
+  sessions?: ExperienceSessionTemplate[];
 
   /** Weekend premium (Fri & Sat nights) — property-level fallback */
   weekendPrice: number | null;

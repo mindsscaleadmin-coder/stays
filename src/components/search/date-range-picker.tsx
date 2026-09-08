@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   addMonths,
   format,
@@ -74,10 +74,13 @@ export function DateRangePicker({
     startOfMonth(checkIn ? parseISO(checkIn) : new Date())
   );
 
-  function setOpen(next: boolean) {
-    if (onOpenChange) onOpenChange(next);
-    else setUncontrolledOpen(next);
-  }
+  const setOpen = useCallback(
+    (next: boolean) => {
+      if (onOpenChange) onOpenChange(next);
+      else setUncontrolledOpen(next);
+    },
+    [onOpenChange]
+  );
 
   const min = startOfDay(parseISO(minDate));
   const checkInDate = checkIn ? parseISO(checkIn) : null;
@@ -93,7 +96,7 @@ export function DateRangePicker({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onOpenChange]);
+  }, [open, setOpen]);
 
   function pickDay(date: Date) {
     const iso = toIso(date);

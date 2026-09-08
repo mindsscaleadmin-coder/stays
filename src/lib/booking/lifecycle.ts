@@ -7,27 +7,17 @@ import {
   refundStatusFromBand,
 } from "@/lib/booking/policies";
 import { bookingStayHasEnded } from "@/lib/booking/stay-ended";
+import { stayNightDates } from "@/lib/booking/stay-night-dates";
 import { getStripe, isStripeConfigured } from "@/lib/stripe/server";
 import { expireEndedFlashDeals } from "@/lib/server/listing-pricing-repo";
 import { withAudit } from "@/lib/booking/booking-audit";
+import { releaseBookingNights } from "@/lib/booking/booking-nights";
+import { BASE_CURRENCY } from "@/lib/currency";
 
 type Tx = Prisma.TransactionClient;
 
-function getDatesInRange(checkIn: Date, checkOut: Date): Date[] {
-  const dates: Date[] = [];
-  const cursor = new Date(checkIn);
-  cursor.setHours(0, 0, 0, 0);
-  const end = new Date(checkOut);
-  end.setHours(0, 0, 0, 0);
-  while (cursor < end) {
-    dates.push(new Date(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return dates;
-}
-
 async function blockDates(tx: Tx, listingId: string, checkIn: Date, checkOut: Date) {
-  const dates = getDatesInRange(checkIn, checkOut);
+  const dates = stayNightDates(checkIn, checkOut);
   for (const date of dates) {
     await tx.availability.upsert({
       where: { listingId_date: { listingId, date } },
@@ -38,7 +28,7 @@ async function blockDates(tx: Tx, listingId: string, checkIn: Date, checkOut: Da
 }
 
 async function unblockDates(tx: Tx, listingId: string, checkIn: Date, checkOut: Date) {
-  const dates = getDatesInRange(checkIn, checkOut);
+  const dates = stayNightDates(checkIn, checkOut);
   await tx.availability.deleteMany({
     where: { listingId, date: { in: dates }, isBlocked: true },
   });
@@ -64,7 +54,7 @@ export async function maybeStripeRefund(input: {
         : session.payment_intent?.id;
     if (!pi) return { refunded: false, error: "No payment intent on session" };
 
-    const currency = (input.currency || session.currency || "aed").toLowerCase();
+    const currency = (input.currency || session.currency || BASE_CURRENCY).toLowerCase();
     const zeroDecimal = ["jpy", "krw"].includes(currency);
     const stripeAmount = zeroDecimal
       ? Math.round(input.amount)
@@ -99,6 +89,7 @@ export async function acceptBooking(bookingId: string) {
           cancelledAt: new Date(),
         },
       });
+      await releaseBookingNights(tx, bookingId);
       throw new BookingError("This request has expired", "UNAVAILABLE");
     }
 
@@ -157,6 +148,8 @@ export async function declineBooking(bookingId: string, reason?: string) {
         }),
       },
     });
+
+    await releaseBookingNights(tx, bookingId);
 
     return { booking: updated, evaluation };
   }).then(async (result) => {
@@ -247,6 +240,8 @@ export async function cancelBooking(input: {
     if (booking.status === "confirmed" && booking.checkOut) {
       await unblockDates(tx, booking.listingId, booking.checkIn, booking.checkOut);
     }
+
+    await releaseBookingNights(tx, input.bookingId);
 
     return next;
   });
@@ -340,6 +335,7 @@ export async function expirePendingBookings(
       if (booking.status === "confirmed" && booking.checkOut) {
         await unblockDates(tx, booking.listingId, booking.checkIn, booking.checkOut);
       }
+      await releaseBookingNights(tx, booking.id);
       return next;
     });
 

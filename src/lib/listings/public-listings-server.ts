@@ -2,7 +2,7 @@ import type { Stay } from "@/lib/mock/data";
 import { getSeedListings } from "./listing-seeds";
 import {
   getListing,
-  searchListings,
+  searchListingsPage,
   seedListingsIfEmpty,
 } from "@/lib/server/listings-repo";
 import { getListingPricingMap } from "@/lib/server/listing-pricing-repo";
@@ -12,8 +12,13 @@ import { submissionToStay } from "./submission-to-stay";
 import type { SubmittedListing } from "./submission-types";
 import type { ListingPricingSettings } from "@/lib/host/host-pricing-types";
 import type { ListingSearchFilters } from "./match-listing";
+import {
+  parseListingPagination,
+  PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE,
+  type ListingPagination,
+} from "./listings-pagination";
 
-function stayWithPublishedRates(
+export function stayWithPublishedRates(
   listing: SubmittedListing,
   settings: ListingPricingSettings | undefined
 ): Stay {
@@ -49,26 +54,63 @@ function stayWithPublishedRates(
   };
 }
 
-/** Approved listings from Postgres — the same store checkout and the host calendar use. */
+export type PublicStaysPage = {
+  stays: Stay[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+/** Approved listings from Postgres — paginated so search stays fast as inventory grows. */
 export async function getPublicStaysFromStore(
-  filters: ListingSearchFilters = {}
-): Promise<Stay[]> {
+  filters: ListingSearchFilters = {},
+  pagination?: Partial<ListingPagination> | { page?: number; pageSize?: number }
+): Promise<PublicStaysPage> {
   await seedListingsIfEmpty(getSeedListings());
-  const approved = await attachPublicListingMeta(
-    await searchListings({ ...filters, status: "approved" })
+  const { page, pageSize } = parseListingPagination({
+    page: pagination?.page,
+    perPage: pagination?.pageSize ?? PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE,
+  });
+  const result = await searchListingsPage(
+    { ...filters, status: "approved" },
+    { page, pageSize }
   );
+  const approved = await attachPublicListingMeta(result.listings);
   const pricingById = await getListingPricingMap(approved.map((l) => l.id));
-  return approved.map((listing) => stayWithPublishedRates(listing, pricingById.get(listing.id)));
+  const stays = approved.map((listing) =>
+    stayWithPublishedRates(listing, pricingById.get(listing.id))
+  );
+  return {
+    stays,
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+  };
 }
 
 export async function getPublicStayById(id: string): Promise<Stay | null> {
+  const detail = await getApprovedListingDetail(id);
+  return detail?.stay ?? null;
+}
+
+/** Approved listing + pricing for the public detail page (photos, rooms, copy). */
+export async function getApprovedListingDetail(id: string): Promise<{
+  stay: Stay;
+  listing: SubmittedListing;
+  pricing: ListingPricingSettings | null;
+} | null> {
   try {
     await seedListingsIfEmpty(getSeedListings());
     const listing = await getListing(id);
     if (!listing || listing.status !== "approved") return null;
     const [withMeta] = await attachPublicListingMeta([listing]);
     const pricingById = await getListingPricingMap([listing.id]);
-    return stayWithPublishedRates(withMeta, pricingById.get(listing.id));
+    const pricing = pricingById.get(listing.id) ?? null;
+    return {
+      stay: stayWithPublishedRates(withMeta, pricing ?? undefined),
+      listing: withMeta,
+      pricing,
+    };
   } catch {
     return null;
   }

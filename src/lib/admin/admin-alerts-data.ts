@@ -116,7 +116,7 @@ function syncHostSignupAlerts(state: AdminAlertsState): AdminAlert[] {
           title: "New host signup",
           message: `${host.name} registered as a host (${host.status}). Review KYC and profile.`,
           createdAt: host.joinedAt,
-          href: `/admin/users/${host.id}`,
+          href: `/admin/hosts/${encodeURIComponent(host.id)}`,
           sourceKey: `host-signup-${host.id}`,
         },
         state

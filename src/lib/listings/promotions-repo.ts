@@ -5,6 +5,7 @@ import type {
   ListingPromotionKind,
 } from "@/lib/host/host-promotions-types";
 import { getEnabledPromotionPackageFromDb } from "@/lib/server/promotion-catalog-repo";
+import { createPropertyReference } from "@/lib/listings/property-reference";
 
 function toDto(row: {
   id: string;
@@ -67,6 +68,7 @@ async function ensureListingShell(input: {
   return prisma.listing.create({
     data: {
       id: input.listingId,
+      propertyReference: createPropertyReference(),
       hostId: input.hostId,
       title: input.title || `Listing ${input.listingId}`,
       status: "approved",

@@ -33,10 +33,15 @@ import {
   useListingSubmissions,
 } from "@/lib/listings/use-listing-submissions";
 import type { ListingRoom, SubmittedListing } from "@/lib/listings/submission-types";
+import {
+  readGuestPartyFromFilters,
+  writeGuestPartyFilters,
+} from "@/lib/listings/guest-capacity";
 import { useHostPricing } from "@/lib/host/use-host-pricing";
 import { useHostExtraLibrary } from "@/lib/host/use-host-extra-library";
 import { usePlatformConfig } from "@/lib/admin/use-admin-platform-config";
 import { clampNightlyPrice } from "@/lib/admin/platform-config-data";
+import { openNativeDatePicker } from "@/lib/utils";
 import {
   EXTRA_CHARGE_BILLING_LABELS,
   type ExtraChargeBilling,
@@ -45,6 +50,11 @@ import {
   normalizeExtraChargeBilling,
   type ExtraCharge,
 } from "@/lib/host/host-pricing-types";
+import { isExperienceListing } from "@/lib/booking/is-experience-listing";
+import {
+  defaultExperienceSessions,
+  type ExperienceSessionTemplate,
+} from "@/lib/booking/experience-session-types";
 
 const fieldClass =
   "w-full border border-gray-200/90 rounded-xl px-3 py-2.5 text-sm bg-white shadow-sm shadow-gray-100/80 focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-400 transition-colors disabled:bg-gray-50 disabled:text-gray-400 disabled:shadow-none";
@@ -226,6 +236,11 @@ export function HostPricingContent() {
     [submissions, listingId]
   );
 
+  const isExperience = isExperienceListing({
+    parentCategory: selectedSubmission?.parentCategory,
+    type: selectedSubmission?.type,
+  });
+
   const rooms = useMemo(
     () => selectedListing?.rooms ?? [],
     [selectedListing]
@@ -278,10 +293,6 @@ export function HostPricingContent() {
   const bathsOptions = useMemo(
     () => optionsForTab(bathsTab, "baths"),
     [bathsTab, optionsForTab]
-  );
-  const guestsOptions = useMemo(
-    () => optionsForTab(guestsTab, "guests"),
-    [guestsTab, optionsForTab]
   );
 
   async function saveListingCustomFilters(
@@ -378,6 +389,48 @@ export function HostPricingContent() {
     updateExtraCharge,
     removeExtraCharge,
   } = useHostPricing(listingId, countryConfig);
+
+  const sessions: ExperienceSessionTemplate[] = useMemo(() => {
+    const raw = settings?.sessions;
+    if (raw?.length) return raw;
+    return isExperience ? defaultExperienceSessions() : [];
+  }, [settings?.sessions, isExperience]);
+
+  function updateSession(
+    key: string,
+    patch: Partial<ExperienceSessionTemplate>
+  ) {
+    const next = sessions.map((s) => (s.key === key ? { ...s, ...patch } : s));
+    save({ sessions: next }, { immediate: true });
+  }
+
+  function addSession() {
+    const key = `session-${Date.now().toString(36)}`;
+    save(
+      {
+        sessions: [
+          ...sessions,
+          {
+            key,
+            label: "New session",
+            startTime: "09:00",
+            endTime: "13:00",
+            capacity: 6,
+            priceMode: "per_person",
+            price: 0,
+          },
+        ],
+      },
+      { immediate: true }
+    );
+  }
+
+  function removeSession(key: string) {
+    save(
+      { sessions: sessions.filter((s) => s.key !== key) },
+      { immediate: true }
+    );
+  }
 
   // Keep shared pricing.roomPrices aligned with listing rooms (once per room set).
   const roomSyncKey = rooms.map((r) => r.id).join("|");
@@ -653,7 +706,7 @@ export function HostPricingContent() {
             Add a property first. Rates, discounts, and extras are saved on that listing.
           </p>
           <Link
-            href="/host/listings/new"
+            href="/host/new-listing"
             className="inline-flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold px-5 py-2.5 rounded-xl"
           >
             <Plus className="w-4 h-4" /> Add Property
@@ -710,15 +763,29 @@ export function HostPricingContent() {
               </span>
               <div className="min-w-0">
                 <h3 className="text-sm font-semibold text-gray-900 truncate">
-                  {rooms.length > 0 ? "Room types" : "Base pricing"}
+                  {isExperience
+                    ? "Session pricing"
+                    : rooms.length > 0
+                      ? "Room types"
+                      : "Base pricing"}
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  {rooms.length === 0
-                    ? "No rooms yet — this nightly rate is what guests see on the listing and calculator."
-                    : "Each room category has its own nightly rate. Guests pick a room on the listing."}
+                  {isExperience
+                    ? "Named sessions guests book (Morning, Evening, …) with capacity and per-person or per-group price."
+                    : rooms.length === 0
+                      ? "No rooms yet — this nightly rate is what guests see on the listing and calculator."
+                      : "Each room category has its own nightly rate. Guests pick a room on the listing."}
                 </p>
               </div>
             </div>
+            {!isExperience && (
+            <Link
+              href={`/host/listings/${listingId}/rooms/new`}
+              className="shrink-0 inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-4 py-2.5 rounded-xl shadow-sm shadow-green-700/20 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add room
+            </Link>
+            )}
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-end gap-3">
@@ -743,7 +810,7 @@ export function HostPricingContent() {
                 ))}
               </select>
             </label>
-            {rooms.length === 0 && (
+            {!isExperience && rooms.length === 0 && (
             <label className="block w-full sm:w-64 shrink-0">
               <span className={labelClass}>
                 Base nightly rate
@@ -765,7 +832,120 @@ export function HostPricingContent() {
             )}
           </div>
 
-          {rooms.length === 0 && (() => {
+          {isExperience && (
+            <div className="space-y-3 pt-2">
+              {sessions.map((session) => (
+                <div
+                  key={session.key}
+                  className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/50"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <input
+                      value={session.label}
+                      onChange={(e) => updateSession(session.key, { label: e.target.value })}
+                      className={`${fieldClass} max-w-xs font-semibold`}
+                      placeholder="Morning"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeSession(session.key)}
+                      className="text-xs text-red-600 hover:text-red-700 inline-flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Remove
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <label className="block">
+                      <span className={labelClass}>Start</span>
+                      <input
+                        type="time"
+                        value={session.startTime}
+                        onChange={(e) =>
+                          updateSession(session.key, { startTime: e.target.value })
+                        }
+                        className={fieldClass}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={labelClass}>End</span>
+                      <input
+                        type="time"
+                        value={session.endTime}
+                        onChange={(e) =>
+                          updateSession(session.key, { endTime: e.target.value })
+                        }
+                        className={fieldClass}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={labelClass}>Capacity</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={session.capacity}
+                        onChange={(e) =>
+                          updateSession(session.key, {
+                            capacity: Math.max(1, Number(e.target.value) || 1),
+                          })
+                        }
+                        className={fieldClass}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={labelClass}>Price mode</span>
+                      <select
+                        value={session.priceMode}
+                        onChange={(e) =>
+                          updateSession(session.key, {
+                            priceMode: e.target.value as "per_person" | "per_group",
+                          })
+                        }
+                        className={fieldClass}
+                      >
+                        <option value="per_person">Per person</option>
+                        <option value="per_group">Per group</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label className="block max-w-xs">
+                    <span className={labelClass}>
+                      Price ({settings.currency}
+                      {session.priceMode === "per_person" ? " / person" : " / group"})
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={session.price}
+                      onChange={(e) =>
+                        updateSession(session.key, {
+                          price: Math.max(0, Number(e.target.value) || 0),
+                        })
+                      }
+                      className={fieldClass}
+                    />
+                  </label>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addSession}
+                className="inline-flex items-center gap-1.5 text-sm font-semibold text-green-700 hover:text-green-800"
+              >
+                <Plus className="w-4 h-4" /> Add session
+              </button>
+              {sessions.length > 0 && !settings.sessions?.length && (
+                <button
+                  type="button"
+                  onClick={() => save({ sessions }, { immediate: true })}
+                  className="ms-3 text-sm font-medium text-gray-600 underline"
+                >
+                  Save default Morning / Evening
+                </button>
+              )}
+            </div>
+          )}
+
+          {!isExperience && rooms.length === 0 && (() => {
             const nightly = settings.basePrice;
             if (!nightly) return null;
             return (
@@ -817,75 +997,113 @@ export function HostPricingContent() {
                   </select>
                 </label>
               )}
-              <label className="block">
+              <div className="sm:col-span-1">
                 <span className={labelClass}>{guestsTab.label}</span>
-                <select
-                  id="listing-guests"
-                  value={selectedIdForTab(guestsTab, guestsOptions)}
-                  onChange={(e) => void handleCustomTabChange(guestsTab, e.target.value)}
-                  disabled={!selectedSubmission || guestsOptions.length === 0}
-                  className={fieldClass}
-                >
-                  <option value="">Select guests</option>
-                  {guestsOptions.map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <p className="text-[11px] text-gray-500 mb-2">
+                  Total is the paying guest limit (adults + children). Guests pick the mix;
+                  infants are separate and do not count toward the total.
+                </p>
+                {(() => {
+                  const party = readGuestPartyFromFilters(
+                    selectedSubmission?.customFilters,
+                    2
+                  );
+                  const saveParty = (next: typeof party) => {
+                    if (!selectedSubmission) return;
+                    void saveListingCustomFilters(
+                      selectedSubmission,
+                      writeGuestPartyFilters(
+                        selectedSubmission.customFilters ?? [],
+                        next,
+                        guestsTab.label
+                      ),
+                      "Guest capacity updated."
+                    );
+                  };
+                  return (
+                    <div className="space-y-2">
+                      <label className="block">
+                        <span className="block text-[10px] font-medium text-gray-500 mb-1">
+                          Total guests
+                        </span>
+                        <select
+                          id="listing-guests-total"
+                          value={String(party.total)}
+                          disabled={!selectedSubmission}
+                          onChange={(e) => {
+                            const total = Math.max(1, Number(e.target.value) || 1);
+                            saveParty({
+                              ...party,
+                              total,
+                              adults: Math.min(party.adults, total),
+                              children: Math.min(party.children, total),
+                            });
+                          }}
+                          className={fieldClass}
+                        >
+                          {Array.from({ length: 30 }, (_, i) => i + 1).map((n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {(
+                          [
+                            { key: "adults" as const, label: "Max adults", min: 0 },
+                            { key: "children" as const, label: "Max children", min: 0 },
+                            { key: "infants" as const, label: "Max infants", min: 0, absMax: 10 },
+                          ] as const
+                        ).map((row) => {
+                          const max =
+                            row.key === "infants"
+                              ? row.absMax
+                              : party.total;
+                          const options: number[] = [];
+                          for (let n = row.min; n <= max; n++) options.push(n);
+                          return (
+                            <label key={row.key} className="block">
+                              <span className="block text-[10px] font-medium text-gray-500 mb-1">
+                                {row.label}
+                              </span>
+                              <select
+                                id={`listing-guests-${row.key}`}
+                                value={String(Math.min(party[row.key], max))}
+                                disabled={!selectedSubmission}
+                                onChange={(e) => {
+                                  const value = Math.max(
+                                    row.min,
+                                    Math.min(max, Number(e.target.value) || row.min)
+                                  );
+                                  saveParty({ ...party, [row.key]: value });
+                                }}
+                                className={fieldClass}
+                              >
+                                {options.map((n) => (
+                                  <option key={n} value={n}>
+                                    {n}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           )}
 
           {rooms.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50/40 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50/40 px-4 py-3">
               <p className="text-xs text-amber-900/80">
                 Add rooms if this property has more than one unit. Each room can be a different category with its own rate.
               </p>
-              <Link
-                href={`/host/listings/${listingId}/rooms/new`}
-                className="shrink-0 inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-4 py-2.5 rounded-xl shadow-sm shadow-green-700/20 transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add room
-              </Link>
             </div>
-          ) : (
-            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-              <label className="block flex-1 min-w-0">
-                <span className={labelClass}>Room</span>
-                <select
-                  value={selectedRoomId || rooms[0]?.id || ""}
-                  onChange={(e) => {
-                    if (e.target.value) setSelectedRoomId(e.target.value);
-                  }}
-                  className={fieldClass}
-                >
-                  {rooms.map((room) => {
-                    const rate = roomRate(room);
-                    return (
-                      <option key={room.id} value={room.id}>
-                        {room.typeName && room.typeName !== room.name
-                          ? `${room.name} · ${room.typeName}`
-                          : room.name}
-                        {rate.basePrice > 0
-                          ? ` · ${settings.currency} ${rate.basePrice}/night`
-                          : ""}
-                      </option>
-                    );
-                  })}
-                </select>
-                <p className="text-[11px] text-gray-400 mt-1.5">
-                  Guests pick from these room types on the listing details page and price calculator.
-                </p>
-              </label>
-              <Link
-                href={`/host/listings/${listingId}/rooms/new`}
-                className="shrink-0 inline-flex items-center justify-center gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-4 py-2.5 rounded-xl shadow-sm shadow-green-700/20 transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add room
-              </Link>
-            </div>
-          )}
+          ) : null}
         </section>
 
         {rooms.length > 0 && (
@@ -944,6 +1162,16 @@ export function HostPricingContent() {
                         <span className="block text-xs text-gray-500 mt-0.5">
                           {room.typeName && room.typeName !== room.name ? `${room.typeName} · ` : ""}
                           {room.capacity} guests · {room.beds} beds · {room.baths} baths
+                          {(room.maxAdults != null ||
+                            room.maxChildren != null ||
+                            room.maxInfants != null) && (
+                            <span className="text-gray-400">
+                              {" "}
+                              · {room.maxAdults ?? room.capacity}a
+                              {(room.maxChildren ?? 0) > 0 ? `/${room.maxChildren}c` : ""}
+                              {(room.maxInfants ?? 0) > 0 ? `/${room.maxInfants}i` : ""}
+                            </span>
+                          )}
                         </span>
                       </span>
                     </button>
@@ -1059,16 +1287,18 @@ export function HostPricingContent() {
               type="date"
               value={newSeason.startDate}
               onChange={(e) => setNewSeason((p) => ({ ...p, startDate: e.target.value }))}
+              onClick={openNativeDatePicker}
               required
-              className={fieldClass}
+              className={`${fieldClass} cursor-pointer`}
             />
             <input
               type="date"
               value={newSeason.endDate}
               min={newSeason.startDate || undefined}
               onChange={(e) => setNewSeason((p) => ({ ...p, endDate: e.target.value }))}
+              onClick={openNativeDatePicker}
               required
-              className={fieldClass}
+              className={`${fieldClass} cursor-pointer`}
             />
             <div className="flex gap-2">
               <input
