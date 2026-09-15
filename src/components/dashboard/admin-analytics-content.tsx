@@ -17,7 +17,7 @@ import {
   Users,
 } from "lucide-react";
 import { AdminDashboardShell } from "./admin-dashboard-shell";
-import { AdminAnalyticsSection } from "./admin-analytics-section";
+import { AdminAnalyticsSectionView } from "./admin-analytics-section";
 import { formatPlatformMoney } from "@/lib/admin/platform-analytics-data";
 import { useAdminPlatformAnalytics } from "@/lib/admin/use-admin-platform-analytics";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
@@ -204,7 +204,12 @@ export function AdminAnalyticsContent() {
           </div>
         </div>
 
-        <AdminAnalyticsSection compact showViewAll={false} countryFilter={countryParam} />
+        <AdminAnalyticsSectionView
+          compact
+          showViewAll={false}
+          countryFilter={countryParam}
+          analytics={{ ready, snapshot, lastUpdatedLabel }}
+        />
 
         <div className="flex flex-wrap gap-2 border-b pb-1">
           {TABS.map((tab) => (

@@ -1,25 +1,41 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/routing";
-import { ArrowLeft, ChevronLeft, ChevronRight, Tag } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Play, Tag } from "lucide-react";
 import type { Stay } from "@/lib/mock/data";
 import { photoTagLabel } from "@/lib/listings/photo-tags";
-import { cn } from "@/lib/utils";
+import { getVideoTourEmbedUrl } from "@/lib/listings/video-tour-url";
+import { cn, isDataImageUrl } from "@/lib/utils";
 
 export type GalleryPhotoItem = { src: string; tag?: string };
 
-function GalleryCarousel({
+export function GalleryCarousel({
   photos,
   alt,
+  videoTourUrl,
+  startIndex = 0,
+  startOnVideo = false,
+  fullHeight = false,
 }: {
   photos: GalleryPhotoItem[];
   alt: string;
+  videoTourUrl?: string;
+  startIndex?: number;
+  startOnVideo?: boolean;
+  fullHeight?: boolean;
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
-  const [index, setIndex] = useState(0);
-  const total = photos.length;
+  const [index, setIndex] = useState(startIndex);
+  const videoTourEmbedUrl = useMemo(
+    () => (videoTourUrl ? getVideoTourEmbedUrl(videoTourUrl) : null),
+    [videoTourUrl]
+  );
+  const hasVideo = Boolean(videoTourUrl);
+  const videoIndex = photos.length;
+  const total = photos.length + (hasVideo ? 1 : 0);
 
   const syncIndex = useCallback(() => {
     const el = scrollerRef.current;
@@ -54,6 +70,34 @@ function GalleryCarousel({
   );
 
   useEffect(() => {
+    if (startOnVideo || startIndex <= 0) return;
+    const el = scrollerRef.current;
+    if (!el || total === 0) return;
+    const target = Math.min(startIndex, total - 1);
+    const scrollToIndex = () => {
+      el.scrollTo({ left: target * el.clientWidth, behavior: "auto" });
+      setIndex(target);
+    };
+    scrollToIndex();
+    const timer = window.setTimeout(scrollToIndex, 50);
+    return () => window.clearTimeout(timer);
+  }, [startIndex, startOnVideo, total]);
+
+  useEffect(() => {
+    if (!startOnVideo || !hasVideo) return;
+    const el = scrollerRef.current;
+    if (!el) return;
+    const target = videoIndex;
+    const scrollToVideo = () => {
+      el.scrollTo({ left: target * el.clientWidth, behavior: "auto" });
+      setIndex(target);
+    };
+    scrollToVideo();
+    const timer = window.setTimeout(scrollToVideo, 50);
+    return () => window.clearTimeout(timer);
+  }, [hasVideo, startOnVideo, total, videoIndex]);
+
+  useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "ArrowLeft") goTo(index - 1);
       if (e.key === "ArrowRight") goTo(index + 1);
@@ -72,12 +116,16 @@ function GalleryCarousel({
 
   const canPrev = index > 0;
   const canNext = index < total - 1;
+  const slideHeight = fullHeight ? "h-full min-h-[60vh]" : "h-[min(78vh,720px)]";
 
   return (
-    <div className="relative bg-black">
+    <div className={cn("relative bg-black", fullHeight && "h-full")}>
       <div
         ref={scrollerRef}
-        className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className={cn(
+          "flex overflow-x-auto snap-x snap-mandatory scroll-smooth overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          fullHeight && "h-full"
+        )}
         style={{ WebkitOverflowScrolling: "touch" }}
         role="region"
         aria-roledescription="carousel"
@@ -86,7 +134,7 @@ function GalleryCarousel({
         {photos.map((photo, i) => (
           <div
             key={`${photo.src}-${i}`}
-            className="relative w-full min-w-full h-[min(78vh,720px)] shrink-0 snap-center snap-always"
+            className={cn("relative w-full min-w-full shrink-0 snap-center snap-always", slideHeight)}
             aria-hidden={i !== index}
           >
             <Image
@@ -100,7 +148,7 @@ function GalleryCarousel({
               className="object-contain bg-black"
               sizes="100vw"
               priority={i === 0}
-              unoptimized={photo.src.startsWith("data:")}
+              unoptimized={isDataImageUrl(photo.src)}
               draggable={false}
             />
             {photo.tag ? (
@@ -111,13 +159,51 @@ function GalleryCarousel({
             ) : null}
           </div>
         ))}
+
+        {hasVideo ? (
+          <div
+            className={cn("relative w-full min-w-full shrink-0 snap-center snap-always bg-black", slideHeight)}
+            aria-hidden={index !== videoIndex}
+          >
+            {videoTourEmbedUrl ? (
+              <iframe
+                title={`Video tour — ${alt}`}
+                src={videoTourEmbedUrl}
+                className="absolute inset-0 h-full w-full border-0"
+                loading="lazy"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center">
+                <span className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-white/10 text-white">
+                  <Play className="h-7 w-7" />
+                </span>
+                <p className="text-sm text-white/70">Open the video tour in your browser.</p>
+                <a
+                  href={videoTourUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-gray-900 transition-colors hover:bg-gray-100"
+                >
+                  Watch video tour
+                  <ExternalLink className="h-3.5 w-3.5 text-gray-500" />
+                </a>
+              </div>
+            )}
+            <span className="absolute top-4 start-4 z-10 inline-flex items-center gap-1.5 bg-black/65 text-white text-xs font-medium px-3 py-1.5 rounded-md">
+              <Play className="w-3.5 h-3.5 shrink-0" />
+              Video tour
+            </span>
+          </div>
+        ) : null}
       </div>
 
       {total > 1 && (
         <>
           <button
             type="button"
-            aria-label="Previous photo"
+            aria-label="Previous slide"
             disabled={!canPrev}
             onClick={() => goTo(index - 1)}
             className={cn(
@@ -129,7 +215,7 @@ function GalleryCarousel({
           </button>
           <button
             type="button"
-            aria-label="Next photo"
+            aria-label="Next slide"
             disabled={!canNext}
             onClick={() => goTo(index + 1)}
             className={cn(
@@ -145,11 +231,13 @@ function GalleryCarousel({
               {index + 1} / {total}
             </span>
             <div className="flex items-center gap-1.5 pointer-events-auto">
-              {photos.map((_, i) => (
+              {Array.from({ length: total }, (_, i) => (
                 <button
                   key={i}
                   type="button"
-                  aria-label={`Go to photo ${i + 1}`}
+                  aria-label={
+                    hasVideo && i === videoIndex ? "Go to video tour" : `Go to photo ${i + 1}`
+                  }
                   aria-current={i === index}
                   onClick={() => goTo(i)}
                   className={cn(
@@ -170,16 +258,29 @@ export function ListingGalleryContent({
   stay,
   images,
   photos,
+  videoTourUrl,
 }: {
   stay: Stay;
   images?: string[];
   photos?: GalleryPhotoItem[];
+  videoTourUrl?: string;
 }) {
+  const searchParams = useSearchParams();
   const stayName = stay.name;
   const gallery: GalleryPhotoItem[] =
     photos && photos.length > 0
       ? photos
       : (images ?? []).map((src) => ({ src }));
+  const resolvedVideoTourUrl = videoTourUrl?.trim() ?? "";
+  const startOnVideo = searchParams.get("video") === "1";
+  const mediaLabel =
+    gallery.length > 0 && resolvedVideoTourUrl
+      ? `${gallery.length} photos · 1 video`
+      : gallery.length > 0
+        ? `${gallery.length} photos`
+        : resolvedVideoTourUrl
+          ? "1 video"
+          : "0 photos";
 
   return (
     <div className="bg-black min-h-screen">
@@ -194,13 +295,16 @@ export function ListingGalleryContent({
           </Link>
           <span className="text-white/25">|</span>
           <h1 className="text-sm font-semibold text-white truncate">{stayName}</h1>
-          <span className="text-xs text-white/50 ms-auto shrink-0">
-            {gallery.length} photos
-          </span>
+          <span className="text-xs text-white/50 ms-auto shrink-0">{mediaLabel}</span>
         </div>
       </div>
 
-      <GalleryCarousel photos={gallery} alt={stayName} />
+      <GalleryCarousel
+        photos={gallery}
+        alt={stayName}
+        videoTourUrl={resolvedVideoTourUrl || undefined}
+        startOnVideo={startOnVideo}
+      />
     </div>
   );
 }

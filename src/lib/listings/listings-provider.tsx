@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, type ReactNode } from "react";
 import {
   filterHostListings,
   useListingSubmissionsStore,
@@ -17,15 +17,21 @@ export function ListingsProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useListingSubmissions() {
+export function useListingSubmissions(options?: { load?: boolean }) {
   const ctx = useContext(ListingsContext);
   if (!ctx) {
     throw new Error("useListingSubmissions must be used within ListingsProvider");
   }
+
+  const load = options?.load ?? false;
+  useLayoutEffect(() => {
+    if (load) ctx.ensureLoaded();
+  }, [load, ctx]);
+
   return ctx;
 }
 
 export function useHostSubmissions(hostId?: string, hostName?: string) {
-  const { all } = useListingSubmissions();
+  const { all } = useListingSubmissions({ load: true });
   return filterHostListings(all, hostId ?? "", hostName);
 }

@@ -13,7 +13,11 @@ export interface FilterTab {
   builtIn?: boolean;
   /** Shown in search / listing filters. Defaults to true. */
   enabled?: boolean;
+  /** Host event listing form: venue details card vs venue options block. */
+  listingSection?: ExtraFilterListingSection;
 }
+
+export type ExtraFilterListingSection = "venueDetails" | "venueOptions";
 
 export interface Country {
   id: string;
@@ -96,6 +100,10 @@ export interface ExtraFilter {
    * (Stays, Experiences, Events). When set, only that parent sees the filter.
    */
   parentId?: string;
+  /** Optional category scope under the parent. Empty = all categories for the parent. */
+  categoryId?: string;
+  /** Optional sub category scope. Empty = all sub categories for the category/parent. */
+  subcategoryId?: string;
   enabled?: boolean;
 }
 
@@ -178,11 +186,40 @@ export const DEFAULT_CUSTOM_ITEMS: Record<string, CustomTabItem[]> = {
 };
 
 export const DEFAULT_EXTRA_TABS: FilterTab[] = [
-  { id: "amenity", label: "Amenity", builtIn: true },
-  { id: "tag", label: "Tag", builtIn: true },
-  { id: "priceRange", label: "Price Range", builtIn: true },
-  { id: "activity", label: "Activity", builtIn: true },
+  { id: "amenity", label: "Amenity", builtIn: true, listingSection: "venueOptions" },
+  { id: "tag", label: "Tag", builtIn: true, listingSection: "venueOptions" },
+  { id: "priceRange", label: "Price Range", builtIn: true, listingSection: "venueOptions" },
+  { id: "activity", label: "Activity", builtIn: true, listingSection: "venueOptions" },
 ];
+
+export function inferExtraTabListingSection(
+  tab: Pick<FilterTab, "id" | "label" | "listingSection">
+): ExtraFilterListingSection {
+  if (tab.listingSection) return tab.listingSection;
+
+  if (tab.id === "venueFacility" || tab.id === "suitableFor") {
+    return "venueDetails";
+  }
+
+  const label = tab.label.trim().toLowerCase();
+  if (
+    label === "venue amenities" ||
+    label === "indoor / outdoor" ||
+    label === "venue facilities" ||
+    label === "suitable for"
+  ) {
+    return "venueDetails";
+  }
+
+  return "venueOptions";
+}
+
+export function applyExtraTabListingSection(tab: FilterTab): FilterTab {
+  return {
+    ...tab,
+    listingSection: inferExtraTabListingSection(tab),
+  };
+}
 
 function normalizeTabLabel(label: string): string {
   return label.trim().toLowerCase().replace(/\s+/g, " ");
@@ -202,6 +239,13 @@ export function resolveBuiltInMainTabId(
   if (/^sub[\s-]*categor(y|ies)$/.test(label)) return "subcategory";
   if (/^categor(y|ies)$/.test(label)) return "category";
   return null;
+}
+
+/** Custom tabs that extend the sub category tier (e.g. Junior sub category). */
+export function isSubcategoryExtensionTab(tab: Pick<FilterTab, "id" | "label" | "builtIn">): boolean {
+  if (tab.builtIn) return false;
+  const label = normalizeTabLabel(tab.label);
+  return /sub[\s-]*categor/.test(label) && !/^sub[\s-]*categor(y|ies)$/.test(label);
 }
 
 /** Match legacy admin-created tabs (e.g. "Room Type") to canonical property tab ids. */
@@ -254,14 +298,14 @@ export function isDefaultPropertyTab(id: string): boolean {
 
 /** Keep admin Active/label overrides when re-merging built-in tabs. */
 function mergeStoredTab(canonical: FilterTab, stored?: FilterTab): FilterTab {
-  if (!stored) return { ...canonical };
-  return {
+  if (!stored) return applyExtraTabListingSection({ ...canonical });
+  return applyExtraTabListingSection({
     ...canonical,
     ...stored,
     id: canonical.id,
     builtIn: canonical.builtIn ?? stored.builtIn,
     label: stored.label?.trim() || canonical.label,
-  };
+  });
 }
 
 export function dedupeTabsById(tabs: FilterTab[]): FilterTab[] {
@@ -330,11 +374,15 @@ export function mergeMainTabs(stored: FilterTab[] | undefined): FilterTab[] {
     )
   );
 
-  return [
+  const remainingCustom = otherCustom.filter((tab) => !isSubcategoryExtensionTab(tab));
+
+  const merged = [
     ...DEFAULT_MAIN_TABS.map((t) => byId.get(t.id)!),
     ...propertyTabs,
-    ...otherCustom,
+    ...remainingCustom,
   ];
+
+  return merged;
 }
 
 export function mergeCustomItems(
@@ -388,5 +436,8 @@ export function mergeExtraTabs(stored: FilterTab[] | undefined): FilterTab[] {
 
   const builtInIds = new Set(DEFAULT_EXTRA_TABS.map((t) => t.id));
   const custom = deduped.filter((t) => !builtInIds.has(t.id));
-  return [...DEFAULT_EXTRA_TABS.map((t) => byId.get(t.id)!), ...dedupeCustomTabsByLabel(custom)];
+  return [
+    ...DEFAULT_EXTRA_TABS.map((t) => byId.get(t.id)!),
+    ...dedupeCustomTabsByLabel(custom).map(applyExtraTabListingSection),
+  ];
 }

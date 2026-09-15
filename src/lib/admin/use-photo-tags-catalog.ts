@@ -20,7 +20,7 @@ import type {
 
 export function usePhotoTagsCatalog() {
   const [items, setItems] = useState<PhotoTagCatalogItem[]>(DEFAULT_PHOTO_TAGS_CATALOG);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedPhotoTags();
 
   const refresh = useCallback(async () => {

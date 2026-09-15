@@ -33,7 +33,7 @@ import { normalizeAnnouncementAudience } from "./announcement-audience";
 
 export function useAdminContentPolicy() {
   const [settings, setSettings] = useState<ContentPolicySettings>(() => loadContentPolicy());
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(true);
 
   const refresh = useCallback(() => {
     setSettings(loadContentPolicy());

@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import {
   BOOKING_CART_SYNC_EVENT,
   getCartCount,
 } from "@/lib/guest/booking-cart";
 
 export function GuestCartBadge() {
-  const [count, setCount] = useState(0);
+  const [count, setCount] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    setCount(getCartCount());
+  }, []);
 
   useEffect(() => {
     function refresh() {
@@ -25,7 +29,7 @@ export function GuestCartBadge() {
     };
   }, []);
 
-  if (count <= 0) return null;
+  if (count === null || count <= 0) return null;
 
   return (
     <span

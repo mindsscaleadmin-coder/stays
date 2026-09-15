@@ -16,7 +16,7 @@ import {
   type EventEnquiryDraft,
 } from "@/components/listing/event-enquiry-modal";
 import type { EventAvailabilityRequestForGuest } from "@/lib/events/event-availability-types";
-import type { EventSpace } from "@/components/listing/event-listing-detail-content";
+import type { EventSpace } from "@/lib/listings/event-space-types";
 import { fetchAvailabilityState } from "@/lib/host/host-availability-api";
 import { isDateUnavailable } from "@/lib/host/host-availability-utils";
 import type { ListingAvailabilitySettings } from "@/lib/host/host-availability-types";
@@ -62,19 +62,15 @@ export function EventAvailabilityRequestCard({
   listingId,
   listingTitle,
   spaces,
-  startingPrice,
   rating,
   reviewCount,
-  money,
   locale,
 }: {
   listingId: string;
   listingTitle: string;
   spaces: EventSpace[];
-  startingPrice: number;
   rating: number;
   reviewCount: number;
-  money: (amount: number) => string;
   locale: string;
 }) {
   const { user, loading: authLoading } = useAuth();
@@ -208,14 +204,7 @@ export function EventAvailabilityRequestCard({
       id="booking-calculator"
       className="scroll-mt-24 rounded-2xl border border-gray-200 bg-white p-4 shadow-lg"
     >
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[22px] font-extrabold text-gray-950">
-          {startingPrice > 0 ? money(startingPrice) : "On request"}
-        </span>
-        <span className="text-xs text-gray-500">starting price / event</span>
-      </div>
-
-      <div className="mt-3 flex gap-2.5">
+      <div className="flex gap-2.5">
         <div className="flex-1 rounded-xl border border-gray-200 p-2 text-center text-xs">
           <b className="block text-sm text-gray-900">
             {reviewCount > 0 ? `${rating.toFixed(1)} ★` : "New"}
@@ -231,8 +220,8 @@ export function EventAvailabilityRequestCard({
       <section className="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white">
         <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2.5">
           <div>
-            <p className="text-[13px] font-bold text-gray-950">Availability calendar</p>
-            <p className="text-[10px] text-gray-500">Tap an open date to enquire</p>
+            <p className="text-body-sm font-bold text-gray-950">Availability calendar</p>
+            <p className="text-2xs text-gray-500">Tap an open date to enquire</p>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -285,7 +274,7 @@ export function EventAvailabilityRequestCard({
               const selectable = !unavailable && !pending && !available;
 
               const dayClass = [
-                "mx-auto flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-medium transition-colors",
+                "mx-auto flex h-8 w-8 items-center justify-center rounded-full text-3xs font-medium transition-colors",
                 selected
                   ? "bg-green-800 font-bold text-white ring-2 ring-green-800 ring-offset-1"
                   : available
@@ -335,13 +324,13 @@ export function EventAvailabilityRequestCard({
 
           {selectedDate && (
             <div className="mt-2.5 flex items-center justify-between gap-2 rounded-lg bg-green-50 px-2.5 py-2">
-              <span className="text-[11px] font-semibold text-green-900">
+              <span className="text-3xs font-semibold text-green-900">
                 {formatDate(selectedDate, locale)} selected
               </span>
               <button
                 type="button"
                 onClick={() => setSelectedDate(null)}
-                className="text-[10px] font-semibold text-green-800 underline underline-offset-2"
+                className="text-2xs font-semibold text-green-800 underline underline-offset-2"
               >
                 Clear
               </button>
@@ -359,7 +348,7 @@ export function EventAvailabilityRequestCard({
       {/* Confirmed — contact details unlocked */}
       {confirmed && (
         <div className="mt-4 rounded-xl border border-green-200 bg-green-50 p-3.5">
-          <p className="flex items-center gap-2 text-[13px] font-bold text-green-900">
+          <p className="flex items-center gap-2 text-body-sm font-bold text-green-900">
             <CheckCircle className="h-4 w-4" /> Date confirmed available
           </p>
           <p className="mt-1 text-xs text-green-900">
@@ -396,7 +385,7 @@ export function EventAvailabilityRequestCard({
       {/* Declined */}
       {!confirmed && latest?.status === "unavailable" && (
         <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3.5">
-          <p className="flex items-center gap-2 text-[13px] font-bold text-gray-900">
+          <p className="flex items-center gap-2 text-body-sm font-bold text-gray-900">
             <XCircle className="h-4 w-4 text-gray-500" /> Not available on{" "}
             {latest.dateFlexible ? "the requested flexible dates" : formatDate(latest.eventDate, locale)}
           </p>
@@ -446,7 +435,7 @@ export function EventAvailabilityRequestCard({
             </Link>
           )}
 
-          <p className="mt-2 text-center text-[11px] text-gray-500">
+          <p className="mt-2 text-center text-3xs text-gray-500">
             Free to send — no booking or platform fees
           </p>
 

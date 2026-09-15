@@ -16,7 +16,7 @@ import type { PlatformConfig } from "./platform-config-types";
 
 export function useAdminPlatformConfig() {
   const [config, setConfig] = useState<PlatformConfig>(() => loadPlatformConfig());
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedPlatformConfig();
 
   const refresh = useCallback(async () => {

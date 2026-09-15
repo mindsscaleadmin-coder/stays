@@ -11,13 +11,14 @@ import { filterActiveCountries } from "@/lib/admin/country-utils";
 import { canManageListings } from "@/lib/auth/roles";
 import { ensureAdminHostUser } from "@/lib/admin/user-data";
 import { getDemoUser } from "@/lib/auth/demo-auth";
+import { safeInternalPath } from "@/lib/auth/safe-next";
 import { HostAuthShell, HostAuthInput } from "./host-auth-shell";
 
 export function HostSignupContent() {
   const t = useTranslations("hostAuth");
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/host";
+  const next = safeInternalPath(searchParams.get("next"), "/host");
   const { signUpHostWithEmail, isDemo, loading, user } = useAuth();
   const { data: taxonomy } = useAdminTaxonomy();
 
@@ -36,7 +37,8 @@ export function HostSignupContent() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const listingIntent = next.includes("/host/listings");
+  const listingIntent =
+    next.includes("/host/new-listing") || next.includes("/host/listings");
 
   useEffect(() => {
     if (!loading && user && canManageListings(user.roles)) {

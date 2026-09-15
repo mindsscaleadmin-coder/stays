@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FINANCIAL_SYNC_EVENT } from "@/lib/admin/financial-data";
 import { HOST_BOOKINGS_SYNC_EVENT } from "@/lib/host/host-booking-data";
 import { LISTINGS_SYNC_EVENT } from "@/lib/listings/submission-data";
@@ -29,57 +29,78 @@ import {
 export function useAdminAlerts() {
   const shared = shouldUseSharedAdminAlerts();
   const [state, setState] = useState<AdminAlertsState>(() => loadAdminAlertsState());
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(true);
 
-  const refresh = useCallback(() => {
+  const [dataTick, setDataTick] = useState(0);
+
+  const refreshLocal = useCallback(() => {
+    setState(loadAdminAlertsState());
+  }, []);
+
+  const refreshRemote = useCallback(() => {
     if (shared) {
       void fetchAdminAlertsStateFromApi()
         .then(setState)
-        .catch(() => setState(loadAdminAlertsState()));
+        .catch(() => refreshLocal());
     } else {
-      setState(loadAdminAlertsState());
+      refreshLocal();
     }
-  }, [shared]);
+  }, [shared, refreshLocal]);
+
+  const refreshRemoteRef = useRef(refreshRemote);
+  refreshRemoteRef.current = refreshRemote;
 
   useEffect(() => {
-    refresh();
+    refreshRemote();
     setReady(true);
-    function onSync() {
-      refresh();
+
+    // Recompute derived alerts from local stores — no API round-trip.
+    function onDataSync() {
+      setDataTick((t) => t + 1);
     }
+
+    let remoteTimer: ReturnType<typeof setTimeout> | null = null;
+    function onAlertsStateSync() {
+      if (remoteTimer) clearTimeout(remoteTimer);
+      remoteTimer = setTimeout(() => refreshRemoteRef.current(), 250);
+    }
+
     function onStorage(e: StorageEvent) {
       if (
-        !e.key ||
         e.key === "farm-stays-admin-alerts" ||
-        e.key === "farm-stays-host-promotions" ||
-        e.key.startsWith("farm-stays-")
+        e.key === "farm-stays-host-promotions"
       ) {
-        refresh();
+        onAlertsStateSync();
       }
     }
-    window.addEventListener(ADMIN_ALERTS_SYNC_EVENT, refresh);
-    window.addEventListener(LISTINGS_SYNC_EVENT, refresh);
-    window.addEventListener(USERS_SYNC_EVENT, refresh);
-    window.addEventListener(HOST_BOOKINGS_SYNC_EVENT, refresh);
-    window.addEventListener(FINANCIAL_SYNC_EVENT, refresh);
-    window.addEventListener(TRUST_ADMIN_SYNC_EVENT, refresh);
-    window.addEventListener(HOST_REVIEWS_SYNC_EVENT, refresh);
-    window.addEventListener(HOST_PROMOTIONS_SYNC_EVENT, refresh);
+
+    window.addEventListener(ADMIN_ALERTS_SYNC_EVENT, onAlertsStateSync);
+    window.addEventListener(LISTINGS_SYNC_EVENT, onDataSync);
+    window.addEventListener(USERS_SYNC_EVENT, onDataSync);
+    window.addEventListener(HOST_BOOKINGS_SYNC_EVENT, onDataSync);
+    window.addEventListener(FINANCIAL_SYNC_EVENT, onDataSync);
+    window.addEventListener(TRUST_ADMIN_SYNC_EVENT, onDataSync);
+    window.addEventListener(HOST_REVIEWS_SYNC_EVENT, onDataSync);
+    window.addEventListener(HOST_PROMOTIONS_SYNC_EVENT, onDataSync);
     window.addEventListener("storage", onStorage);
     return () => {
-      window.removeEventListener(ADMIN_ALERTS_SYNC_EVENT, refresh);
-      window.removeEventListener(LISTINGS_SYNC_EVENT, refresh);
-      window.removeEventListener(USERS_SYNC_EVENT, refresh);
-      window.removeEventListener(HOST_BOOKINGS_SYNC_EVENT, refresh);
-      window.removeEventListener(FINANCIAL_SYNC_EVENT, refresh);
-      window.removeEventListener(TRUST_ADMIN_SYNC_EVENT, refresh);
-      window.removeEventListener(HOST_REVIEWS_SYNC_EVENT, refresh);
-      window.removeEventListener(HOST_PROMOTIONS_SYNC_EVENT, refresh);
+      if (remoteTimer) clearTimeout(remoteTimer);
+      window.removeEventListener(ADMIN_ALERTS_SYNC_EVENT, onAlertsStateSync);
+      window.removeEventListener(LISTINGS_SYNC_EVENT, onDataSync);
+      window.removeEventListener(USERS_SYNC_EVENT, onDataSync);
+      window.removeEventListener(HOST_BOOKINGS_SYNC_EVENT, onDataSync);
+      window.removeEventListener(FINANCIAL_SYNC_EVENT, onDataSync);
+      window.removeEventListener(TRUST_ADMIN_SYNC_EVENT, onDataSync);
+      window.removeEventListener(HOST_REVIEWS_SYNC_EVENT, onDataSync);
+      window.removeEventListener(HOST_PROMOTIONS_SYNC_EVENT, onDataSync);
       window.removeEventListener("storage", onStorage);
     };
-  }, [refresh]);
+  }, [refreshRemote]);
 
-  const alerts = useMemo(() => computeAdminAlerts(state), [state]);
+  const alerts = useMemo(() => {
+    void dataTick;
+    return computeAdminAlerts(state);
+  }, [state, dataTick]);
   const unreadCount = useMemo(() => countUnreadAdminAlerts(alerts), [alerts]);
   const criticalCount = useMemo(() => countCriticalAdminAlerts(alerts), [alerts]);
 
@@ -87,12 +108,12 @@ export function useAdminAlerts() {
     (next: AdminAlertsState) => {
       if (shared) {
         setState(next);
-        refresh();
+        refreshRemote();
         return;
       }
       setState(next);
     },
-    [refresh, shared]
+    [refreshRemote, shared]
   );
 
   return {
@@ -101,7 +122,7 @@ export function useAdminAlerts() {
     settings: state.settings,
     unreadCount,
     criticalCount,
-    refresh,
+    refresh: refreshRemote,
     markRead: (sourceKey: string) => {
       if (shared) {
         void patchAdminAlertsViaApi({ action: "markRead", sourceKey })

@@ -16,8 +16,10 @@ import {
 import type { FarmActivity, FarmProduct, HostAddonsData } from "./host-addons-types";
 
 export function useHostAddons(hostId: string | undefined) {
-  const [data, setData] = useState<HostAddonsData | null>(null);
-  const [ready, setReady] = useState(false);
+  const [data, setData] = useState<HostAddonsData | null>(() =>
+    hostId ? loadHostAddons(hostId) : null
+  );
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedHostAddons();
 
   const refresh = useCallback(async () => {

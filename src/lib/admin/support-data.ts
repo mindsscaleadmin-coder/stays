@@ -210,21 +210,24 @@ function syncDisputeTickets(tickets: SupportTicketRecord[]): SupportTicketRecord
     const reference = booking.bookingReference || booking.id;
     const existing = byBooking.get(reference) ?? byBooking.get(booking.id);
     if (existing) {
-      next = next.map((t) =>
-        t.id === existing.id
-          ? {
-              ...t,
-              subject: `Dispute: ${booking.disputeSummary ?? booking.property}`,
-              message: booking.disputeGuestClaim ?? booking.disputeSummary ?? t.message,
-              status: t.status === "resolved" || t.status === "closed" ? t.status : "escalated",
-              priority: "critical",
-              escalationLevel: Math.max(t.escalationLevel, 1) as EscalationLevel,
-              updatedAt: new Date().toISOString(),
-              property: booking.property,
-              hostName: booking.hostName,
-            }
-          : t
-      );
+      next = next.map((t) => {
+        if (t.id !== existing.id) return t;
+        const patched: SupportTicketRecord = {
+          ...t,
+          subject: `Dispute: ${booking.disputeSummary ?? booking.property}`,
+          message: booking.disputeGuestClaim ?? booking.disputeSummary ?? t.message,
+          status: t.status === "resolved" || t.status === "closed" ? t.status : "escalated",
+          priority: "critical",
+          escalationLevel: Math.max(t.escalationLevel, 1) as EscalationLevel,
+          property: booking.property,
+          hostName: booking.hostName,
+        };
+        // Avoid bumping updatedAt when nothing changed — that caused a write/sync/fetch loop.
+        const { updatedAt: _a, ...before } = t;
+        const { updatedAt: _b, ...after } = patched;
+        if (JSON.stringify(before) === JSON.stringify(after)) return t;
+        return { ...patched, updatedAt: new Date().toISOString() };
+      });
       continue;
     }
 
@@ -260,10 +263,11 @@ function syncDisputeTickets(tickets: SupportTicketRecord[]): SupportTicketRecord
   return next;
 }
 
-export function loadAllSupportTickets(): FlatSupportTicket[] {
+export function loadAllSupportTickets(opts?: { persist?: boolean }): FlatSupportTicket[] {
   const raw = readTickets();
   const synced = syncDisputeTickets(raw);
-  if (typeof window !== "undefined" && JSON.stringify(synced) !== JSON.stringify(raw)) {
+  const persist = opts?.persist ?? true;
+  if (persist && typeof window !== "undefined" && JSON.stringify(synced) !== JSON.stringify(raw)) {
     writeTickets(synced);
   }
   return synced.sort(

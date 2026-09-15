@@ -138,9 +138,6 @@ export function RichTextEditor({
         />
       )}
 
-      <p className="border-t border-gray-100 bg-gray-50 px-3 py-1.5 text-[11px] text-gray-400">
-        Blank line starts a new paragraph. **bold**, *italic*, - bullets, 1. numbered.
-      </p>
     </div>
   );
 }

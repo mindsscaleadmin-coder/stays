@@ -18,7 +18,7 @@ export function AdminListingAdsSection() {
     <section className="bg-white rounded-2xl border shadow-sm p-5 space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h3 className="font-semibold text-gray-900">Listings sidebar</h3>
+          <h3 className="font-display font-semibold text-gray-900">Listings sidebar</h3>
           <p className="text-sm text-gray-500 mt-0.5">
             Ads shown on the search results column. Tall fills the sponsored card; short
             fills the smaller slot.

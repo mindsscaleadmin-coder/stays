@@ -65,7 +65,7 @@ export function AdminHostDetailContent({ hostId }: { hostId: string }) {
   const canEdit = can("edit_host_profiles");
   const canImpersonate = isDemo && can("impersonate_hosts");
   const { users, suspend, ban, verify, reinstate, updateProfile } = useAdminUsers();
-  const { all: listings, ready } = useListingSubmissions();
+  const { all: listings, ready } = useListingSubmissions({ load: true });
   const { all: verifications, approve, reject } = useHostVerification();
   const [message, setMessage] = useState("");
   const [reviewNote, setReviewNote] = useState("");

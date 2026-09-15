@@ -99,31 +99,14 @@ export function ListingFeatureIconsField({
     setOpen(false);
   }
 
-  if (!ready) {
-    return (
-      <div className="pt-2.5 border-t border-gray-100">
-        <p className="text-sm text-gray-400">Loading feature icons…</p>
-      </div>
-    );
-  }
-
-  if (scopedIcons.length === 0) {
-    return (
-      <div className="pt-2.5 border-t border-gray-100">
-        <h4 className="text-sm font-semibold text-gray-900 mb-2">Feature icons</h4>
-        <p className="text-sm text-gray-400">
-          {taxonomy?.parentId
-            ? "No feature icons for this parent / category / subcategory yet."
-            : "No icons configured yet. Ask an admin to add options under Settings → Listing."}
-        </p>
-      </div>
-    );
+  if (!taxonomy?.categoryId || !ready || scopedIcons.length === 0) {
+    return null;
   }
 
   return (
     <>
       <div className="pt-2.5 border-t border-gray-100">
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-3">
           <LayoutGrid className="w-4 h-4 text-green-600" />
           <h4 className="text-sm font-semibold text-gray-900">Feature icons</h4>
         </div>

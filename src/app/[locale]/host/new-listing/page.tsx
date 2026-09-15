@@ -1,5 +1,5 @@
 import { setRequestLocale } from "next-intl/server";
-import { HostNewListingContent } from "@/components/dashboard/host-new-listing-content";
+import { HostListingFormPageLoader } from "@/components/dashboard/host-listing-form-page-loader";
 
 export default async function NewListingPage({
   params,
@@ -8,5 +8,5 @@ export default async function NewListingPage({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  return <HostNewListingContent />;
+  return <HostListingFormPageLoader />;
 }

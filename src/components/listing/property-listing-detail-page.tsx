@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { Link } from "@/i18n/routing";
 import { CheckAvailabilityLink } from "@/components/auth/check-availability-link";
@@ -64,7 +64,12 @@ import { BASE_CURRENCY, formatStoredMoney  } from "@/lib/currency";
 import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { photoTagLabel } from "@/lib/listings/photo-tags";
-import { getListingFeatureIcon } from "@/lib/listings/listing-feature-icons";
+import { ListingGalleryOverlay } from "@/components/listing/listing-gallery-overlay";
+import {
+  DEFAULT_LISTING_FEATURE_ICON_ROWS,
+  getListingFeatureIcon,
+} from "@/lib/listings/listing-feature-icons";
+import { LISTING_AMENITY_OPTIONS } from "@/lib/listings/listing-field-options";
 import {
   HOST_PRICING_SYNC_EVENT,
   loadPricingSettings,
@@ -110,11 +115,16 @@ import { ExperienceBookingCard } from "@/components/listing/experience-booking-c
 import { EventListingDetailContent } from "@/components/listing/event-listing-detail-content";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
 import { isEventListing } from "@/lib/booking/is-event-listing";
+import { eventSpaceImages } from "@/lib/listings/event-space-images";
+import { buildEventSpaceFilterGroups } from "@/lib/listings/resolve-venue-space-filters";
+import type { VenueDetails } from "@/lib/listings/venue-details-types";
 import {
   guestPartyFromRoom,
   mergeGuestPartyLimits,
   type GuestPartyLimits,
 } from "@/lib/listings/guest-capacity";
+import { LISTING_PLACEHOLDER_IMG } from "@/lib/listings/submission-to-stay";
+import { isDataImageUrl } from "@/lib/utils";
 
 const AMENITY_ICONS: Record<string, typeof Wifi> = {
   "Free WiFi": Wifi,
@@ -159,6 +169,91 @@ function amenityIcon(name: string): typeof Wifi {
     return Utensils;
   if (lower.includes("mountain") || lower.includes("view")) return Mountain;
   return CheckCircle;
+}
+
+const CALENDAR_WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
+
+function buildCalendarMonthCells(year: number, month: number): ({ iso: string; day: number } | null)[] {
+  const startPad = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells: ({ iso: string; day: number } | null)[] = [];
+  for (let i = 0; i < startPad; i++) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day++) {
+    const d = new Date(year, month, day);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    cells.push({ iso, day });
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+function formatCalendarMonthTitle(year: number, month: number): string {
+  return new Date(year, month, 1).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function displayDayAppearance(
+  iso: string,
+  opts: {
+    calendarMinIso: string;
+    occupiedDateSet: Set<string>;
+    availability: ListingAvailabilitySettings | null;
+    checkIn: string;
+    checkOut: string;
+  }
+): { className: string; title: string } {
+  const { calendarMinIso, occupiedDateSet, availability, checkIn, checkOut } = opts;
+  const past = iso < calendarMinIso;
+  const booked = occupiedDateSet.has(iso);
+  const blocked = Boolean(availability) && availability!.blockedDates.includes(iso);
+  const seasonClosed =
+    Boolean(availability) && isSeasonallyClosed(iso, availability!.seasonalPeriods);
+  const channel =
+    Boolean(availability) &&
+    (availability!.icalImportedDates ?? []).includes(iso) &&
+    !booked;
+  const unavailable = Boolean(availability) && isDateUnavailable(iso, availability!);
+  const disabled = past || unavailable;
+  const selected =
+    (Boolean(checkIn) && iso === checkIn) || (Boolean(checkOut) && iso === checkOut);
+  const inRange =
+    Boolean(checkIn) && Boolean(checkOut) && iso > checkIn && iso < checkOut;
+
+  const title = past
+    ? "Past date"
+    : blocked
+      ? "Blocked"
+      : seasonClosed
+        ? "Seasonal closure"
+        : booked
+          ? "Booked"
+          : channel
+            ? "Unavailable (channel calendar)"
+            : selected
+              ? "Selected"
+              : "Available";
+
+  const className = disabled
+    ? past && !unavailable
+      ? "border-transparent text-gray-300"
+      : blocked
+        ? "bg-red-100 border-red-300 text-red-900"
+        : seasonClosed
+          ? "bg-amber-100 border-amber-300 text-amber-900"
+          : booked
+            ? "bg-blue-100 border-blue-300 text-blue-900"
+            : channel
+              ? "bg-slate-100 border-slate-300 text-slate-800"
+              : "bg-gray-100 border-gray-200 text-gray-400"
+    : selected
+      ? "bg-green-600 border-green-600 text-white font-semibold"
+      : inRange
+        ? "bg-green-50 border-green-200 text-green-800 font-medium"
+        : "bg-green-50 border-green-200 text-gray-800 font-medium";
+
+  return { className, title };
 }
 
 const EXPERIENCES = [
@@ -222,6 +317,8 @@ interface PropertyListingDetailPageProps {
     beds: number;
     baths: number;
     img: string;
+    advancedFilterIds?: string[];
+    venueDetails?: VenueDetails;
   }[];
   /** Host-configured guest limits (property-level). Rooms override when selected. */
   guestParty?: GuestPartyLimits;
@@ -230,6 +327,8 @@ interface PropertyListingDetailPageProps {
   extraChargesCurrency?: string;
   /** Explicit amenities (merged with stay.amenities) */
   amenities?: string[];
+  advancedFilters?: string[];
+  venueDetails?: VenueDetails;
   /** Experience listing content */
   itinerary?: { step: number; title: string; description?: string }[];
   meetingPoint?: string;
@@ -256,6 +355,8 @@ export function PropertyListingDetailPage({
   extraCharges: extraChargesProp,
   extraChargesCurrency: extraChargesCurrencyProp,
   amenities: amenitiesProp,
+  advancedFilters: advancedFiltersProp,
+  venueDetails: venueDetailsProp,
   itinerary,
   meetingPoint,
   requirements,
@@ -351,6 +452,10 @@ export function PropertyListingDetailPage({
     const d = new Date(`${seed}T12:00:00`);
     return { year: d.getFullYear(), month: d.getMonth() };
   });
+  const [displayCalendarStart, setDisplayCalendarStart] = useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
   const datePickerRef = useRef<HTMLDivElement>(null);
   const [adults, setAdults] = useState(() => readStayPartyFromSearch()?.adults ?? 0);
   const [children, setChildren] = useState(() => readStayPartyFromSearch()?.children ?? 0);
@@ -362,6 +467,9 @@ export function PropertyListingDetailPage({
   const [activeTab, setActiveTab] = useState("overview");
   const [wishlist, setWishlist] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryStartIndex, setGalleryStartIndex] = useState(0);
+  const [galleryStartVideo, setGalleryStartVideo] = useState(false);
   const [shareFlash, setShareFlash] = useState(false);
   const shareMenuRef = useRef<HTMLDivElement>(null);
   const [readMore, setReadMore] = useState(false);
@@ -390,7 +498,7 @@ export function PropertyListingDetailPage({
         capacity: stay.guests,
         beds: stay.beds,
         baths: stay.baths,
-        img: stay.img,
+        img: stay.img || LISTING_PLACEHOLDER_IMG,
       },
     ];
   }, [hasRoomTypes, hostRooms, pricingSettings, stay]);
@@ -452,15 +560,7 @@ export function PropertyListingDetailPage({
     }
     const total = Math.max(1, stay.guests);
     return { adults: total, children: total, infants: 5, total };
-  }, [
-    hasRoomTypes,
-    bookingRooms,
-    stay.guests,
-    guestPartyProp?.total,
-    guestPartyProp?.adults,
-    guestPartyProp?.children,
-    guestPartyProp?.infants,
-  ]);
+  }, [hasRoomTypes, bookingRooms, stay.guests, guestPartyProp]);
 
   const maxGuests = partyLimits.total;
   const maxInfantsAllowed = Math.max(0, partyLimits.infants);
@@ -488,17 +588,65 @@ export function PropertyListingDetailPage({
     setActiveTab("rooms");
   }
 
-  function roomNightly(room: { id?: string; price: number }): number {
-    if (pricingSettings && room.id) {
-      const stored = pricingSettings.roomPrices.find((r) => r.roomId === room.id);
-      if (stored?.basePrice != null && stored.basePrice > 0) {
-        return resolveDisplayNightlyRate(pricingSettings, room.id);
+  const roomNightly = useCallback(
+    (room: { id?: string; price: number }): number => {
+      if (pricingSettings && room.id) {
+        const stored = pricingSettings.roomPrices.find((r) => r.roomId === room.id);
+        if (stored?.basePrice != null && stored.basePrice > 0) {
+          return resolveDisplayNightlyRate(pricingSettings, room.id);
+        }
       }
-    }
-    if (room.price > 0) return room.price;
-    if (pricingSettings) return resolveDisplayNightlyRate(pricingSettings, null);
-    return 0;
-  }
+      if (room.price > 0) return room.price;
+      if (pricingSettings) return resolveDisplayNightlyRate(pricingSettings, null);
+      return 0;
+    },
+    [pricingSettings]
+  );
+
+  const galleryPhotoList = useMemo(
+    () =>
+      galleryPhotos && galleryPhotos.length > 0
+        ? galleryPhotos
+        : galleryImages?.length
+          ? galleryImages.map((src) => ({ src }))
+          : [],
+    [galleryPhotos, galleryImages]
+  );
+
+  const eventSpaces = useMemo(() => {
+    const multiRate = displayRooms.length > 1;
+    const listingAdvancedNames = advancedFiltersProp ?? [];
+    const allRoomFilters = displayRooms.map((item) => ({
+      advancedFilterIds: (item as { advancedFilterIds?: string[] }).advancedFilterIds,
+    }));
+
+    return displayRooms.map((room) => {
+      const advancedFilterIds = (room as { advancedFilterIds?: string[] }).advancedFilterIds;
+      const filterGroups = buildEventSpaceFilterGroups(
+        taxonomy,
+        { advancedFilterIds },
+        allRoomFilters,
+        listingAdvancedNames,
+        multiRate
+      );
+
+      const cover = room.img || stay.img || LISTING_PLACEHOLDER_IMG;
+      const images = eventSpaceImages({ name: room.name, img: cover }, galleryPhotoList);
+
+      return {
+        id: (room as { id?: string }).id,
+        name: room.name,
+        desc: room.desc,
+        price: roomNightly(room),
+        capacity: room.capacity,
+        img: images[0] ?? cover,
+        images,
+        advancedFilterIds,
+        filterGroups,
+        venueDetails: (room as { venueDetails?: VenueDetails }).venueDetails,
+      };
+    });
+  }, [advancedFiltersProp, displayRooms, galleryPhotoList, roomNightly, stay.img, taxonomy]);
 
   useEffect(() => {
     async function refreshPricing() {
@@ -531,8 +679,7 @@ export function PropertyListingDetailPage({
       window.removeEventListener(HOST_PRICING_SYNC_EVENT, refreshPricing);
       window.removeEventListener("storage", refreshPricing);
     };
-    // Intentionally omit extraChargesProp identity — parents often pass a fresh [] each render.
-  }, [stay.id, extraChargesCurrencyProp]);
+  }, [stay.id, extraChargesCurrencyProp, extraChargesProp]);
 
   useEffect(() => {
     async function refreshAvailability() {
@@ -746,26 +893,32 @@ export function PropertyListingDetailPage({
 
   const minStayNights = Math.max(1, availability?.minStayNights ?? 1);
 
-  const bookingRuleHint =
-    guestCount < 1
-      ? "Add at least one adult or child to continue."
-      : checkIn && checkOut && availability
-        ? bookingRulesViolation(checkIn, checkOut, availability)
-        : null;
+  const guestBookingHint =
+    guestCount < 1 ? "Add at least one adult or child to continue." : null;
+  const dateBookingHint =
+    guestCount >= 1 && checkIn && checkOut && availability
+      ? bookingRulesViolation(checkIn, checkOut, availability)
+      : null;
+  const bookingRuleHint = guestBookingHint || dateBookingHint;
 
-  const calendarCells = useMemo(() => {
-    const { year, month } = calendarMonth;
-    const first = new Date(year, month, 1);
-    const startPad = first.getDay(); // 0 = Sun
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const cells: ({ iso: string; day: number } | null)[] = [];
-    for (let i = 0; i < startPad; i++) cells.push(null);
-    for (let day = 1; day <= daysInMonth; day++) {
-      cells.push({ iso: toIsoDate(new Date(year, month, day)), day });
-    }
-    while (cells.length % 7 !== 0) cells.push(null);
-    return cells;
-  }, [calendarMonth]);
+  const calendarCells = useMemo(
+    () => buildCalendarMonthCells(calendarMonth.year, calendarMonth.month),
+    [calendarMonth]
+  );
+
+  const displayCalendarMonths = useMemo(() => {
+    return Array.from({ length: 3 }, (_, index) => {
+      const d = new Date(displayCalendarStart.year, displayCalendarStart.month + index, 1);
+      const year = d.getFullYear();
+      const month = d.getMonth();
+      return {
+        year,
+        month,
+        title: formatCalendarMonthTitle(year, month),
+        cells: buildCalendarMonthCells(year, month),
+      };
+    });
+  }, [displayCalendarStart]);
 
   const calendarTitle = useMemo(() => {
     const d = new Date(calendarMonth.year, calendarMonth.month, 1);
@@ -916,6 +1069,13 @@ export function PropertyListingDetailPage({
   while (galleryHero.length < 5) {
     galleryHero.push(galleryHero[0] ?? { src: stay.img });
   }
+  const videoTourUrl = venueDetailsProp?.videoTourUrl?.trim() ?? "";
+
+  function openGallery(index = 0, startOnVideo = false) {
+    setGalleryStartIndex(index);
+    setGalleryStartVideo(startOnVideo);
+    setGalleryOpen(true);
+  }
   const aboutText = description?.trim();
   const displayAmenities = useMemo(() => {
     const fromProp = amenitiesProp ?? [];
@@ -1007,17 +1167,12 @@ export function PropertyListingDetailPage({
     if (baths > 0) push(Bath, `${baths} Bathroom${baths === 1 ? "" : "s"}`);
     if (guests > 0) push(Users, `Up to ${guests} Guests`);
 
-    if (propertyFeatureIcons && propertyFeatureIcons.length > 0) {
-      for (const { iconKey, label } of propertyFeatureIcons.slice(0, 4)) {
-        push(getListingFeatureIcon(iconKey), label);
-      }
-    } else {
-      for (const amenity of (stay.amenities ?? []).slice(0, 4)) {
-        push(AMENITY_ICONS[amenity] ?? amenityIcon(amenity), amenity);
-      }
-    }
-
-    return chips;
+    const amenityChipLabels = new Set(
+      [...LISTING_AMENITY_OPTIONS, ...DEFAULT_LISTING_FEATURE_ICON_ROWS.map((r) => r.label)].map(
+        (label) => label.trim().toLowerCase()
+      )
+    );
+    return chips.filter((chip) => !amenityChipLabels.has(chip.label.trim().toLowerCase()));
   }, [
     stay.parentCategory,
     stay.category,
@@ -1025,9 +1180,7 @@ export function PropertyListingDetailPage({
     stay.beds,
     stay.baths,
     stay.guests,
-    stay.amenities,
     displayRooms,
-    propertyFeatureIcons,
   ]);
 
   function scrollToSection(key: string) {
@@ -1122,39 +1275,51 @@ export function PropertyListingDetailPage({
       {/* Photo grid — directly under site header */}
       <div className="max-w-7xl mx-auto px-4 pt-8">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 h-auto md:h-[480px] rounded-2xl overflow-hidden bg-white">
-          <Link
-            href={`/listing/${stay.id}/gallery`}
-            className="relative block min-h-[240px] md:min-h-0 md:h-full cursor-pointer group"
-          >
-            <Image
-              src={galleryHero[0].src}
-              alt={stayName}
-              fill
-              priority
-              className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-              sizes="(max-width: 768px) 100vw, 50vw"
-              unoptimized={galleryHero[0].src.startsWith("data:")}
-            />
-            <span className="absolute top-3 start-3 bg-green-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-full z-10">
-              {t("mostBooked")}
-            </span>
-            {galleryHero[0].tag ? (
-              <span className="absolute top-3 end-3 z-10 inline-flex items-center gap-1 max-w-[70%] truncate bg-black/65 text-white text-[11px] font-medium px-2.5 py-1 rounded-md">
-                <Tag className="w-3 h-3 shrink-0" />
-                {photoTagLabel(galleryHero[0].tag)}
+          <div className="relative min-h-[240px] md:min-h-0 md:h-full">
+            <button
+              type="button"
+              onClick={() => openGallery(0)}
+              className="relative block h-full w-full min-h-[240px] md:min-h-0 overflow-hidden group cursor-pointer border-0 bg-transparent p-0 text-left"
+              aria-label={`View photos of ${stayName}`}
+            >
+              <Image
+                src={galleryHero[0].src}
+                alt={stayName}
+                fill
+                priority
+                className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                sizes="(max-width: 768px) 100vw, 50vw"
+                unoptimized={isDataImageUrl(galleryHero[0].src)}
+              />
+              <span className="pointer-events-none absolute top-3 start-3 bg-green-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-full z-10">
+                {t("mostBooked")}
               </span>
+              {galleryHero[0].tag ? (
+                <span className="pointer-events-none absolute top-3 end-3 z-10 inline-flex items-center gap-1 max-w-[70%] truncate bg-black/65 text-white text-[11px] font-medium px-2.5 py-1 rounded-md">
+                  <Tag className="w-3 h-3 shrink-0" />
+                  {photoTagLabel(galleryHero[0].tag)}
+                </span>
+              ) : null}
+            </button>
+            {videoTourUrl ? (
+              <button
+                type="button"
+                onClick={() => openGallery(0, true)}
+                className="absolute bottom-4 start-4 z-20 hidden sm:inline-flex items-center gap-2 bg-black/60 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors hover:bg-black/75"
+              >
+                <Play className="w-4 h-4" /> {t("watchVideo")}
+              </button>
             ) : null}
-            <span className="absolute bottom-4 start-4 hidden sm:flex items-center gap-2 bg-black/60 text-white text-sm font-medium px-4 py-2 rounded-lg z-10">
-              <Play className="w-4 h-4" /> {t("watchVideo")}
-            </span>
-          </Link>
+          </div>
 
           <div className="grid grid-cols-2 grid-rows-2 gap-2 min-h-[240px] md:min-h-0 md:h-full bg-white">
             {galleryHero.slice(1, 5).map((photo, i) => (
-              <Link
+              <button
                 key={`${photo.src}-${i}`}
-                href={`/listing/${stay.id}/gallery`}
-                className="relative block min-h-[120px] md:min-h-0 overflow-hidden group"
+                type="button"
+                onClick={() => openGallery(i + 1)}
+                className="relative block h-full min-h-[120px] md:min-h-0 overflow-hidden group cursor-pointer border-0 bg-transparent p-0 text-left"
+                aria-label={`View photo ${i + 2} of ${stayName}`}
               >
                 <Image
                   src={photo.src}
@@ -1166,7 +1331,7 @@ export function PropertyListingDetailPage({
                   fill
                   className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
                   sizes="25vw"
-                  unoptimized={photo.src.startsWith("data:")}
+                  unoptimized={isDataImageUrl(photo.src)}
                 />
                 {photo.tag ? (
                   <span className="absolute top-2 start-2 z-10 inline-flex items-center gap-1 max-w-[85%] truncate bg-black/65 text-white text-[10px] font-medium px-2 py-0.5 rounded-md">
@@ -1185,7 +1350,7 @@ export function PropertyListingDetailPage({
                 {i === 3 && photos.length > 5 && (
                   <div className="absolute inset-0 bg-black/20 pointer-events-none" />
                 )}
-              </Link>
+              </button>
             ))}
           </div>
         </div>
@@ -1237,14 +1402,8 @@ export function PropertyListingDetailPage({
           reviewsReady={reviewsReady}
           rating={ratedStay.rating}
           reviewCount={ratedStay.reviews}
-          spaces={displayRooms.map((room) => ({
-            id: (room as { id?: string }).id,
-            name: room.name,
-            desc: room.desc,
-            price: roomNightly(room),
-            capacity: room.capacity,
-            img: room.img,
-          }))}
+          spaces={eventSpaces}
+          venueDetails={venueDetailsProp}
           mapEmbedUrl={mapEmbedUrl}
           policies={displayPolicies}
           offers={hostOffers}
@@ -1689,6 +1848,7 @@ export function PropertyListingDetailPage({
                   const isBookable = hasRoomTypes && Boolean(roomId);
                   const isSelected = isBookable && bookingRoomIds.includes(roomId);
                   const nightly = roomNightly(room);
+                  const roomImg = room.img || stay.img || LISTING_PLACEHOLDER_IMG;
                   return (
                   <div
                     key={roomId || i}
@@ -1714,12 +1874,12 @@ export function PropertyListingDetailPage({
                   >
                     <div className="w-32 h-24 rounded-lg overflow-hidden shrink-0 relative">
                       <Image
-                        src={room.img}
+                        src={roomImg}
                         alt={room.name}
                         fill
                         className="object-cover"
                         sizes="128px"
-                        unoptimized={room.img.startsWith("data:")}
+                        unoptimized={isDataImageUrl(roomImg)}
                       />
                       {isSelected && (
                         <span className="absolute top-2 start-2 bg-green-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
@@ -1914,6 +2074,111 @@ export function PropertyListingDetailPage({
                       </div>
                     );
                   })}
+                </div>
+              </section>
+            )}
+
+            {!isExperience && (
+              <section
+                id="section-availability"
+                className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <h2 className="font-bold text-gray-900 text-base font-display">
+                    {t("availabilityCalendar")}
+                  </h2>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      aria-label="Previous months"
+                      onClick={() =>
+                        setDisplayCalendarStart((m) => {
+                          const d = new Date(m.year, m.month - 1, 1);
+                          return { year: d.getFullYear(), month: d.getMonth() };
+                        })
+                      }
+                      className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Next months"
+                      onClick={() =>
+                        setDisplayCalendarStart((m) => {
+                          const d = new Date(m.year, m.month + 1, 1);
+                          return { year: d.getFullYear(), month: d.getMonth() };
+                        })
+                      }
+                      className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {displayCalendarMonths.map((month) => (
+                    <div key={`${month.year}-${month.month}`}>
+                      <h3 className="text-sm font-semibold text-gray-900 text-center mb-2">
+                        {month.title}
+                      </h3>
+                      <div className="grid grid-cols-7 gap-0.5 mb-1">
+                        {CALENDAR_WEEKDAYS.map((label) => (
+                          <div
+                            key={`${month.year}-${month.month}-${label}`}
+                            className="text-[10px] font-semibold text-gray-400 text-center py-1"
+                          >
+                            {label}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-7 gap-0.5">
+                        {month.cells.map((cell, idx) => {
+                          if (!cell) {
+                            return <div key={`empty-${month.year}-${month.month}-${idx}`} className="h-8" />;
+                          }
+                          const { className, title } = displayDayAppearance(cell.iso, {
+                            calendarMinIso,
+                            occupiedDateSet,
+                            availability,
+                            checkIn,
+                            checkOut,
+                          });
+                          return (
+                            <div
+                              key={cell.iso}
+                              title={title}
+                              className={`h-8 rounded-md text-xs tabular-nums flex items-center justify-center border ${className}`}
+                            >
+                              {cell.day}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[10px] text-gray-500">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-red-100 border border-red-300" />
+                    Blocked
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-amber-100 border border-amber-300" />
+                    Seasonal
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-blue-100 border border-blue-300" />
+                    Booked
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-slate-100 border border-slate-300" />
+                    Channel
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-green-50 border border-green-200" />
+                    Open
+                  </span>
                 </div>
               </section>
             )}
@@ -2271,9 +2536,9 @@ export function PropertyListingDetailPage({
                     </div>
                   ) : null}
 
-                  {bookingRuleHint && (
+                  {dateBookingHint && (
                     <p className="px-3 py-2 text-xs text-amber-800 bg-amber-50 border-t border-amber-100">
-                      {bookingRuleHint}
+                      {dateBookingHint}
                     </p>
                   )}
 
@@ -2404,6 +2669,11 @@ export function PropertyListingDetailPage({
                           </button>
                         </div>
                       </div>
+                    )}
+                    {guestBookingHint && (
+                      <p className="mt-2 -mx-3 -mb-3 px-3 py-2 text-xs text-center text-amber-800 bg-amber-50 border-t border-amber-100 rounded-b-xl">
+                        {guestBookingHint}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -2892,6 +3162,16 @@ export function PropertyListingDetailPage({
         </a>
       </div>
       )}
+
+      <ListingGalleryOverlay
+        open={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        photos={photos}
+        alt={stayName}
+        videoTourUrl={videoTourUrl || undefined}
+        startIndex={galleryStartIndex}
+        startOnVideo={galleryStartVideo}
+      />
     </div>
   );
 }

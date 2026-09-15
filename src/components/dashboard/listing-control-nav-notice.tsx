@@ -1,17 +1,16 @@
 "use client";
 
 import { Bell } from "lucide-react";
-import { useListingSubmissions } from "@/lib/listings/use-listing-submissions";
+import { usePendingListingBadgeCount } from "@/lib/admin/use-pending-listing-badge";
 
 /**
  * Live notification for admin Listing Control nav.
- * Uses the same listings store as the Listing Control page.
+ * Uses a lightweight pending-count fetch — not the full listings store.
  */
 export function ListingControlNavNotice() {
-  const { pendingCount, ready } = useListingSubmissions();
+  const pendingCount = usePendingListingBadgeCount();
 
-  // Wait until store has hydrated client-side to avoid SSR/client mismatches.
-  if (!ready || pendingCount <= 0) return null;
+  if (pendingCount === null || pendingCount <= 0) return null;
 
   const label = pendingCount > 99 ? "99+" : String(pendingCount);
 

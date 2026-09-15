@@ -86,10 +86,11 @@ export const LISTING_QUALITY_FIELD_CATALOG: ListingQualityFieldDef[] = [
   {
     id: "amenities",
     label: "Amenities",
-    form: "manage",
+    form: "details",
     kind: "minCount",
     defaultMin: 1,
     minLabel: "Minimum amenities",
+    modes: ["stay"],
   },
   {
     id: "farmActivities",

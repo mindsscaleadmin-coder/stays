@@ -12,10 +12,27 @@ import type {
  * fraction of the unlimited tier.
  */
 export const DEFAULT_EVENTS_SUBSCRIPTION_PLANS: EventsSubscriptionPlan[] = [
-  { id: "single", name: "Single venue", maxListings: 1, yearlyFeeAed: 499, active: true },
-  { id: "small", name: "Up to 3 venues", maxListings: 3, yearlyFeeAed: 1199, active: true },
-  { id: "growth", name: "Up to 10 venues", maxListings: 10, yearlyFeeAed: 2499, active: true },
-  { id: "unlimited", name: "Unlimited venues", maxListings: null, yearlyFeeAed: 4999, active: true },
+  {
+    id: "single",
+    name: "Single property",
+    maxListings: 10,
+    yearlyFeeAed: 1199,
+    active: true,
+  },
+  {
+    id: "portfolio",
+    name: "Three properties",
+    maxListings: 30,
+    yearlyFeeAed: 2499,
+    active: true,
+  },
+  {
+    id: "unlimited",
+    name: "Unlimited",
+    maxListings: null,
+    yearlyFeeAed: 4999,
+    active: true,
+  },
 ];
 
 export const DEFAULT_EVENTS_SUBSCRIPTION: EventsSubscriptionSettings = {
@@ -81,6 +98,33 @@ export function eventsDirectoryIsFree(
   settings: Pick<EventsSubscriptionSettings, "freeDuringLaunch"> | undefined
 ): boolean {
   return settings?.freeDuringLaunch !== false;
+}
+
+/** Host-facing capacity line under each Events / Dining plan name. */
+export function formatEventsPlanCapacity(
+  plan: Pick<EventsSubscriptionPlan, "id" | "name" | "maxListings">
+): string {
+  if (plan.maxListings === null) return "Unlimited listings";
+  const id = plan.id.toLowerCase();
+  const name = plan.name.toLowerCase();
+  if (id === "unlimited" || name.includes("unlimited")) return "Unlimited listings";
+  if (
+    id === "portfolio" ||
+    id === "small" ||
+    name.includes("three") ||
+    name.includes("3 propert")
+  ) {
+    return "Up to 10 listings each";
+  }
+  if (
+    id === "single" ||
+    id === "growth" ||
+    name.includes("single") ||
+    plan.maxListings === 10
+  ) {
+    return "Up to 10 listings";
+  }
+  return `Up to ${plan.maxListings} listing${plan.maxListings === 1 ? "" : "s"}`;
 }
 
 /** Cheapest active tier that covers `listingCount` venues. */

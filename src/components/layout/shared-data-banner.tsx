@@ -36,14 +36,14 @@ export function SharedDataBanner() {
 
   return (
     <div
-      className={`border-b px-4 py-2.5 ${
+      className={`w-full min-w-0 border-b px-4 py-2.5 ${
         shared
           ? "bg-emerald-50 border-emerald-100 text-emerald-900"
           : "bg-amber-50 border-amber-100 text-amber-950"
       }`}
       role="status"
     >
-      <div className="max-w-7xl mx-auto flex items-start gap-3 text-sm">
+      <div className="site-page-container flex items-start gap-3 text-sm">
         <Database
           className={`w-4 h-4 mt-0.5 shrink-0 ${shared ? "text-emerald-700" : "text-amber-700"}`}
           aria-hidden

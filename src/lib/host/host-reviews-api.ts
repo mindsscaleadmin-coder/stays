@@ -44,11 +44,33 @@ export async function saveTemplatesViaApi(
   return json.data;
 }
 
-export async function fetchAllReviewsFlatFromApi(): Promise<FlatHostReview[]> {
-  const res = await fetch("/api/admin/reviews", { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load reviews");
-  const json = (await res.json()) as { reviews: FlatHostReview[] };
-  return json.reviews;
+const ADMIN_REVIEWS_TTL_MS = 8_000;
+let adminReviewsCache: FlatHostReview[] | null = null;
+let adminReviewsFetchedAt = 0;
+let adminReviewsInflight: Promise<FlatHostReview[]> | null = null;
+
+export async function fetchAllReviewsFlatFromApi(force = false): Promise<FlatHostReview[]> {
+  if (!force && adminReviewsInflight) return adminReviewsInflight;
+  if (!force && adminReviewsCache && Date.now() - adminReviewsFetchedAt < ADMIN_REVIEWS_TTL_MS) {
+    return adminReviewsCache;
+  }
+
+  adminReviewsInflight = (async () => {
+    try {
+      const res = await fetch("/api/admin/reviews", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load reviews");
+      const json = (await res.json()) as { reviews: FlatHostReview[] };
+      adminReviewsCache = json.reviews;
+      adminReviewsFetchedAt = Date.now();
+      return json.reviews;
+    } catch {
+      return adminReviewsCache ?? [];
+    } finally {
+      adminReviewsInflight = null;
+    }
+  })();
+
+  return adminReviewsInflight;
 }
 
 export async function moderateReviewViaApi(input: {

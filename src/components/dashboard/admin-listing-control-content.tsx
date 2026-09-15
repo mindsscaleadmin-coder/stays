@@ -334,7 +334,7 @@ export function AdminListingControlContent() {
     adminUpdate,
     bulkUpdate,
     deactivate,
-  } = useListingSubmissions();
+  } = useListingSubmissions({ load: true });
 
   const [message, setMessage] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());

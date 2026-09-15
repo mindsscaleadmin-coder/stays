@@ -17,6 +17,7 @@ import {
   LISTING_FEATURE_ICON_OPTIONS,
   MAX_LISTING_FEATURE_ICONS,
 } from "@/lib/listings/listing-feature-icons";
+import { parseBulkNames } from "@/lib/admin/parse-bulk-names";
 import { normalizeListingTaxonomyScope } from "@/lib/admin/listing-settings-scope";
 import { isFilterEnabled } from "@/lib/admin/taxonomy-types";
 import { cn } from "@/lib/utils";
@@ -213,34 +214,38 @@ export function AdminListingSettingsContent() {
 
   function handleAddHighlight(e: React.FormEvent) {
     e.preventDefault();
-    const label = newLabel.trim();
-    if (!label) return;
+    const labels = parseBulkNames(newLabel);
+    if (!labels.length) return;
     const scope = normalizeListingTaxonomyScope(newHighlightScope);
-    addHighlight({
-      label,
-      enabled: true,
-      ...scope,
-    });
+    addHighlight(
+      labels.map((label) => ({
+        label,
+        enabled: true,
+        ...scope,
+      }))
+    );
     setNewLabel("");
     setNewHighlightScope({});
-    flash("Highlight added.");
+    flash(labels.length === 1 ? "Highlight added." : `${labels.length} highlights added.`);
   }
 
   function handleAddFeatureIcon(e: React.FormEvent) {
     e.preventDefault();
-    const label = newIconLabel.trim();
-    if (!label) return;
+    const labels = parseBulkNames(newIconLabel);
+    if (!labels.length) return;
     const scope = normalizeListingTaxonomyScope(newIconScope);
-    addFeatureIcon({
-      label,
-      iconKey: newIconKey,
-      enabled: true,
-      ...scope,
-    });
+    addFeatureIcon(
+      labels.map((label) => ({
+        label,
+        iconKey: newIconKey,
+        enabled: true,
+        ...scope,
+      }))
+    );
     setNewIconLabel("");
     setNewIconKey("mountain");
     setNewIconScope({});
-    flash("Feature icon added.");
+    flash(labels.length === 1 ? "Feature icon added." : `${labels.length} feature icons added.`);
   }
 
   return (
@@ -395,25 +400,30 @@ export function AdminListingSettingsContent() {
 
         <form onSubmit={handleAddFeatureIcon} className="border-t pt-4 space-y-3">
           <h4 className="text-sm font-semibold text-gray-900">Add feature icon</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <input
-              value={newIconLabel}
-              onChange={(e) => setNewIconLabel(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-              placeholder="e.g. Mountain View"
-              required
-            />
-            <select
-              value={newIconKey}
-              onChange={(e) => setNewIconKey(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
-            >
-              {LISTING_FEATURE_ICON_OPTIONS.map((opt) => (
-                <option key={opt.key} value={opt.key}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+          <div className="space-y-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input
+                value={newIconLabel}
+                onChange={(e) => setNewIconLabel(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="e.g. Mountain View, Pool, Garden"
+                required
+              />
+              <select
+                value={newIconKey}
+                onChange={(e) => setNewIconKey(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              >
+                {LISTING_FEATURE_ICON_OPTIONS.map((opt) => (
+                  <option key={opt.key} value={opt.key}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-[10px] text-gray-400">
+              Separate multiple labels with commas. The selected icon applies to all.
+            </p>
           </div>
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-gray-600">Taxonomy scope (optional)</p>
@@ -557,9 +567,10 @@ export function AdminListingSettingsContent() {
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-              placeholder="e.g. Private swimming pool with Jacuzzi"
+              placeholder="e.g. Private pool, Jacuzzi, Lake view"
               required
             />
+            <p className="text-[10px] text-gray-400 mt-1">Separate multiple highlights with commas.</p>
           </div>
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-gray-600">Taxonomy scope (optional)</p>

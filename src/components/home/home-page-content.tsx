@@ -22,11 +22,15 @@ import {
 } from "lucide-react";
 import { useTranslations, useLocale } from "next-intl";
 import { StarRating, CountdownTimer } from "@/components/ui/star-rating";
-import { BOOKING_ACTIVITY, HERO_BG } from "@/lib/mock/data";
+import { HERO_BG } from "@/lib/mock/data";
 import { getFavoriteIds, setFavoriteIds } from "@/lib/mock/guest-data";
 import { usePublicListings } from "@/lib/listings/use-public-listings";
-import { PUBLIC_LISTINGS_MAX_PAGE_SIZE } from "@/lib/listings/listings-pagination";
 import { HeroSearchBar } from "@/components/search/hero-search-bar";
+import {
+  ALL_PARENT_TAB_ID,
+  HomeCategoryTabs,
+} from "@/components/home/home-category-tabs";
+import { enabledParentTabs } from "@/lib/admin/taxonomy-nav";
 import { BASE_CURRENCY, formatStoredMoney, locationMatchesCountry  } from "@/lib/currency";
 import { useCountry } from "@/components/providers/country-provider";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
@@ -41,7 +45,14 @@ import {
 import { useGuestLocation } from "@/lib/geo/use-guest-location";
 import { filterListingsNearGuest } from "@/lib/geo/guest-location";
 import { useCmsSettings } from "@/lib/admin/use-admin-content-policy";
+import {
+  HOME_PAGE_SETTINGS_SYNC_EVENT,
+  loadHeroBannerUrl,
+} from "@/lib/admin/home-page-settings-data";
 import { useHomePageSettings } from "@/components/providers/home-page-settings-provider";
+import { isDataImageUrl } from "@/lib/utils";
+import { HomeBrowseCard, HomeBrowseScrollRow } from "@/components/home/home-browse-card";
+import { HomeLiveActivityBar } from "@/components/home/home-live-activity-bar";
 import { LocationPermissionBanner } from "@/components/home/location-permission-banner";
 import { HOST_PRICING_SYNC_EVENT } from "@/lib/host/host-pricing-data";
 import {
@@ -57,11 +68,13 @@ export function HomePageContent() {
   const t = useTranslations("home");
   const tc = useTranslations("common");
   const locale = useLocale();
-  const { country: headerCountry } = useCountry();
+  const { country: headerCountry, ready: countryReady } = useCountry();
   const { data: taxonomy } = useAdminTaxonomy();
   const { listings: publicListings } = usePublicListings(undefined, {
     country: headerCountry.name,
-    pageSize: PUBLIC_LISTINGS_MAX_PAGE_SIZE,
+    enabled: countryReady,
+    // Homepage sections only need a small slice; avoid competing with hero image download.
+    pageSize: 24,
   });
   const {
     location: guestLocation,
@@ -71,7 +84,15 @@ export function HomePageContent() {
   } = useGuestLocation();
   const cms = useCmsSettings();
   const { settings: homeSettings } = useHomePageSettings();
-  const heroImage = homeSettings.heroBanner?.url || HERO_BG;
+  const [heroImage, setHeroImage] = useState(HERO_BG);
+  const heroUnoptimized = isDataImageUrl(heroImage) || heroImage === HERO_BG;
+
+  useEffect(() => {
+    const applyHero = () => setHeroImage(loadHeroBannerUrl() || HERO_BG);
+    applyHero();
+    window.addEventListener(HOME_PAGE_SETTINGS_SYNC_EVENT, applyHero);
+    return () => window.removeEventListener(HOME_PAGE_SETTINGS_SYNC_EVENT, applyHero);
+  }, []);
   const blogPosts = useMemo(
     () =>
       cms.blogPosts
@@ -85,10 +106,24 @@ export function HomePageContent() {
   const sectionEnabled = (key: string) =>
     cms.contentSections.find((s) => s.key === key)?.enabled ?? true;
   const [wishlist, setWishlist] = useState<string[]>([]);
-  const [activityIdx, setActivityIdx] = useState(0);
   const [pricingTick, setPricingTick] = useState(0);
   const [promoTick, setPromoTick] = useState(0);
   const [dealClock, setDealClock] = useState(0);
+  const parentTabs = useMemo(() => enabledParentTabs(taxonomy), [taxonomy]);
+  const [selectedParentId, setSelectedParentId] = useState(ALL_PARENT_TAB_ID);
+  const selectedParent = useMemo(
+    () => parentTabs.find((p) => p.id === selectedParentId) ?? null,
+    [parentTabs, selectedParentId]
+  );
+
+  useEffect(() => {
+    if (parentTabs.length === 0) return;
+    setSelectedParentId((current) =>
+      current === ALL_PARENT_TAB_ID || parentTabs.some((p) => p.id === current)
+        ? current
+        : ALL_PARENT_TAB_ID
+    );
+  }, [parentTabs]);
 
   useEffect(() => {
     setWishlist(getFavoriteIds());
@@ -116,14 +151,6 @@ export function HomePageContent() {
       window.removeEventListener(HOST_PROMOTIONS_SYNC_EVENT, bump);
       window.removeEventListener("storage", bump);
     };
-  }, []);
-
-  useEffect(() => {
-    const iv = setInterval(
-      () => setActivityIdx((i) => (i + 1) % BOOKING_ACTIVITY.length),
-      3000
-    );
-    return () => clearInterval(iv);
   }, []);
 
   useEffect(() => {
@@ -162,7 +189,7 @@ export function HomePageContent() {
         badgeColor: s.badge === "Featured" ? s.badgeColor : "bg-amber-500",
       }));
 
-    if (paid.length >= 4) return paid.slice(0, 4);
+    if (paid.length >= 6) return paid.slice(0, 6);
 
     const fill = localPool
       .filter((s) => !trendingIds.includes(s.id))
@@ -182,7 +209,7 @@ export function HomePageContent() {
         return bFeatured - aFeatured || b.rating - a.rating;
       });
 
-    return [...paid, ...fill].slice(0, 4);
+    return [...paid, ...fill].slice(0, 6);
   }, [
     trendingIds,
     publicListings,
@@ -247,26 +274,25 @@ export function HomePageContent() {
       return next;
     });
 
-  const activity = BOOKING_ACTIVITY[activityIdx];
-  const activityName = activity.name;
-  const activityTime = activity.time;
-
   return (
     <>
-      <section className="relative min-h-[28rem] sm:min-h-[34rem] md:min-h-[560px] flex items-center">
-        <Image
-          src={heroImage}
-          alt="Farm stay hero"
-          fill
-          priority
-          className="object-cover"
-          sizes="100vw"
-          unoptimized={heroImage.startsWith("data:")}
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-transparent" />
-        <div className="relative max-w-7xl mx-auto px-4 py-10 sm:py-16 w-full min-w-0">
-          <div className="max-w-xl min-w-0">
-            <h1 className="text-white text-[1.75rem] sm:text-4xl md:text-5xl font-bold font-display leading-tight mb-3 break-words">
+      <section className="home-hero relative z-20 flex w-full min-w-0 items-center justify-center">
+        <div className="absolute inset-0 overflow-hidden" aria-hidden>
+          <Image
+            src={heroImage}
+            alt="Farm stay hero"
+            fill
+            priority
+            className="object-cover"
+            sizes="100vw"
+            unoptimized={heroUnoptimized}
+            suppressHydrationWarning
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-transparent" />
+        </div>
+        <div className="relative home-page-container py-12 md:py-16 lg:py-20 min-w-0">
+          <div className="max-w-2xl min-w-0">
+            <h1 className="text-white text-[1.75rem] sm:text-3xl md:text-[2rem] lg:text-[2.75rem] font-bold font-display leading-tight mb-3 break-words">
               {cms.heroEnabled ? (
                 <>
                   {cms.heroTitle}
@@ -284,33 +310,25 @@ export function HomePageContent() {
             <p className="text-gray-200 text-base mb-6">
               {cms.heroEnabled ? cms.heroSubtitle : t("heroSubtitle")}
             </p>
-            <div className="flex items-center gap-3 mb-8">
-              <div className="flex -space-x-2">
-                {["#7CB9A8", "#4E9E6A", "#F4A261"].map((c, i) => (
-                  <div
-                    key={i}
-                    className="w-8 h-8 rounded-full border-2 border-white"
-                    style={{ background: c }}
-                  />
-                ))}
-              </div>
-              <div>
-                <div className="flex items-center gap-1">
-                  <StarRating rating={5} />
-                  <span className="text-white text-sm font-semibold ms-1">4.9/5</span>
-                </div>
-                <div className="text-gray-300 text-xs">4,813 from 12,000+ guests</div>
-              </div>
-            </div>
           </div>
-          <div className="mt-6 sm:mt-8 w-full min-w-0 max-w-xl lg:max-w-2xl">
-            <HeroSearchBar resultsPath="/listings" />
+          <div className="home-hero-search mt-6 sm:mt-8 min-w-0">
+            {parentTabs.length > 0 ? (
+              <HomeCategoryTabs
+                selectedParentId={selectedParentId}
+                onSelect={(id) => setSelectedParentId(id)}
+              />
+            ) : null}
+            <HeroSearchBar
+              resultsPath="/listings"
+              parentId={selectedParent?.id ?? ""}
+              parentName={selectedParent?.name ?? ""}
+            />
           </div>
         </div>
       </section>
 
       <div className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="home-page-container py-4 flex flex-wrap items-center justify-between gap-4">
           {[
             { icon: Home, val: "1,245+", label: t("stats.properties") },
             { icon: Calendar, val: "42,300+", label: t("stats.nightsBooked") },
@@ -330,7 +348,7 @@ export function HomePageContent() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="home-page-container mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-5 flex flex-col gap-3">
           <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full self-start">
             {t("limitedOffer")}
@@ -384,19 +402,7 @@ export function HomePageContent() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 mt-4">
-        <div className="bg-green-700 rounded-xl px-5 py-3 flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="w-2 h-2 bg-green-300 rounded-full animate-pulse" />
-            <span className="text-white text-sm font-semibold">{t("liveActivity")}</span>
-          </div>
-          <div className="text-green-100 text-sm">
-            <strong className="text-white">{activityName}</strong> {t("justBooked")}{" "}
-            <span className="text-amber-300">{activity.property}</span>{" "}
-            <span className="text-green-300">— {activityTime}</span>
-          </div>
-        </div>
-      </div>
+      <HomeLiveActivityBar />
 
       <LocationPermissionBanner
         visible={usingFallback || guestLocation?.source !== "geolocation"}
@@ -407,7 +413,7 @@ export function HomePageContent() {
       />
 
       {sectionEnabled("trending") && (
-      <section className="max-w-7xl mx-auto px-4 mt-10">
+      <section className="home-page-container home-section">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display flex items-center gap-2">
@@ -419,25 +425,25 @@ export function HomePageContent() {
             {tc("viewAll")} <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 items-stretch">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 xl:gap-5 items-stretch">
           {trendingStays.map((stay) => (
             <div
               key={stay.id}
-              className="relative bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow group h-full flex flex-col"
+              className="relative bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow group h-full flex flex-col min-w-0"
             >
               <Link
                 href={`/listing/${stay.id}`}
                 className="absolute inset-0 z-10"
                 aria-label={`View ${stay.name}`}
               />
-              <div className="relative h-48 shrink-0 overflow-hidden">
+              <div className="relative h-40 xl:h-44 shrink-0 overflow-hidden">
                 <Image
                   src={stay.img}
                   alt={stay.name}
                   fill
                   className="object-cover group-hover:scale-105 transition-transform duration-500"
-                  sizes="(max-width: 640px) 100vw, 25vw"
-                  unoptimized={stay.img.startsWith("data:")}
+                  sizes="(max-width: 640px) 100vw, (max-width: 1280px) 25vw, 16vw"
+                  unoptimized={isDataImageUrl(stay.img)}
                 />
                 <span
                   className={`absolute top-3 start-3 ${stay.badgeColor} text-white text-[10px] font-bold px-2 py-0.5 rounded-full`}
@@ -459,7 +465,7 @@ export function HomePageContent() {
                   />
                 </button>
               </div>
-              <div className="p-4">
+              <div className="p-3 xl:p-4">
                 <h3 className="font-semibold text-gray-800 text-sm leading-tight mb-1 truncate">
                   {stay.name}
                 </h3>
@@ -467,7 +473,7 @@ export function HomePageContent() {
                   <MapPin className="w-3 h-3 shrink-0" />
                   <span className="truncate">{stay.location}</span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-gray-500 mb-3 whitespace-nowrap overflow-hidden">
+                <div className="flex items-center gap-1.5 text-[11px] xl:text-xs text-gray-500 mb-2.5 min-w-0 overflow-hidden">
                   <span className="flex items-center gap-0.5 shrink-0">
                     <Users className="w-3 h-3" />
                     {stay.guests}
@@ -483,7 +489,7 @@ export function HomePageContent() {
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <span className="text-green-700 font-bold text-base">
+                    <span className="text-green-700 font-bold text-sm xl:text-base">
                       {formatStoredMoney(
                         stay.originalPrice != null && stay.originalPrice > stay.price
                           ? stay.originalPrice
@@ -504,7 +510,7 @@ export function HomePageContent() {
                     <span className="text-xs text-gray-400">({stay.reviews})</span>
                   </div>
                 </div>
-                <span className="mt-3 block w-full bg-green-700 group-hover:bg-green-800 text-white text-sm font-semibold py-2 rounded-xl transition-colors text-center">
+                <span className="mt-2.5 block w-full bg-green-700 group-hover:bg-green-800 text-white text-xs xl:text-sm font-semibold py-1.5 xl:py-2 rounded-xl transition-colors text-center">
                   {tc("bookNow")}
                 </span>
               </div>
@@ -515,7 +521,7 @@ export function HomePageContent() {
       )}
 
       {sectionEnabled("flashDeals") && flashDeals.length > 0 && (
-      <section className="max-w-7xl mx-auto px-4 mt-10">
+      <section className="home-page-container home-section">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display flex items-center gap-2">
@@ -580,7 +586,7 @@ export function HomePageContent() {
       )}
 
       {sectionEnabled("destinations") && destinationCards.length > 0 && (
-      <section className="max-w-7xl mx-auto px-4 mt-10">
+      <section className="home-page-container home-section">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">{t("destinationsTitle")}</h2>
@@ -590,35 +596,22 @@ export function HomePageContent() {
             {tc("viewAll")} <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <HomeBrowseScrollRow>
           {destinationCards.map((dest) => (
-            <Link key={dest.id} href={dest.href} className="group">
-              <div className="relative h-32 rounded-2xl overflow-hidden mb-2">
-                <Image
-                  src={dest.img}
-                  alt={dest.name}
-                  fill
-                  className="object-cover group-hover:scale-110 transition-transform duration-500"
-                  sizes="(max-width: 640px) 50vw, 16vw"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                <div className="absolute bottom-2 inset-x-0 text-center">
-                  <div className="text-white text-sm font-bold">
-                    {dest.name}
-                  </div>
-                  <div className="text-gray-300 text-[10px]">
-                    {dest.subtitle || `${listingCountFor(dest.name)} stays`}
-                  </div>
-                </div>
-              </div>
-            </Link>
+            <HomeBrowseCard
+              key={dest.id}
+              href={dest.href}
+              name={dest.name}
+              subtitle={dest.subtitle || `${listingCountFor(dest.name)} stays`}
+              img={dest.img}
+            />
           ))}
-        </div>
+        </HomeBrowseScrollRow>
       </section>
       )}
 
       {sectionEnabled("categories") && categoryCards.length > 0 && (
-      <section className="max-w-7xl mx-auto px-4 mt-10">
+      <section className="home-page-container home-section">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">{t("categoriesTitle")}</h2>
@@ -628,31 +621,22 @@ export function HomePageContent() {
             {tc("viewAll")} <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <HomeBrowseScrollRow>
           {categoryCards.map((cat) => (
-            <Link key={cat.id} href={cat.href} className="group">
-              <div className="relative h-32 rounded-2xl overflow-hidden mb-2">
-                <Image
-                  src={cat.img}
-                  alt={cat.name}
-                  fill
-                  className="object-cover group-hover:scale-110 transition-transform duration-500"
-                  sizes="(max-width: 640px) 50vw, 16vw"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                <div className="absolute bottom-2 inset-x-0 text-center">
-                  <div className="text-white text-sm font-bold">{cat.name}</div>
-                  <div className="text-gray-300 text-[10px]">{listingCountFor(cat.name)} stays</div>
-                </div>
-              </div>
-            </Link>
+            <HomeBrowseCard
+              key={cat.id}
+              href={cat.href}
+              name={cat.name}
+              subtitle={`${listingCountFor(cat.name)} stays`}
+              img={cat.img}
+            />
           ))}
-        </div>
+        </HomeBrowseScrollRow>
       </section>
       )}
 
       {sectionEnabled("experiences") && experienceCards.length > 0 && (
-      <section className="max-w-7xl mx-auto px-4 mt-10">
+      <section className="home-page-container home-section">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">{t("experiencesTitle")}</h2>
@@ -669,31 +653,22 @@ export function HomePageContent() {
             {tc("viewAll")} <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <HomeBrowseScrollRow>
           {experienceCards.map((exp) => (
-            <Link key={exp.id} href={exp.href} className="group">
-              <div className="relative h-32 rounded-2xl overflow-hidden mb-2">
-                <Image
-                  src={exp.img}
-                  alt={exp.name}
-                  fill
-                  className="object-cover group-hover:scale-110 transition-transform duration-500"
-                  sizes="(max-width: 640px) 50vw, 16vw"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                <div className="absolute bottom-2 inset-x-0 text-center">
-                  <div className="text-white text-sm font-bold">{exp.name}</div>
-                  <div className="text-gray-300 text-[10px]">{listingCountFor(exp.name)} stays</div>
-                </div>
-              </div>
-            </Link>
+            <HomeBrowseCard
+              key={exp.id}
+              href={exp.href}
+              name={exp.name}
+              subtitle={`${listingCountFor(exp.name)} stays`}
+              img={exp.img}
+            />
           ))}
-        </div>
+        </HomeBrowseScrollRow>
       </section>
       )}
 
       {sectionEnabled("venues") && venueCards.length > 0 && (
-      <section className="max-w-7xl mx-auto px-4 mt-10">
+      <section className="home-page-container home-section">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">{t("venuesTitle")}</h2>
@@ -710,31 +685,22 @@ export function HomePageContent() {
             {tc("viewAll")} <ChevronRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <HomeBrowseScrollRow>
           {venueCards.map((venue) => (
-            <Link key={venue.id} href={venue.href} className="group">
-              <div className="relative h-32 rounded-2xl overflow-hidden mb-2">
-                <Image
-                  src={venue.img}
-                  alt={venue.name}
-                  fill
-                  className="object-cover group-hover:scale-110 transition-transform duration-500"
-                  sizes="(max-width: 640px) 50vw, 16vw"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                <div className="absolute bottom-2 inset-x-0 text-center">
-                  <div className="text-white text-sm font-bold">{venue.name}</div>
-                  <div className="text-gray-300 text-[10px]">{listingCountFor(venue.name)} stays</div>
-                </div>
-              </div>
-            </Link>
+            <HomeBrowseCard
+              key={venue.id}
+              href={venue.href}
+              name={venue.name}
+              subtitle={`${listingCountFor(venue.name)} stays`}
+              img={venue.img}
+            />
           ))}
-        </div>
+        </HomeBrowseScrollRow>
       </section>
       )}
 
       {sectionEnabled("blog") && blogPosts.length > 0 && (
-        <section className="max-w-7xl mx-auto px-4 mt-10">
+        <section className="home-page-container home-section">
           <div className="mb-5">
             <h2 className="text-xl font-bold text-gray-900 font-display">
               {cms.contentSections.find((s) => s.key === "blog")?.title ?? "From the blog"}
@@ -768,7 +734,7 @@ export function HomePageContent() {
       )}
 
       {sectionEnabled("whyBook") && (
-      <section className="max-w-7xl mx-auto px-4 mt-10 mb-6">
+      <section className="home-page-container home-section mb-6">
         <h2 className="text-xl font-bold text-gray-900 font-display text-center mb-8">
           {t("whyBookTitle")}
         </h2>

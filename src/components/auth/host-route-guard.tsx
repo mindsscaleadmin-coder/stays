@@ -19,30 +19,25 @@ function HostAuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { user, loading, isHostAccountRestricted, impersonating, stopImpersonating } =
     useAuth();
-  const allowedRef = useRef(false);
-  if (user && canManageListings(user.roles)) {
-    allowedRef.current = true;
-  }
+  const wasHostRef = useRef(false);
 
   useEffect(() => {
     if (loading) return;
     if (user && canManageListings(user.roles)) {
-      allowedRef.current = true;
-      if (isHostAccountRestricted && !impersonating) {
-        router.push("/host/login?restricted=1");
-      }
+      wasHostRef.current = true;
       return;
     }
-    // Don't tear down the host shell on a brief auth flicker — that ate sidebar clicks.
-    if (allowedRef.current) return;
+    wasHostRef.current = false;
     const next = encodeURIComponent(pathname);
+    if (user) {
+      router.push(`/host/signup?next=${next}`);
+      return;
+    }
     router.push(`/host/login?next=${next}`);
-  }, [loading, user, router, pathname, isHostAccountRestricted, impersonating]);
+  }, [loading, user, router, pathname]);
 
-  // Only block the first paint — don't replace the whole host shell with a
-  // spinner on later auth flickers (that made sidebar clicks feel broken).
   if (!user || !canManageListings(user.roles)) {
-    if (allowedRef.current) {
+    if (loading && wasHostRef.current) {
       return <>{children}</>;
     }
     return (

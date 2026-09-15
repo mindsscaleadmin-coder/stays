@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { HOST_BOOKINGS_SYNC_EVENT, mergeServerHostBookings } from "@/lib/host/host-booking-data";
 import type { HostBookingRecord } from "@/lib/host/host-booking-types";
 import { HOST_REVIEWS_SYNC_EVENT } from "@/lib/host/host-reviews-data";
@@ -65,9 +65,13 @@ async function pullServerBookings(): Promise<void> {
 }
 
 export function useAdminPlatformAnalytics(countryFilter = "") {
-  const [snapshot, setSnapshot] = useState<PlatformAnalyticsSnapshot>(EMPTY_SNAPSHOT);
-  const [ready, setReady] = useState(false);
-  const [availableCountries, setAvailableCountries] = useState<string[]>([]);
+  const [snapshot, setSnapshot] = useState<PlatformAnalyticsSnapshot>(() =>
+    computePlatformAnalytics({ country: countryFilter || undefined })
+  );
+  const [ready, setReady] = useState(true);
+  const [availableCountries, setAvailableCountries] = useState<string[]>(() =>
+    listAnalyticsCountries()
+  );
 
   const refreshLocal = useCallback(() => {
     setSnapshot(computePlatformAnalytics({ country: countryFilter || undefined }));
@@ -79,20 +83,9 @@ export function useAdminPlatformAnalytics(countryFilter = "") {
     refreshLocal();
   }, [refreshLocal]);
 
-  const pulledRef = useRef(false);
-
   useEffect(() => {
-    let cancelled = false;
-    async function boot() {
-      if (!pulledRef.current) {
-        pulledRef.current = true;
-        await refresh();
-      } else {
-        refreshLocal();
-      }
-      if (!cancelled) setReady(true);
-    }
-    void boot();
+    refreshLocal();
+    void refresh();
 
     window.addEventListener(HOST_BOOKINGS_SYNC_EVENT, refreshLocal);
     window.addEventListener(LISTINGS_SYNC_EVENT, refreshLocal);
@@ -103,7 +96,6 @@ export function useAdminPlatformAnalytics(countryFilter = "") {
     const interval = window.setInterval(() => void refresh(), 30000);
 
     return () => {
-      cancelled = true;
       window.removeEventListener(HOST_BOOKINGS_SYNC_EVENT, refreshLocal);
       window.removeEventListener(LISTINGS_SYNC_EVENT, refreshLocal);
       window.removeEventListener(USERS_SYNC_EVENT, refreshLocal);

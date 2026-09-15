@@ -31,18 +31,24 @@ export function AdminDashboardShell({ children }: { children: ReactNode }) {
 
 function AdminDashboardShellChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { staff, roleLabel, canAccessPath } = useAdminStaffAccess();
+  const { staff, roleLabel, canAccessPath, ready } = useAdminStaffAccess();
   const inSettings = isAdminSettingsPath(pathname);
 
   const navItems = useMemo(() => {
     if (inSettings) return getAdminSettingsSidebarNav();
 
-    return ADMIN_NAV.filter((item) => canAccessPath(item.href)).map((item) =>
+    // Only filter once staff permissions are known — filtering with null staff hid every link.
+    const visible =
+      ready && staff
+        ? ADMIN_NAV.filter((item) => canAccessPath(item.href))
+        : ADMIN_NAV;
+
+    return visible.map((item) =>
       item.href === "/admin/listings"
         ? { ...item, Trailing: ListingControlNavNotice }
         : item
     );
-  }, [canAccessPath, inSettings]);
+  }, [canAccessPath, inSettings, ready, staff]);
 
   const title = inSettings ? "Settings" : "Admin";
   const subtitle = inSettings

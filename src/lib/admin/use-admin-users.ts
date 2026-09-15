@@ -14,7 +14,7 @@ import type {
 } from "./user-types";
 
 export function useAdminUsers() {
-  const [users, setUsers] = useState<AdminUserRecord[]>([]);
+  const [users, setUsers] = useState<AdminUserRecord[]>(() => loadAllUsers());
 
   const refresh = useCallback(() => {
     setUsers(loadAllUsers());

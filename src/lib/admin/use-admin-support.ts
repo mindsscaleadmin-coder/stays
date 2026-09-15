@@ -35,25 +35,32 @@ import {
 import type { StaffMember } from "./staff-types";
 
 export function useAdminSupport() {
-  const [tickets, setTickets] = useState<FlatSupportTicket[]>([]);
-  const [staffList, setStaffList] = useState<StaffMember[]>([]);
-  const [ready, setReady] = useState(false);
+  const [tickets, setTickets] = useState<FlatSupportTicket[]>(() =>
+    loadAllSupportTickets({ persist: false })
+  );
+  const [staffList, setStaffList] = useState<StaffMember[]>(() => loadStaffMembers());
+  const [ready, setReady] = useState(true);
   const sharedStaff = shouldUseSharedAdminStaff();
   const sharedSupport = shouldUseSharedAdminSupport();
 
   const refresh = useCallback(() => {
-    if (sharedSupport) {
-      void fetchAdminSupportTicketsFromApi()
-        .then(setTickets)
-        .catch(() => setTickets(loadAllSupportTickets()));
-    } else {
-      setTickets(loadAllSupportTickets());
-    }
-    if (sharedStaff) {
-      void fetchAdminStaffFromApi()
-        .then(setStaffList)
-        .catch(() => setStaffList(loadStaffMembers()));
-    } else {
+    try {
+      if (sharedSupport) {
+        void fetchAdminSupportTicketsFromApi()
+          .then(setTickets)
+          .catch(() => setTickets(loadAllSupportTickets({ persist: false })));
+      } else {
+        setTickets(loadAllSupportTickets({ persist: false }));
+      }
+      if (sharedStaff) {
+        void fetchAdminStaffFromApi()
+          .then(setStaffList)
+          .catch(() => setStaffList(loadStaffMembers()));
+      } else {
+        setStaffList(loadStaffMembers());
+      }
+    } catch {
+      setTickets(loadAllSupportTickets({ persist: false }));
       setStaffList(loadStaffMembers());
     }
   }, [sharedStaff, sharedSupport]);
@@ -61,22 +68,24 @@ export function useAdminSupport() {
   useEffect(() => {
     refresh();
     setReady(true);
-    function onSync() {
-      refresh();
+    function onStorage(e: StorageEvent) {
+      if (e.key === "farm-stays-support-tickets" || e.key === "farm-stays-host-bookings") {
+        refresh();
+      }
     }
     window.addEventListener(SUPPORT_TICKETS_SYNC_EVENT, refresh);
     window.addEventListener(HOST_SUPPORT_SYNC_EVENT, refresh);
     window.addEventListener(HOST_BOOKINGS_SYNC_EVENT, refresh);
     window.addEventListener(GUEST_SUPPORT_SYNC_EVENT, refresh);
     window.addEventListener(STAFF_SYNC_EVENT, refresh);
-    window.addEventListener("storage", onSync);
+    window.addEventListener("storage", onStorage);
     return () => {
       window.removeEventListener(SUPPORT_TICKETS_SYNC_EVENT, refresh);
       window.removeEventListener(HOST_SUPPORT_SYNC_EVENT, refresh);
       window.removeEventListener(HOST_BOOKINGS_SYNC_EVENT, refresh);
       window.removeEventListener(GUEST_SUPPORT_SYNC_EVENT, refresh);
       window.removeEventListener(STAFF_SYNC_EVENT, refresh);
-      window.removeEventListener("storage", onSync);
+      window.removeEventListener("storage", onStorage);
     };
   }, [refresh]);
 

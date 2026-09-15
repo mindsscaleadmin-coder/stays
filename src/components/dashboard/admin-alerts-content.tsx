@@ -332,7 +332,7 @@ export function AdminAlertsContent() {
               <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">
                 Sections
               </p>
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="flex flex-nowrap gap-3 overflow-x-auto pb-1">
                 {SECTIONS.map((section) => {
                   const Icon = section.icon;
                   const total =
@@ -350,7 +350,7 @@ export function AdminAlertsContent() {
                       type="button"
                       onClick={() => setTab(section.id)}
                       className={cn(
-                        "text-start rounded-2xl border bg-white p-4 shadow-sm transition-all",
+                        "text-start rounded-2xl border bg-white p-4 shadow-sm transition-all shrink-0 flex-1 min-w-[8.5rem]",
                         section.accent,
                         selected && "ring-2 ring-green-600 border-green-500 shadow-md"
                       )}

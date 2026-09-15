@@ -1,3 +1,5 @@
+import type { VenueDetails } from "./venue-details-types";
+
 export type ListingReviewStatus = "pending" | "approved" | "rejected" | "unpublished";
 
 export interface HouseRule {
@@ -25,6 +27,10 @@ export interface ListingRoom {
   typeId?: string;
   /** Category label (Entire place, Cottage, …). */
   typeName?: string;
+  /** Event venue space filters (suitable for, amenities, facilities, etc.). */
+  advancedFilterIds?: string[];
+  /** Per-space capacity, size, and pricing terms (multi-rate event venues). */
+  venueDetails?: VenueDetails;
 }
 
 export interface ListingFilterValues {
@@ -118,6 +124,8 @@ export interface SubmittedListing {
   licenseNumber?: string;
   /** Experience — minimum group size (max uses listing/session capacity) */
   groupSizeMin?: number;
+  /** Event venue — capacity, pricing, rules, and media (optional) */
+  venueDetails?: VenueDetails;
 }
 
 export interface SubmitListingInput {
@@ -153,9 +161,10 @@ export interface SubmitListingInput {
   requirements?: string;
   licenseNumber?: string;
   groupSizeMin?: number;
+  venueDetails?: VenueDetails;
 }
 
 /** Fields a host can change when editing an existing listing. */
-export type UpdateListingInput = Omit<SubmitListingInput, "hostId" | "hostName" | "rooms">;
+export type UpdateListingInput = Omit<SubmitListingInput, "hostId" | "hostName">;
 
 export type AddListingRoomInput = Omit<ListingRoom, "id">;

@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { filterActiveCountries } from "@/lib/admin/country-utils";
-import { isExcludedFromListingForm, isFilterEnabled } from "@/lib/admin/taxonomy-types";
-import { extraFilterMatchesParent } from "@/lib/admin/extra-filter-scope";
+import {
+  isExcludedFromListingForm,
+  isFilterEnabled,
+  isSubcategoryExtensionTab,
+  mergeMainTabs,
+} from "@/lib/admin/taxonomy-types";
+import type { FilterTab } from "@/lib/admin/taxonomy-types";
+import { extraFilterMatchesScope } from "@/lib/admin/extra-filter-scope";
 import type { ListingFilterValues } from "@/lib/listings/submission-types";
 import { EMPTY_LISTING_FILTERS } from "@/lib/listings/submission-types";
 import { ListingHighlightsField } from "@/components/dashboard/listing-highlights-field";
@@ -33,6 +39,7 @@ function FilterSelect({
   required,
   disabled,
   hint,
+  hideLabel = false,
 }: {
   label: string;
   id: string;
@@ -43,27 +50,34 @@ function FilterSelect({
   required?: boolean;
   disabled?: boolean;
   hint?: string;
+  hideLabel?: boolean;
 }) {
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1.5">
-        {label}
-      </label>
+      {!hideLabel && (
+        <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1.5">
+          {label}
+        </label>
+      )}
       <select
         id={id}
         value={value}
         disabled={disabled}
+        required={required}
+        aria-label={hideLabel ? label : undefined}
         onChange={(e) => onChange(e.target.value)}
         className={selectClass}
       >
-        <option value="">{placeholder}</option>
+        <option value="" disabled hidden>
+          {hideLabel ? label : placeholder}
+        </option>
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
           </option>
         ))}
       </select>
-      {hint ? <p className="text-xs text-gray-400 mt-1">{hint}</p> : null}
+      {hint && !hideLabel ? <p className="text-xs text-gray-400 mt-1">{hint}</p> : null}
     </div>
   );
 }
@@ -71,9 +85,27 @@ function FilterSelect({
 export function ListingFilterFields({
   values = EMPTY_LISTING_FILTERS,
   onChange,
+  hideParent = false,
+  hideCategoryLocation = false,
+  hideSectionHeadings = false,
+  hideAdvancedFilters = false,
+  renderLayout,
 }: {
   values?: ListingFilterValues;
   onChange: (values: ListingFilterValues) => void;
+  /** Hide parent category — used when parent is chosen before the listing form. */
+  hideParent?: boolean;
+  /** Hide category, subcategory, and location dropdowns (country → city). */
+  hideCategoryLocation?: boolean;
+  /** Hide "Category" and "Location" section headings (fields stay visible). */
+  hideSectionHeadings?: boolean;
+  /** Hide the Advanced filters block in extras. */
+  hideAdvancedFilters?: boolean;
+  /** Insert content (e.g. title & description) between category/location and extras. */
+  renderLayout?: (sections: {
+    categoryLocation: ReactNode;
+    extras: ReactNode;
+  }) => ReactNode;
 }) {
   const { data } = useAdminTaxonomy();
   const safeValues = values ?? EMPTY_LISTING_FILTERS;
@@ -103,13 +135,20 @@ export function ListingFilterFields({
   const showCategory = isTabEnabled(data.mainTabs, "category");
   const showSubcategory = isTabEnabled(data.mainTabs, "subcategory");
 
+  const orderedMainTabs = useMemo(() => mergeMainTabs(data.mainTabs), [data.mainTabs]);
+
   const customMainTabs = useMemo(
     () =>
-      data.mainTabs.filter(
+      orderedMainTabs.filter(
         (tab) =>
           !tab.builtIn && tab.enabled !== false && !isExcludedFromListingForm(tab)
       ),
-    [data.mainTabs]
+    [orderedMainTabs]
+  );
+
+  const otherCustomMainTabs = useMemo(
+    () => customMainTabs.filter((tab) => !isSubcategoryExtensionTab(tab)),
+    [customMainTabs]
   );
 
   const countries = useMemo(() => filterActiveCountries(data.countries), [data.countries]);
@@ -268,7 +307,11 @@ export function ListingFilterFields({
             ef.id === id &&
             ef.enabled !== false &&
             extraTabOn(ef.type) &&
-            extraFilterMatchesParent(ef, activeParentId)
+            extraFilterMatchesScope(ef, {
+              parentId: activeParentId,
+              categoryId: activeCategoryId,
+              subcategoryId: next.subcategoryId,
+            })
         )
       ) {
         return true;
@@ -322,7 +365,9 @@ export function ListingFilterFields({
   }
 
   const categoryHint = !parentId
-    ? "Select a parent category first."
+    ? hideParent
+      ? undefined
+      : "Select a parent category first."
     : categories.length === 0
       ? "No categories for this parent yet — add them in Admin → Settings → Filter."
       : undefined;
@@ -333,168 +378,199 @@ export function ListingFilterFields({
       ? "No sub categories for this category yet — add them in Admin → Settings → Filter."
       : undefined;
 
-  return (
-    <div className="space-y-5 pt-1 border-t border-gray-100">
-      <div>
-        <h4 className="text-sm font-semibold text-gray-900 mb-3">Location &amp; category</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {showCountry && (
-            <FilterSelect
-              label={tabLabel(data.mainTabs, "country", "Country")}
-              id="listing-country"
-              value={countryId}
-              onChange={(v) => patch({ countryId: v, stateId: "", districtId: "", cityId: "" })}
-              options={countries.map((c) => ({ value: c.id, label: c.name }))}
-              placeholder="Select country"
-            />
+  const hideFilterNames = hideSectionHeadings;
+
+  function renderCustomTabSelect(tab: FilterTab) {
+    const items = [...(data.customItems[tab.id] ?? [])]
+      .filter((i) => i.enabled !== false)
+      .filter(
+        (i) => !i.subcategoryId || !subcategoryId || i.subcategoryId === subcategoryId
+      )
+      .sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+      );
+
+    return (
+      <FilterSelect
+        key={tab.id}
+        hideLabel={hideFilterNames}
+        label={tab.label}
+        id={`listing-${tab.id}`}
+        value={customSelections[tab.id] ?? ""}
+        onChange={(value) =>
+          patch({
+            customSelections: { ...customSelections, [tab.id]: value },
+          })
+        }
+        options={items.map((item) => ({ value: item.id, label: item.name }))}
+        placeholder={items.length ? `Select ${tab.label.toLowerCase()}` : "No options yet"}
+        disabled={items.length === 0}
+      />
+    );
+  }
+
+  const categoryLocationSection = !hideCategoryLocation ? (
+    <div className="space-y-5">
+      {(showParent && !hideParent) || showCategory || showSubcategory ? (
+        <div>
+          {!hideFilterNames && (
+            <h4 className="text-sm font-semibold text-gray-900 mb-3">Category</h4>
           )}
-          {showState && (
-            <FilterSelect
-              label={tabLabel(data.mainTabs, "state", "State")}
-              id="listing-state"
-              value={stateId}
-              onChange={(v) => patch({ stateId: v, districtId: "", cityId: "" })}
-              options={states.map((s) => ({ value: s.id, label: s.name }))}
-              placeholder="Select state"
-              disabled={!countryId || states.length === 0}
-            />
-          )}
-          {showDistrict && (
-            <FilterSelect
-              label={tabLabel(data.mainTabs, "district", "District")}
-              id="listing-district"
-              value={districtId}
-              onChange={(v) => patch({ districtId: v, cityId: "" })}
-              options={districts.map((d) => ({ value: d.id, label: d.name }))}
-              placeholder="Select district"
-              disabled={!stateId || districts.length === 0}
-            />
-          )}
-          {showCity && (
-            <FilterSelect
-              label={tabLabel(data.mainTabs, "city", "City")}
-              id="listing-city"
-              value={cityId}
-              onChange={(v) => patch({ cityId: v })}
-              options={cities.map((c) => ({ value: c.id, label: c.name }))}
-              placeholder={
-                !districtId
-                  ? "Select district first"
-                  : cities.length === 0
-                    ? "No cities for this district yet"
-                    : "Select city"
-              }
-              disabled={!districtId || cities.length === 0}
-              hint={
-                districtId && cities.length === 0
-                  ? "Optional until cities are added under this district in Admin → Filter → City."
-                  : undefined
-              }
-            />
-          )}
-          {showParent && (
-            <FilterSelect
-              label={tabLabel(data.mainTabs, "parent", "Parent Category")}
-              id="listing-parent"
-              value={parentId}
-              onChange={(v) => {
-                const nextAdvanced = advancedIds.filter((id) => {
-                  const feature = data.featureFilters.find((ff) => ff.id === id);
-                  if (!feature) return true;
-                  return feature.parentId === v;
-                });
-                patch({
-                  parentId: v,
-                  categoryId: "",
-                  subcategoryId: "",
-                  advancedIds: nextAdvanced,
-                });
-              }}
-              options={parents.map((p) => ({ value: p.id, label: p.name }))}
-              placeholder="Select parent category"
-            />
-          )}
-          {showCategory && (
-            <FilterSelect
-              label={tabLabel(data.mainTabs, "category", "Category")}
-              id="listing-category"
-              value={categoryId}
-              onChange={(v) => patch({ categoryId: v, subcategoryId: "" })}
-              options={categories.map((c) => ({ value: c.id, label: c.name }))}
-              placeholder={
-                !parentId
-                  ? "Select parent category first"
-                  : categories.length === 0
-                    ? "No categories available"
-                    : "Select category"
-              }
-              disabled={!parentId || categories.length === 0}
-              hint={categoryHint}
-            />
-          )}
-          {showSubcategory && (
-            <FilterSelect
-              label={tabLabel(data.mainTabs, "subcategory", "Sub Category")}
-              id="listing-subcategory"
-              value={subcategoryId}
-              onChange={(v) => patch({ subcategoryId: v })}
-              options={subcategories.map((sc) => ({ value: sc.id, label: sc.name }))}
-              placeholder={
-                !categoryId
-                  ? "Select category first"
-                  : subcategories.length === 0
-                    ? "No sub categories available"
-                    : "Select sub category"
-              }
-              disabled={!categoryId || subcategories.length === 0}
-              hint={subcategoryHint}
-            />
-          )}
-          {customMainTabs.map((tab) => {
-            const items = [...(data.customItems[tab.id] ?? [])]
-              .filter((i) => i.enabled !== false)
-              .filter(
-                (i) =>
-                  !i.subcategoryId ||
-                  !subcategoryId ||
-                  i.subcategoryId === subcategoryId
-              )
-              .sort((a, b) =>
-                a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
-              );
-            return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {showParent && !hideParent && (
               <FilterSelect
-                key={tab.id}
-                label={tab.label}
-                id={`listing-${tab.id}`}
-                value={customSelections[tab.id] ?? ""}
-                onChange={(value) =>
+                hideLabel={hideFilterNames}
+                label={tabLabel(data.mainTabs, "parent", "Parent Category")}
+                id="listing-parent"
+                value={parentId}
+                onChange={(v) => {
+                  const nextAdvanced = advancedIds.filter((id) => {
+                    const feature = data.featureFilters.find((ff) => ff.id === id);
+                    if (!feature) return true;
+                    return feature.parentId === v;
+                  });
                   patch({
-                    customSelections: { ...customSelections, [tab.id]: value },
-                  })
-                }
-                options={items.map((item) => ({ value: item.id, label: item.name }))}
-                placeholder={items.length ? `Select ${tab.label.toLowerCase()}` : "No options yet"}
-                disabled={items.length === 0}
+                    parentId: v,
+                    categoryId: "",
+                    subcategoryId: "",
+                    advancedIds: nextAdvanced,
+                  });
+                }}
+                options={parents.map((p) => ({ value: p.id, label: p.name }))}
+                placeholder="Select parent category"
               />
-            );
-          })}
+            )}
+            {showCategory && (
+              <FilterSelect
+                hideLabel={hideFilterNames}
+                label={tabLabel(data.mainTabs, "category", "Category")}
+                id="listing-category"
+                value={categoryId}
+                onChange={(v) => patch({ categoryId: v, subcategoryId: "" })}
+                options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                placeholder={
+                  !parentId
+                    ? hideParent
+                      ? "Loading category options…"
+                      : "Select parent category first"
+                    : categories.length === 0
+                      ? "No categories available"
+                      : "Select category"
+                }
+                disabled={!parentId || categories.length === 0}
+                hint={categoryHint}
+              />
+            )}
+            {showSubcategory && (
+              <FilterSelect
+                hideLabel={hideFilterNames}
+                label={tabLabel(data.mainTabs, "subcategory", "Sub Category")}
+                id="listing-subcategory"
+                value={subcategoryId}
+                onChange={(v) => patch({ subcategoryId: v })}
+                options={subcategories.map((sc) => ({ value: sc.id, label: sc.name }))}
+                placeholder={
+                  !categoryId
+                    ? "Select category first"
+                    : subcategories.length === 0
+                      ? "No sub categories available"
+                      : "Select sub category"
+                }
+                disabled={!categoryId || subcategories.length === 0}
+                hint={subcategoryHint}
+              />
+            )}
+          </div>
         </div>
+      ) : null}
 
-        <ListingFeatureIconsField
-          selectedIds={featureIconIds}
-          onChange={(ids) => patch({ featureIconIds: ids })}
-          taxonomy={{ parentId, categoryId, subcategoryId }}
-        />
+      {(showCountry || showState || showDistrict || showCity || otherCustomMainTabs.length > 0) && (
+        <div>
+          {!hideFilterNames && (
+            <h4 className="text-sm font-semibold text-gray-900 mb-3">Location &amp; category</h4>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {showCountry && (
+          <FilterSelect
+            hideLabel={hideFilterNames}
+            label={tabLabel(data.mainTabs, "country", "Country")}
+            id="listing-country"
+            value={countryId}
+            onChange={(v) => patch({ countryId: v, stateId: "", districtId: "", cityId: "" })}
+            options={countries.map((c) => ({ value: c.id, label: c.name }))}
+            placeholder="Select country"
+          />
+        )}
+        {showState && (
+          <FilterSelect
+            hideLabel={hideFilterNames}
+            label={tabLabel(data.mainTabs, "state", "State")}
+            id="listing-state"
+            value={stateId}
+            onChange={(v) => patch({ stateId: v, districtId: "", cityId: "" })}
+            options={states.map((s) => ({ value: s.id, label: s.name }))}
+            placeholder="Select state"
+            disabled={!countryId || states.length === 0}
+          />
+        )}
+        {showDistrict && (
+          <FilterSelect
+            hideLabel={hideFilterNames}
+            label={tabLabel(data.mainTabs, "district", "District")}
+            id="listing-district"
+            value={districtId}
+            onChange={(v) => patch({ districtId: v, cityId: "" })}
+            options={districts.map((d) => ({ value: d.id, label: d.name }))}
+            placeholder="Select district"
+            disabled={!stateId || districts.length === 0}
+          />
+        )}
+        {showCity && (
+          <FilterSelect
+            hideLabel={hideFilterNames}
+            label={tabLabel(data.mainTabs, "city", "City")}
+            id="listing-city"
+            value={cityId}
+            onChange={(v) => patch({ cityId: v })}
+            options={cities.map((c) => ({ value: c.id, label: c.name }))}
+            placeholder={
+              !districtId
+                ? "Select district first"
+                : cities.length === 0
+                  ? "No cities for this district yet"
+                  : "Select city"
+            }
+            disabled={!districtId || cities.length === 0}
+            hint={
+              districtId && cities.length === 0
+                ? "Optional until cities are added under this district in Admin → Filter → City."
+                : undefined
+            }
+          />
+        )}
+        {otherCustomMainTabs.map(renderCustomTabSelect)}
+          </div>
+        </div>
+      )}
+    </div>
+  ) : null;
 
-        <ListingHighlightsField
-          selectedIds={highlightIds}
-          onChange={(ids) => patch({ highlightIds: ids })}
-          taxonomy={{ parentId, categoryId, subcategoryId }}
-        />
-      </div>
+  const extrasSection = (
+    <>
+      <ListingFeatureIconsField
+        selectedIds={featureIconIds}
+        onChange={(ids) => patch({ featureIconIds: ids })}
+        taxonomy={{ parentId, categoryId, subcategoryId }}
+      />
 
-      <div>
+      <ListingHighlightsField
+        selectedIds={highlightIds}
+        onChange={(ids) => patch({ highlightIds: ids })}
+        taxonomy={{ parentId, categoryId, subcategoryId }}
+      />
+
+      {!hideAdvancedFilters && (
+      <div className="pt-2.5 border-t border-gray-100">
         <div className="flex items-center gap-2 mb-3">
           <SlidersHorizontal className="w-4 h-4 text-green-600" />
           <h4 className="text-sm font-semibold text-gray-900">Advanced filters</h4>
@@ -504,15 +580,15 @@ export function ListingFilterFields({
           <p className="text-sm text-gray-400">No advanced filters configured.</p>
         ) : (
           <div className="space-y-4">
-            {!parentId ? (
-              <p className="text-xs text-gray-400">
-                Select a parent category to see advanced filters tagged for that category.
-              </p>
-            ) : null}
             {extraTabs.map((tab) => {
               const items = extraFilters.filter(
                 (ef) =>
-                  ef.type === tab.id && extraFilterMatchesParent(ef, parentId || null)
+                  ef.type === tab.id &&
+                  extraFilterMatchesScope(ef, {
+                    parentId: parentId || null,
+                    categoryId: categoryId || null,
+                    subcategoryId: subcategoryId || null,
+                  })
               );
               if (!parentId && items.every((ef) => ef.parentId)) {
                 return null;
@@ -520,9 +596,7 @@ export function ListingFilterFields({
 
               return (
                 <div key={tab.id}>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                    {tab.label}
-                  </p>
+                  <h4 className="text-sm font-semibold text-gray-900 mb-3">{tab.label}</h4>
                   {!parentId ? (
                     <p className="text-xs text-gray-400">
                       Shared options appear after you pick a parent; tagged options need a parent
@@ -541,8 +615,8 @@ export function ListingFilterFields({
                             onClick={() => toggleAdvanced(item.id)}
                             className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                               selected
-                                ? "bg-green-700 border-green-700 text-white"
-                                : "bg-white border-gray-200 text-gray-600 hover:border-green-400 hover:text-green-700"
+                                ? "bg-gray-100 border-gray-300 text-gray-900"
+                                : "bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50"
                             }`}
                           >
                             {item.name}
@@ -568,9 +642,9 @@ export function ListingFilterFields({
 
                 return (
                   <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    <h4 className="text-sm font-semibold text-gray-900 mb-3">
                       Features · {parentName}
-                    </p>
+                    </h4>
                     {items.length === 0 ? (
                       <p className="text-xs text-gray-400">
                         No features configured for this category yet.
@@ -609,11 +683,19 @@ export function ListingFilterFields({
           </div>
         )}
       </div>
+      )}
 
-      <p className="text-xs text-gray-400">
-        Parent, Category, and Sub Category options sync from Admin → Settings → Filter.
-        Changing parent resets category; changing category resets the sub category.
-      </p>
+    </>
+  );
+
+  if (renderLayout) {
+    return renderLayout({ categoryLocation: categoryLocationSection, extras: extrasSection });
+  }
+
+  return (
+    <div className="space-y-5 pt-1 border-t border-gray-100">
+      {categoryLocationSection}
+      {extrasSection}
     </div>
   );
 }

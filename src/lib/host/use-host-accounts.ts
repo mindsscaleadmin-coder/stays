@@ -14,8 +14,10 @@ import {
 } from "./host-accounts-api";
 
 export function useHostAccounts(hostId: string | undefined) {
-  const [data, setData] = useState<HostAccountsData | null>(null);
-  const [ready, setReady] = useState(false);
+  const [data, setData] = useState<HostAccountsData | null>(() =>
+    hostId ? loadHostAccounts(hostId) : null
+  );
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedHostAccounts();
 
   const refresh = useCallback(async () => {

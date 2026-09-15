@@ -24,8 +24,10 @@ export function useHostPublicProfile(
   hostId: string | undefined,
   fallbackName = ""
 ) {
-  const [data, setData] = useState<HostPublicProfile | null>(null);
-  const [ready, setReady] = useState(false);
+  const [data, setData] = useState<HostPublicProfile | null>(() =>
+    hostId ? loadHostPublicProfile(hostId, fallbackName) : null
+  );
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedHostProfile();
 
   const applyLocal = useCallback(() => {

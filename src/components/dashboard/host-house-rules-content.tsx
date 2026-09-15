@@ -20,7 +20,7 @@ export function HostHouseRulesContent() {
   const { user } = useAuth();
   const hostId = resolveHostId(user);
   const hostName = resolveHostName(user);
-  const { all, update, ready } = useListingSubmissions();
+  const { all, update, ready } = useListingSubmissions({ load: true });
   const submissions = filterHostListings(all, hostId ?? "", hostName);
   const { houseRuleTemplates, cancellationPolicies, defaultHouseRules } =
     useContentPolicyOptions();

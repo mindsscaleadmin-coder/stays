@@ -16,8 +16,10 @@ import {
 
 export function useHostSupport(hostId: string | undefined, hostName?: string) {
   const shared = shouldUseSharedHostSupport();
-  const [data, setData] = useState<HostSupportData | null>(null);
-  const [ready, setReady] = useState(false);
+  const [data, setData] = useState<HostSupportData | null>(() =>
+    hostId ? loadHostSupport(hostId) : null
+  );
+  const [ready, setReady] = useState(true);
 
   const refresh = useCallback(() => {
     if (!hostId) {

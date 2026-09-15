@@ -20,6 +20,7 @@ import { computeExperienceQuote } from "@/lib/booking/compute-experience-quote";
 import { normalizeExperienceSessions } from "@/lib/booking/experience-session-types";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
 import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isDataImageUrl } from "@/lib/utils";
 
 const EXPERIENCE_PRICES: Record<string, { title: string; amount: number }> = {
   "farm-tour": { title: "Farm Tour", amount: 75 },
@@ -503,7 +504,7 @@ export function CheckoutContent({
                     fill
                     className="object-cover"
                     sizes="112px"
-                    unoptimized={stay.img.startsWith("data:")}
+                    unoptimized={isDataImageUrl(stay.img)}
                   />
                 </div>
                 <div className="min-w-0">

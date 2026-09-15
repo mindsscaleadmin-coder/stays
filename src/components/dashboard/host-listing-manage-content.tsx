@@ -48,7 +48,7 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
   const { user } = useAuth();
   const hostId = resolveHostId(user);
   const hostName = resolveHostName(user);
-  const { all, update, deleteRoom, ready } = useListingSubmissions();
+  const { all, update, deleteRoom, ready } = useListingSubmissions({ load: true });
   const hostListings = filterHostListings(all, hostId ?? "", hostName);
   const { farmTypeOptions, activityOptions, amenityOptions } = useListingTags();
   const { rulesForParent } = useListingQualityRules();

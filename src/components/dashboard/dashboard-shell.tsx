@@ -108,7 +108,12 @@ function NavLink({
   children: ReactNode;
 }) {
   return (
-    <Link href={toIntlHref(href)} className={className} onClick={() => onNavigate?.()}>
+    <Link
+      href={toIntlHref(href)}
+      prefetch={true}
+      className={className}
+      onClick={() => onNavigate?.()}
+    >
       {children}
     </Link>
   );
@@ -125,12 +130,17 @@ function SidebarNav({
 }) {
   const { isActive, isSectionActive } = useNavActive(navItems, exactHrefs);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   return (
     <nav className="p-3 flex flex-col gap-0.5 relative z-10">
       {navItems.map((item) => {
         const Icon = item.icon;
-        const sectionActive = isSectionActive(item);
+        const sectionActive = mounted && isSectionActive(item);
         const hasChildren = Boolean(item.children?.length);
         const isOpen = expanded[item.href] ?? sectionActive;
 
@@ -187,7 +197,8 @@ function SidebarNav({
                     onNavigate={onNavigate}
                     className={cn(
                       "relative px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                      isActive(item.href) &&
+                      mounted &&
+                        isActive(item.href) &&
                         !item.children?.some((c) => isActive(c.href))
                         ? "bg-gray-100 text-gray-900"
                         : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
@@ -197,7 +208,7 @@ function SidebarNav({
                   </NavLink>
                   {item.children!.map((child) => {
                     const ChildIcon = child.icon;
-                    const childActive = isActive(child.href);
+                    const childActive = mounted && isActive(child.href);
                     return (
                       <NavLink
                         key={child.href}
@@ -213,7 +224,7 @@ function SidebarNav({
                         {childActive && (
                           <span className="absolute start-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-green-600" />
                         )}
-                        {ChildIcon && (
+                        {mounted && ChildIcon && (
                           <ChildIcon className="w-4 h-4 shrink-0" strokeWidth={1.75} />
                         )}
                         <span className="flex-1">{child.label}</span>
@@ -234,55 +245,59 @@ function SidebarNav({
           );
         }
 
-        const active = isActive(item.href);
+        const active = mounted && isActive(item.href);
         const Trailing = item.Trailing;
-        const showNotice = Boolean(item.trailing || item.badge);
+        const showNotice = mounted && Boolean(item.trailing || item.badge);
 
         return (
-          <NavLink
-            key={`${item.href}-${item.label}`}
-            href={item.href}
-            onNavigate={onNavigate}
-            className={cn(
-              "relative flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition-colors cursor-pointer",
-              active ? "bg-gray-100 text-gray-900" : "text-gray-700 hover:bg-gray-50"
-            )}
-          >
-            {active && (
-              <span className="absolute start-0 top-2 bottom-2 w-[3px] rounded-full bg-green-600" />
-            )}
-            {Icon && (
-              <span className="relative shrink-0">
-                <Icon
-                  className={cn(
-                    "w-[18px] h-[18px]",
-                    active ? "text-gray-900" : "text-gray-500"
+          <div key={`${item.href}-${item.label}`} className="relative">
+            <NavLink
+              href={item.href}
+              onNavigate={onNavigate}
+              className={cn(
+                "relative flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition-colors cursor-pointer",
+                active ? "bg-gray-100 text-gray-900" : "text-gray-700 hover:bg-gray-50",
+                mounted && Trailing ? "pe-12" : undefined
+              )}
+            >
+              {active && (
+                <span className="absolute start-0 top-2 bottom-2 w-[3px] rounded-full bg-green-600" />
+              )}
+              {mounted && Icon && (
+                <span className="relative shrink-0">
+                  <Icon
+                    className={cn(
+                      "w-[18px] h-[18px]",
+                      active ? "text-gray-900" : "text-gray-500"
+                    )}
+                    strokeWidth={1.75}
+                  />
+                  {showNotice && (
+                    <span className="absolute -top-1 -end-1 flex h-2.5 w-2.5" aria-hidden>
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
+                    </span>
                   )}
-                  strokeWidth={1.75}
-                />
-                {showNotice && (
-                  <span className="absolute -top-1 -end-1 flex h-2.5 w-2.5" aria-hidden>
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
-                  </span>
-                )}
-              </span>
-            )}
-            <span className="flex-1 truncate">{item.label}</span>
-            {Trailing ? (
-              <Trailing />
-            ) : (
-              item.trailing ??
-              (item.badge ? (
-                <span
-                  className="inline-flex items-center justify-center min-w-[1.25rem] shrink-0 bg-red-500 text-white text-[10px] font-bold leading-none px-1.5 py-0.5 rounded-full"
-                  aria-label={`${item.badge} new`}
-                >
-                  {item.badge}
                 </span>
-              ) : null)
-            )}
-          </NavLink>
+              )}
+              <span className="flex-1 truncate">{item.label}</span>
+              {!Trailing &&
+                (item.trailing ??
+                  (mounted && item.badge ? (
+                    <span
+                      className="inline-flex items-center justify-center min-w-[1.25rem] shrink-0 bg-red-500 text-white text-[10px] font-bold leading-none px-1.5 py-0.5 rounded-full"
+                      aria-label={`${item.badge} new`}
+                    >
+                      {item.badge}
+                    </span>
+                  ) : null))}
+            </NavLink>
+            {mounted && Trailing ? (
+              <div className="absolute end-3.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                <Trailing />
+              </div>
+            ) : null}
+          </div>
         );
       })}
     </nav>
@@ -318,7 +333,7 @@ function SidebarChrome({
           </div>
         )}
         <div className="min-w-0">
-          <div className="font-semibold text-sm text-gray-900 tracking-tight truncate">{title}</div>
+          <div className="font-display font-semibold text-sm text-gray-900 tracking-tight truncate">{title}</div>
           {subtitle && <div className="text-[11px] text-gray-400 mt-0.5 truncate">{subtitle}</div>}
         </div>
       </Link>

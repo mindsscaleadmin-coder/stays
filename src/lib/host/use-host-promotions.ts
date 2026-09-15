@@ -20,8 +20,10 @@ import type {
 } from "./host-promotions-types";
 
 export function useHostPromotions(listingId?: string, hostId?: string) {
-  const [promotions, setPromotions] = useState<ListingPromotion[]>([]);
-  const [ready, setReady] = useState(false);
+  const [promotions, setPromotions] = useState<ListingPromotion[]>(() =>
+    listingId ? loadPromotionsForListing(listingId) : loadAllPromotions()
+  );
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedPromotions();
 
   const refresh = useCallback(async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   CalendarCheck,
   CheckCircle,
@@ -13,10 +13,8 @@ import {
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
 import { useAuth } from "@/components/providers/auth-provider";
 import { resolveHostId } from "@/lib/listings/use-listing-submissions";
-import type {
-  EventAvailabilityRequest,
-  EventAvailabilityStatus,
-} from "@/lib/events/event-availability-types";
+import type { EventAvailabilityStatus } from "@/lib/events/event-availability-types";
+import { useHostEventRequests } from "@/lib/host/use-host-event-requests";
 
 const STATUS_STYLES: Record<EventAvailabilityStatus, string> = {
   pending: "bg-amber-100 text-amber-800",
@@ -56,31 +54,12 @@ function formatSent(iso: string) {
 export function HostEventRequestsContent() {
   const { user } = useAuth();
   const hostId = resolveHostId(user);
-  const [requests, setRequests] = useState<EventAvailabilityRequest[]>([]);
-  const [ready, setReady] = useState(false);
+  const { requests, ready, refresh } = useHostEventRequests(hostId);
+
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState<"all" | EventAvailabilityStatus>("pending");
-
-  const load = useCallback(async () => {
-    if (!hostId) return;
-    try {
-      const res = await fetch(`/api/event-requests?role=host&hostId=${encodeURIComponent(hostId)}`);
-      const data = res.ok
-        ? ((await res.json()) as { requests?: EventAvailabilityRequest[] })
-        : null;
-      setRequests(Array.isArray(data?.requests) ? data.requests : []);
-    } catch {
-      setRequests([]);
-    } finally {
-      setReady(true);
-    }
-  }, [hostId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   function flash(text: string) {
     setMessage(text);
@@ -100,7 +79,7 @@ export function HostEventRequestsContent() {
         flash(data?.error || "Could not save your reply. Try again.");
         return;
       }
-      await load();
+      await refresh(true);
       flash(
         status === "available"
           ? "Marked available — the guest can now see your contact details."

@@ -18,8 +18,10 @@ import {
 import type { HostNotificationsData, HostNotificationPrefs } from "./host-notifications-types";
 
 export function useHostNotifications(hostId: string | undefined) {
-  const [data, setData] = useState<HostNotificationsData | null>(null);
-  const [ready, setReady] = useState(false);
+  const [data, setData] = useState<HostNotificationsData | null>(() =>
+    hostId ? loadHostNotifications(hostId) : null
+  );
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedHostNotifications();
 
   const refresh = useCallback(async () => {

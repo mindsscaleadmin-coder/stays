@@ -14,6 +14,7 @@ import {
   SlidersHorizontal,
   Users,
   Wallet,
+  CreditCard,
 } from "lucide-react";
 import type { DashboardNavItem } from "./dashboard-shell";
 
@@ -27,6 +28,7 @@ export const ADMIN_NAV: DashboardNavItem[] = [
   { label: "Support & Disputes", href: "/admin/support", icon: Headphones },
   { label: "Notifications & Alerts", href: "/admin/alerts", icon: Bell },
   { label: "Financial Control", href: "/admin/financial", icon: Wallet },
+  { label: "Subscription", href: "/admin/subscription", icon: CreditCard },
   { label: "Reviews & Trust", href: "/admin/trust", icon: ShieldCheck },
   { label: "Content & Policy", href: "/admin/content", icon: BookOpen },
   { label: "Advertisements", href: "/admin/advertisements", icon: Megaphone },

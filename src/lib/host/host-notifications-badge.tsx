@@ -1,43 +1,53 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { resolveHostId } from "@/lib/listings/host-listings-utils";
 import {
   HOST_NOTIFICATIONS_SYNC_EVENT,
   loadHostNotifications,
 } from "@/lib/host/host-notifications-data";
-import { HOST_BOOKINGS_SYNC_EVENT } from "@/lib/host/host-booking-data";
+import { HOST_BOOKINGS_SYNC_EVENT, loadHostBookings } from "@/lib/host/host-booking-data";
+import { fetchServerHostBookings } from "@/lib/host/use-host-bookings";
 import {
   HOST_OVERVIEW_ANNOUNCEMENT_EVENTS,
   countHostOverviewAnnouncements,
 } from "@/lib/host/host-overview-announcement-count";
 
+function countBadgeItems(hostId: string | undefined, hostName?: string) {
+  const unread = hostId
+    ? loadHostNotifications(hostId).alerts.filter((alert) => !alert.read).length
+    : 0;
+  const announcements = countHostOverviewAnnouncements(hostId, hostName);
+  const pending = loadHostBookings().filter((booking) => booking.status === "pending").length;
+  return unread + announcements + pending;
+}
+
 export function HostNotificationsBadge() {
   const { user } = useAuth();
   const hostId = resolveHostId(user);
-  const [count, setCount] = useState(0);
+  // null until mounted — avoids SSR/client localStorage mismatch (hydration error).
+  const [count, setCount] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    setCount(countBadgeItems(hostId, user?.fullName));
+  }, [hostId, user?.fullName]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function refresh() {
+      let pending = loadHostBookings().filter((booking) => booking.status === "pending").length;
+      try {
+        const rows = await fetchServerHostBookings(hostId);
+        pending = (rows ?? []).filter((booking) => booking.status === "pending").length;
+      } catch {
+        // keep local counts
+      }
       const unread = hostId
         ? loadHostNotifications(hostId).alerts.filter((alert) => !alert.read).length
         : 0;
       const announcements = countHostOverviewAnnouncements(hostId, user?.fullName);
-      let pending = 0;
-      try {
-        const params = new URLSearchParams({ role: "host" });
-        if (hostId) params.set("hostId", hostId);
-        const res = await fetch(`/api/bookings?${params.toString()}`, { cache: "no-store" });
-        if (res.ok) {
-          const data = (await res.json()) as { bookings?: { status?: string }[] };
-          pending = (data.bookings ?? []).filter((booking) => booking.status === "pending").length;
-        }
-      } catch {
-        // keep local counts
-      }
       if (!cancelled) setCount(unread + announcements + pending);
     }
 
@@ -58,7 +68,7 @@ export function HostNotificationsBadge() {
     };
   }, [hostId, user?.fullName]);
 
-  if (count <= 0) return null;
+  if (count === null || count <= 0) return null;
 
   return (
     <span

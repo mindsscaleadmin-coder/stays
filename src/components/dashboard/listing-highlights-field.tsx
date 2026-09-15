@@ -87,31 +87,14 @@ export function ListingHighlightsField({
     setDraftIds([]);
   }
 
-  if (!ready) {
-    return (
-      <div className="pt-1 border-t border-gray-100">
-        <p className="text-sm text-gray-400">Loading property highlights…</p>
-      </div>
-    );
-  }
-
-  if (scopedHighlights.length === 0) {
-    return (
-      <div className="pt-1 border-t border-gray-100">
-        <h4 className="text-sm font-semibold text-gray-900 mb-2">Property highlights</h4>
-        <p className="text-sm text-gray-400">
-          {taxonomy?.parentId
-            ? "No highlights for this parent / category / subcategory yet."
-            : "No highlights configured yet. Ask an admin to add options under Settings → Listing."}
-        </p>
-      </div>
-    );
+  if (!taxonomy?.categoryId || !ready || scopedHighlights.length === 0) {
+    return null;
   }
 
   return (
     <>
-      <div className="pt-1 border-t border-gray-100">
-        <div className="flex items-center gap-2 mb-2">
+      <div className="pt-2.5 border-t border-gray-100">
+        <div className="flex items-center gap-2 mb-3">
           <CheckCircle className="w-4 h-4 text-green-600" />
           <h4 className="text-sm font-semibold text-gray-900">Property highlights</h4>
         </div>

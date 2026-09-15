@@ -68,7 +68,7 @@ export async function GET(request: Request) {
       );
     }
 
-    await expirePendingBookings();
+    void expirePendingBookings().catch(() => {});
 
     const rows = await queryBookings({ role, hostId, guestId, listingId });
     const pricingById = await getListingPricingMap(rows.map((row) => row.listingId));

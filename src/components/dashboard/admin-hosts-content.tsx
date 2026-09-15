@@ -324,7 +324,7 @@ export function AdminHostsContent() {
   const canImpersonate = isDemo && can("impersonate_hosts");
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { all: listings } = useListingSubmissions();
+  const { all: listings } = useListingSubmissions({ load: true });
   const { data: taxonomy } = useAdminTaxonomy();
   const { all: verifications, pendingCount } = useHostVerification();
   const [query, setQuery] = useState("");

@@ -44,7 +44,8 @@ export function SubmissionGalleryLoader({ id }: { id: string }) {
   }
 
   const images = submissionGallery(listing);
-  if (images.length === 0) {
+  const videoTourUrl = listing.venueDetails?.videoTourUrl?.trim() ?? "";
+  if (images.length === 0 && !videoTourUrl) {
     return (
       <div className="min-h-[50vh] flex flex-col items-center justify-center bg-white px-4 text-center">
         <h1 className="text-xl font-bold text-gray-900 mb-2">No photos yet</h1>
@@ -59,6 +60,7 @@ export function SubmissionGalleryLoader({ id }: { id: string }) {
     <ListingGalleryContent
       stay={submissionToStay(listing)}
       photos={submissionGalleryPhotos(listing)}
+      videoTourUrl={videoTourUrl || undefined}
     />
   );
 }

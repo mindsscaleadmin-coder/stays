@@ -86,16 +86,51 @@ export function mergeServerGuestBookings(
   return merged;
 }
 
-export async function fetchGuestBookingsFromServer(
-  guestId: string
-): Promise<GuestBookingSummary[] | null> {
-  try {
-    const params = new URLSearchParams({ role: "guest", guestId });
-    const res = await fetch(`/api/bookings?${params.toString()}`);
-    if (!res.ok) return null;
-    const data = (await res.json()) as { bookings?: GuestBookingSummary[] };
-    return Array.isArray(data.bookings) ? data.bookings : null;
-  } catch {
-    return null;
+const GUEST_BOOKINGS_PULL_TTL_MS = 8_000;
+const guestBookingsPull = new Map<
+  string,
+  {
+    rows: GuestBookingSummary[] | null;
+    at: number;
+    inflight?: Promise<GuestBookingSummary[] | null>;
   }
+>();
+
+export function invalidateGuestBookingsCache(guestId?: string) {
+  if (guestId) guestBookingsPull.delete(guestId);
+  else guestBookingsPull.clear();
+}
+
+export async function fetchGuestBookingsFromServer(
+  guestId: string,
+  force = false
+): Promise<GuestBookingSummary[] | null> {
+  const cached = guestBookingsPull.get(guestId);
+  if (!force && cached?.inflight) {
+    return cached.inflight;
+  }
+  if (!force && cached && Date.now() - cached.at < GUEST_BOOKINGS_PULL_TTL_MS) {
+    return cached.rows;
+  }
+
+  const inflight = (async () => {
+    try {
+      const params = new URLSearchParams({ role: "guest", guestId });
+      const res = await fetch(`/api/bookings?${params.toString()}`);
+      if (!res.ok) return cached?.rows ?? null;
+      const data = (await res.json()) as { bookings?: GuestBookingSummary[] };
+      const rows = Array.isArray(data.bookings) ? data.bookings : null;
+      guestBookingsPull.set(guestId, { rows, at: Date.now() });
+      return rows;
+    } catch {
+      return cached?.rows ?? null;
+    }
+  })();
+
+  guestBookingsPull.set(guestId, {
+    rows: cached?.rows ?? null,
+    at: cached?.at ?? 0,
+    inflight,
+  });
+  return inflight;
 }

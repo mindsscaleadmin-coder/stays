@@ -27,9 +27,11 @@ import {
 
 export function useAdminTrust() {
   const [settings, setSettings] = useState<TrustAdminSettings>(() => loadTrustAdminSettings());
-  const [pendingCerts, setPendingCerts] = useState<PendingCertification[]>([]);
+  const [pendingCerts, setPendingCerts] = useState<PendingCertification[]>(() =>
+    loadPendingCertifications()
+  );
   const [reviews, setReviews] = useState<FlatHostReview[]>(() => loadAllReviewsFlat());
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(true);
   const [tick, setTick] = useState(0);
   const shared = shouldUseSharedTrust();
 

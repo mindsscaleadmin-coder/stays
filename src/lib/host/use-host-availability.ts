@@ -19,9 +19,11 @@ import type {
 } from "./host-availability-types";
 
 export function useHostAvailability(listingId?: string) {
-  const [settings, setSettings] = useState<ListingAvailabilitySettings | null>(null);
+  const [settings, setSettings] = useState<ListingAvailabilitySettings | null>(() =>
+    listingId ? getAvailabilitySettings(listingId) : null
+  );
   const [occupiedDates, setOccupiedDates] = useState<string[]>([]);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(true);
   const settingsRef = useRef<ListingAvailabilitySettings | null>(null);
   const shared = shouldUseSharedAvailabilityStore();
 
@@ -65,7 +67,9 @@ export function useHostAvailability(listingId?: string) {
   }, [applySettings, listingId, shared]);
 
   useEffect(() => {
-    setReady(false);
+    if (listingId) {
+      applySettings(getAvailabilitySettings(listingId));
+    }
     void refresh();
     function onStorage(e: StorageEvent) {
       if (e.key === "farm-stays-host-availability") void refresh();
@@ -76,7 +80,7 @@ export function useHostAvailability(listingId?: string) {
     return () => {
       window.removeEventListener("storage", onStorage);
     };
-  }, [refresh]);
+  }, [applySettings, listingId, refresh]);
 
   const persist = useCallback(
     async (next: ListingAvailabilitySettings) => {

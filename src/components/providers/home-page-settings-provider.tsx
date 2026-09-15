@@ -12,6 +12,7 @@ import {
   DEFAULT_HOME_PAGE_SETTINGS,
   HOME_PAGE_SETTINGS_SYNC_EVENT,
   loadHomePageSettings,
+  loadHomePageSettingsShell,
   newAnnouncementItemId,
   saveHomePageSettings,
 } from "@/lib/admin/home-page-settings-data";
@@ -40,11 +41,11 @@ interface HomePageSettingsContextValue {
 const HomePageSettingsContext = createContext<HomePageSettingsContextValue | null>(null);
 
 export function HomePageSettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<HomePageSettings>(DEFAULT_HOME_PAGE_SETTINGS);
+  const [settings, setSettings] = useState(DEFAULT_HOME_PAGE_SETTINGS);
   const [ready, setReady] = useState(false);
 
-  const refresh = useCallback(() => {
-    setSettings(loadHomePageSettings());
+  const refresh = useCallback((full = false) => {
+    setSettings(full ? loadHomePageSettings() : loadHomePageSettingsShell());
   }, []);
 
   useEffect(() => {
@@ -55,11 +56,15 @@ export function HomePageSettingsProvider({ children }: { children: ReactNode }) 
       if (e.key === "farm-stays-home-page-settings") refresh();
     }
 
-    window.addEventListener(HOME_PAGE_SETTINGS_SYNC_EVENT, refresh);
+    function onHomePageSettingsSync() {
+      refresh();
+    }
+
+    window.addEventListener(HOME_PAGE_SETTINGS_SYNC_EVENT, onHomePageSettingsSync);
     window.addEventListener("storage", onStorage);
 
     return () => {
-      window.removeEventListener(HOME_PAGE_SETTINGS_SYNC_EVENT, refresh);
+      window.removeEventListener(HOME_PAGE_SETTINGS_SYNC_EVENT, onHomePageSettingsSync);
       window.removeEventListener("storage", onStorage);
     };
   }, [refresh]);

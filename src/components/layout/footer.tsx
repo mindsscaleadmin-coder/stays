@@ -31,7 +31,7 @@ export function Footer() {
   return (
     <>
       <div className="bg-amber-50 border-y border-amber-100 mt-12">
-        <div className="max-w-7xl mx-auto px-4 py-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="site-page-container py-4 grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { icon: CheckCircle, key: "cancellation" as const },
             { icon: Shield, key: "instant" as const },
@@ -46,8 +46,8 @@ export function Footer() {
         </div>
       </div>
 
-      <div className="bg-white border-b py-6 px-4">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="bg-white border-b py-6">
+        <div className="site-page-container flex flex-col md:flex-row items-center justify-between gap-4">
           <div>
             <p className="font-bold text-gray-900 font-display">Don&apos;t miss out!</p>
             <p className="text-gray-500 text-sm">Get exclusive deals and travel inspiration</p>
@@ -72,8 +72,8 @@ export function Footer() {
         </div>
       </div>
 
-      <footer className="bg-gray-900 text-gray-400 pt-12 pb-6 px-4">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-10">
+      <footer className="bg-gray-900 text-gray-400 pt-12 pb-6">
+        <div className="site-page-container grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-10">
           <div>
             <div className="flex items-center gap-2 mb-4">
               <div className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center">
@@ -160,7 +160,7 @@ export function Footer() {
             </div>
           </div>
         </div>
-        <div className="border-t border-gray-800 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs max-w-7xl mx-auto">
+        <div className="site-page-container border-t border-gray-800 pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
           <p>{t("copyright", { year })}</p>
           <div className="flex gap-4 items-center">
             <span className="text-gray-500">{t("trustedBy")}</span>

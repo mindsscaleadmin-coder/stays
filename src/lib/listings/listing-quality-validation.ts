@@ -3,9 +3,11 @@ import type {
   ListingQualityMode,
   ListingQualityRules,
 } from "@/lib/admin/listing-quality-rules-types";
+import type { TaxonomyData } from "@/lib/admin/taxonomy-types";
 import { getQualityFieldDef, qualityRuleKey } from "@/lib/admin/listing-quality-fields";
 import { loadListingQualityRules } from "@/lib/admin/listing-quality-rules-data";
 import { toListingQualityMode } from "@/lib/listings/listing-mode";
+import { countAmenitySelectionsFromNames } from "@/lib/listings/validate-listing-filters";
 import { richTextToPlain } from "./rich-text";
 
 export interface ListingQualityInput {
@@ -21,6 +23,8 @@ export interface ListingQualityInput {
   highlightCount?: number;
   featureIconCount?: number;
   advancedCount?: number;
+  /** Amenity chips selected via advanced filters (or legacy amenities[]). */
+  amenityCount?: number;
   mapEmbedUrl?: string;
   farmType?: string;
   amenities?: string[];
@@ -85,7 +89,7 @@ function countForField(fieldId: string, input: ListingQualityInput): number {
     case "advancedFilters":
       return input.advancedCount ?? 0;
     case "amenities":
-      return input.amenities?.length ?? 0;
+      return input.amenityCount ?? input.amenities?.length ?? 0;
     case "farmActivities":
       return input.farmActivities?.length ?? 0;
     case "rooms":
@@ -283,7 +287,15 @@ export function qualityInputFromListing(listing: {
   itinerary?: { title?: string }[];
   customFilters?: { label: string; value: string }[];
   listingMode?: ListingQualityMode;
-}): ListingQualityInput {
+}, taxonomy?: TaxonomyData): ListingQualityInput {
+  const amenityCount = taxonomy
+    ? countAmenitySelectionsFromNames(
+        taxonomy,
+        listing.advancedFilters ?? [],
+        listing.amenities ?? []
+      )
+    : listing.amenities?.length ?? 0;
+
   return {
     title: listing.title,
     description: listing.description,
@@ -299,6 +311,7 @@ export function qualityInputFromListing(listing: {
     highlightCount: listing.highlightIds?.length ?? 0,
     featureIconCount: listing.featureIconIds?.length ?? 0,
     advancedCount: listing.advancedFilters?.length ?? 0,
+    amenityCount,
     mapEmbedUrl: listing.mapEmbedUrl,
     farmType: listing.farmType,
     amenities: listing.amenities,

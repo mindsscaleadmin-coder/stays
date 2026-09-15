@@ -10,7 +10,7 @@ export default async function HostPromotePage({
   const { locale } = await params;
   setRequestLocale(locale);
   return (
-    <Suspense>
+    <Suspense fallback={null}>
       <HostPromoteContent />
     </Suspense>
   );

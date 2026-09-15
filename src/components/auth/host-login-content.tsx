@@ -14,7 +14,8 @@ export function HostLoginContent() {
   const t = useTranslations("hostAuth");
   const searchParams = useSearchParams();
   const next = safeInternalPath(searchParams.get("next"), "/host");
-  const { signInHostWithEmail, isDemo, loading, user } = useAuth();
+  const restricted = searchParams.get("restricted") === "1";
+  const { signInHostWithEmail, isDemo, loading, user, isHostAccountRestricted } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,10 +23,15 @@ export function HostLoginContent() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (restricted || isHostAccountRestricted) return;
+    if (!loading && user && !canManageListings(user.roles)) {
+      goInternal(`/host/signup?next=${encodeURIComponent(next)}`);
+      return;
+    }
     if (!loading && user && canManageListings(user.roles)) {
       goInternal(next);
     }
-  }, [loading, user, next]);
+  }, [loading, user, next, restricted, isHostAccountRestricted]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,12 +46,31 @@ export function HostLoginContent() {
     goInternal(next);
   }
 
-  const redirecting = !loading && !!user && canManageListings(user.roles);
+  const redirecting =
+    !restricted &&
+    !isHostAccountRestricted &&
+    !loading &&
+    !!user &&
+    canManageListings(user.roles);
 
   if (redirecting) {
     return (
       <div className="min-h-[50vh] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-green-700" />
+      </div>
+    );
+  }
+
+  if (!loading && user && canManageListings(user.roles) && (restricted || isHostAccountRestricted)) {
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center px-4">
+        <div className="bg-white border rounded-2xl p-6 max-w-md text-center space-y-3">
+          <h2 className="text-lg font-bold text-gray-900">Account restricted</h2>
+          <p className="text-sm text-gray-500">
+            This host account is suspended or banned. Contact platform support if you believe
+            this is an error.
+          </p>
+        </div>
       </div>
     );
   }

@@ -9,6 +9,14 @@
   --brand-green: #2d6a4f;
   --brand-green-dark: #1b4332;
   --brand-amber: #fbbf24;
+
+  /* Airbnb-like centered shell: capped content width + responsive side gutters. */
+  --page-gutter: 1.5rem;
+  --page-max-width: 1280px;
+  --section-gap: 3rem;
+  --hero-search-max-width: 850px;
+  --hero-min-height: 480px;
+  --site-chrome-height: 4.5rem;
 }
 
 @layer base {
@@ -20,12 +28,135 @@
     scroll-behavior: smooth;
     overflow-x: clip;
     -webkit-text-size-adjust: 100%;
+    width: 100%;
   }
 
   body {
     @apply bg-[var(--background)] text-[var(--foreground)] antialiased min-w-0 overflow-x-clip;
+    width: 100%;
+    min-height: 100%;
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
+  }
+}
+
+@layer components {
+  .site-sticky-below-chrome {
+    position: sticky;
+    top: var(--site-chrome-height);
+    z-index: 40;
+  }
+
+  /* Page width: centered column aligned with header, hero, and listing grids. */
+  .site-page-container {
+    width: 100%;
+    max-width: var(--page-max-width);
+    margin-inline: auto;
+    min-width: 0;
+    padding-inline: var(--page-gutter);
+    box-sizing: border-box;
+  }
+
+  /* Home page: 80% centered column on tablet+. */
+  .home-page-container {
+    width: 100%;
+    margin-inline: auto;
+    min-width: 0;
+    padding-inline: var(--page-gutter);
+    box-sizing: border-box;
+  }
+
+  @media (min-width: 768px) {
+    .home-page-container {
+      width: 80%;
+    }
+  }
+
+  @media (min-width: 744px) {
+    :root {
+      --page-gutter: 2.5rem;
+    }
+  }
+
+  /* Homepage hero — full width of the page shell (avoid 100vw scrollbar gap). */
+  .home-hero {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    min-height: var(--hero-min-height);
+  }
+
+  @media (min-width: 744px) {
+    .home-hero {
+      --hero-min-height: 520px;
+    }
+  }
+
+  @media (min-width: 1128px) {
+    .home-hero {
+      --hero-min-height: 580px;
+    }
+  }
+
+  .home-hero-search {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: var(--hero-search-max-width);
+  }
+
+  .home-section {
+    margin-top: var(--section-gap);
+  }
+
+  .home-browse-scroll {
+    display: flex;
+    gap: 0.75rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin-inline: calc(-1 * var(--page-gutter));
+    padding-inline: var(--page-gutter);
+    padding-bottom: 0.25rem;
+  }
+
+  .home-browse-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  @media (min-width: 744px) {
+    .home-browse-scroll {
+      gap: 1rem;
+    }
+  }
+
+  .home-browse-card {
+    flex: 0 0 auto;
+    width: clamp(148px, 42vw, 200px);
+    scroll-snap-align: start;
+  }
+
+  @media (min-width: 744px) {
+    .home-browse-card {
+      width: 180px;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .home-browse-card {
+      width: calc((100% - 6 * 1rem) / 7);
+      max-width: 220px;
+      min-width: 168px;
+    }
+  }
+
+  .home-browse-card-image {
+    position: relative;
+    aspect-ratio: 4 / 5;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background-color: #f3f4f6;
   }
 }
 
@@ -37,6 +168,7 @@
   .announcement-marquee-wrapper {
     overflow: hidden;
     direction: ltr;
+    width: 100%;
   }
 
   .announcement-marquee-track {

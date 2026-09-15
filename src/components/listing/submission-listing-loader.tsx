@@ -15,8 +15,9 @@ import {
   LISTINGS_SYNC_EVENT,
 } from "@/lib/listings/submission-data";
 import {
-  submissionGalleryPhotos,
+  LISTING_PLACEHOLDER_IMG,
   nightlyFromListing,
+  submissionGalleryPhotos,
   submissionToStay,
 } from "@/lib/listings/submission-to-stay";
 import { readGuestPartyFromFilters } from "@/lib/listings/guest-capacity";
@@ -114,7 +115,9 @@ export function SubmissionListingLoader({ id }: { id: string }) {
       maxInfants: room.maxInfants,
       beds: room.beds,
       baths: room.baths,
-      img: room.img,
+      img: room.img || stay.img || LISTING_PLACEHOLDER_IMG,
+      advancedFilterIds: room.advancedFilterIds,
+      venueDetails: room.venueDetails,
     };
   });
 
@@ -140,6 +143,8 @@ export function SubmissionListingLoader({ id }: { id: string }) {
         rooms={rooms}
         guestParty={readGuestPartyFromFilters(listing.customFilters, stay.guests)}
         amenities={[...(listing.amenities ?? []), ...(listing.advancedFilters ?? [])]}
+        advancedFilters={listing.advancedFilters ?? []}
+        venueDetails={listing.venueDetails}
         extraCharges={
           pricing.extraChargesEnabled ? pricing.extraCharges : []
         }

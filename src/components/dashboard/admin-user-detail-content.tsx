@@ -81,7 +81,7 @@ function guestIdTypeLabel(idType: string): string {
 
 export function AdminUserDetailContent({ userId }: { userId: string }) {
   const { users, suspend, verify, unsuspend } = useAdminUsers();
-  const { all: listings } = useListingSubmissions();
+  const { all: listings } = useListingSubmissions({ load: true });
   const [message, setMessage] = useState("");
   const [reviewNote, setReviewNote] = useState("");
   const [verification, setVerification] = useState<GuestVerificationRequest | null>(null);

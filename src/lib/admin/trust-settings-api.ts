@@ -6,14 +6,46 @@ export function shouldUseSharedTrust() {
   return isSharedDbEnabled();
 }
 
+const TRUST_PULL_TTL_MS = 8_000;
+let trustSettingsCache: TrustAdminSettings | null = null;
+let trustSettingsFetchedAt = 0;
+let trustSettingsInflight: Promise<TrustAdminSettings> | null = null;
+let pendingCertsCache: PendingCertification[] | null = null;
+let pendingCertsFetchedAt = 0;
+let pendingCertsInflight: Promise<PendingCertification[]> | null = null;
+
 export async function fetchTrustAdminSettingsFromApi(
-  admin = false
+  admin = false,
+  force = false
 ): Promise<TrustAdminSettings> {
-  const url = admin ? "/api/platform/trust-settings?admin=1" : "/api/platform/trust-settings";
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load trust settings");
-  const data = (await res.json()) as { settings: TrustAdminSettings };
-  return data.settings;
+  if (!admin) {
+    const res = await fetch("/api/platform/trust-settings", { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to load trust settings");
+    const data = (await res.json()) as { settings: TrustAdminSettings };
+    return data.settings;
+  }
+  if (!force && trustSettingsInflight) return trustSettingsInflight;
+  if (!force && trustSettingsCache && Date.now() - trustSettingsFetchedAt < TRUST_PULL_TTL_MS) {
+    return trustSettingsCache;
+  }
+
+  trustSettingsInflight = (async () => {
+    try {
+      const res = await fetch("/api/platform/trust-settings?admin=1", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load trust settings");
+      const data = (await res.json()) as { settings: TrustAdminSettings };
+      trustSettingsCache = data.settings;
+      trustSettingsFetchedAt = Date.now();
+      return data.settings;
+    } catch {
+      if (trustSettingsCache) return trustSettingsCache;
+      throw new Error("Failed to load trust settings");
+    } finally {
+      trustSettingsInflight = null;
+    }
+  })();
+
+  return trustSettingsInflight;
 }
 
 export async function saveTrustAdminSettingsToApi(
@@ -29,11 +61,30 @@ export async function saveTrustAdminSettingsToApi(
   return data.settings;
 }
 
-export async function fetchPendingCertificationsFromApi(): Promise<PendingCertification[]> {
-  const res = await fetch("/api/admin/trust", { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load pending certifications");
-  const data = (await res.json()) as { pending: PendingCertification[] };
-  return data.pending;
+export async function fetchPendingCertificationsFromApi(
+  force = false
+): Promise<PendingCertification[]> {
+  if (!force && pendingCertsInflight) return pendingCertsInflight;
+  if (!force && pendingCertsCache && Date.now() - pendingCertsFetchedAt < TRUST_PULL_TTL_MS) {
+    return pendingCertsCache;
+  }
+
+  pendingCertsInflight = (async () => {
+    try {
+      const res = await fetch("/api/admin/trust", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load pending certifications");
+      const data = (await res.json()) as { pending: PendingCertification[] };
+      pendingCertsCache = data.pending;
+      pendingCertsFetchedAt = Date.now();
+      return data.pending;
+    } catch {
+      return pendingCertsCache ?? [];
+    } finally {
+      pendingCertsInflight = null;
+    }
+  })();
+
+  return pendingCertsInflight;
 }
 
 export async function reviewCertificationViaApi(input: {

@@ -23,7 +23,7 @@ export function LocationPermissionBanner({
   if (!visible || dismissed || usingGps) return null;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 mt-4">
+    <div className="home-page-container mt-4">
       <div className="bg-white border border-green-200 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3 shadow-sm">
         <div className="flex items-start gap-3 flex-1 min-w-0">
           <div className="w-9 h-9 rounded-lg bg-green-50 border border-green-100 flex items-center justify-center shrink-0">

@@ -1,9 +1,44 @@
 "use client";
 
-import { Suspense } from "react";
-import { AdminExtraFiltersPanel, AdminFeatureFiltersPanel, AdminFilterPanel } from "./admin-filter-panel";
+import dynamic from "next/dynamic";
 
-export function AdminFiltersContent() {
+const AdminFilterPanel = dynamic(
+  () => import("./admin-filter-panel").then((mod) => mod.AdminFilterPanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="bg-white rounded-2xl border shadow-sm p-8 text-sm text-gray-400">
+        Loading filter panel…
+      </div>
+    ),
+  }
+);
+
+const AdminExtraFiltersPanel = dynamic(
+  () => import("./admin-filter-panel").then((mod) => mod.AdminExtraFiltersPanel),
+  { ssr: false }
+);
+
+const AdminFeatureFiltersPanel = dynamic(
+  () => import("./admin-filter-panel").then((mod) => mod.AdminFeatureFiltersPanel),
+  { ssr: false }
+);
+
+export interface AdminFiltersContentProps {
+  tabParam: string | null;
+  countryFromUrl: string;
+  stateFromUrl: string;
+  districtFromUrl: string;
+  onNavigate: (href: string) => void;
+}
+
+export function AdminFiltersContent({
+  tabParam,
+  countryFromUrl,
+  stateFromUrl,
+  districtFromUrl,
+  onNavigate,
+}: AdminFiltersContentProps) {
   return (
     <div className="space-y-6">
       <div>
@@ -16,9 +51,13 @@ export function AdminFiltersContent() {
         </p>
       </div>
 
-      <Suspense fallback={<div className="bg-white rounded-2xl border shadow-sm p-8 text-sm text-gray-400">Loading filters…</div>}>
-        <AdminFilterPanel />
-      </Suspense>
+      <AdminFilterPanel
+        tabParam={tabParam}
+        countryFromUrl={countryFromUrl}
+        stateFromUrl={stateFromUrl}
+        districtFromUrl={districtFromUrl}
+        onNavigate={onNavigate}
+      />
       <AdminExtraFiltersPanel />
       <AdminFeatureFiltersPanel />
     </div>

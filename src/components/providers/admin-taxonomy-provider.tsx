@@ -21,14 +21,42 @@ import type {
 } from "@/lib/admin/taxonomy-types";
 import { applyCountryLocations, type CountryGeoState } from "@/lib/admin/country-geo";
 import { dedupeTabsById, isDefaultPropertyTab, resolveBuiltInMainTabId } from "@/lib/admin/taxonomy-types";
-import { loadTaxonomy, newId, namesMatch, normalizeTaxonomy, saveTaxonomy, SEED_TAXONOMY, TAXONOMY_STORAGE_KEY, TAXONOMY_SYNC_EVENT } from "@/lib/admin/taxonomy-data";
+import {
+  loadTaxonomy,
+  mergeApiTaxonomyWithLocal,
+  mergeTaxonomySources,
+  newId,
+  namesMatch,
+  normalizeTaxonomy,
+  saveTaxonomy,
+  SEED_TAXONOMY,
+  TAXONOMY_STORAGE_KEY,
+  TAXONOMY_SYNC_EVENT,
+} from "@/lib/admin/taxonomy-data";
 import {
   fetchTaxonomyFromApi,
   saveTaxonomyToApi,
   shouldUseSharedTaxonomy,
 } from "@/lib/admin/taxonomy-api";
+import { asNameList } from "@/lib/admin/parse-bulk-names";
 import { relabelSubmittedListings } from "@/lib/listings/submission-data";
 import { relabelListingsOnServer } from "@/lib/listings/relabel-listings-api";
+
+function namesNotYetIn<T>(
+  items: T[],
+  names: string[],
+  isDuplicate: (item: T, name: string) => boolean
+): string[] {
+  const out: string[] = [];
+  for (const name of names) {
+    const trimmed = name.trim();
+    if (!trimmed) continue;
+    if (items.some((item) => isDuplicate(item, trimmed))) continue;
+    if (out.some((existing) => namesMatch(existing, trimmed))) continue;
+    out.push(trimmed);
+  }
+  return out;
+}
 
 function scheduleListingRelabel(
   changes: Parameters<typeof relabelSubmittedListings>[0]
@@ -48,7 +76,7 @@ interface AdminTaxonomyContextValue {
   addExtraTab: (label: string) => string;
   editExtraTab: (id: string, label: string) => void;
   deleteExtraTab: (id: string) => boolean;
-  addCountry: (name: string) => void;
+  addCountry: (name: string | string[]) => void;
   editCountry: (id: string, name: string) => void;
   saveCountry: (
     input: CountryInput,
@@ -60,28 +88,40 @@ interface AdminTaxonomyContextValue {
     mode?: "merge" | "replace"
   ) => { statesAdded: number; districtsAdded: number };
   deleteCountry: (id: string) => void;
-  addState: (name: string, countryId: string) => void;
+  addState: (name: string | string[], countryId: string) => void;
   editState: (id: string, name: string, countryId: string) => void;
   deleteState: (id: string) => void;
-  addDistrict: (name: string, stateId: string) => void;
+  addDistrict: (name: string | string[], stateId: string) => void;
   editDistrict: (id: string, name: string, stateId: string) => void;
   deleteDistrict: (id: string) => void;
-  addCity: (name: string, districtId: string) => void;
+  addCity: (name: string | string[], districtId: string) => void;
   editCity: (id: string, name: string, districtId: string) => void;
   deleteCity: (id: string) => void;
-  addParent: (name: string) => void;
+  addParent: (name: string | string[]) => void;
   editParent: (id: string, name: string) => void;
   deleteParent: (id: string) => void;
-  addCategory: (name: string, parentId: string) => void;
+  addCategory: (name: string | string[], parentId: string) => void;
   editCategory: (id: string, name: string, parentId: string) => void;
   deleteCategory: (id: string) => void;
-  addSubcategory: (name: string, categoryId: string) => void;
+  addSubcategory: (name: string | string[], categoryId: string) => void;
   editSubcategory: (id: string, name: string, categoryId: string) => void;
   deleteSubcategory: (id: string) => void;
-  addExtraFilter: (name: string, type: string, parentId?: string) => void;
-  editExtraFilter: (id: string, name: string, parentId?: string) => void;
+  addExtraFilter: (
+    name: string | string[],
+    type: string,
+    parentId?: string,
+    categoryId?: string,
+    subcategoryId?: string
+  ) => void;
+  editExtraFilter: (
+    id: string,
+    name: string,
+    parentId?: string,
+    categoryId?: string,
+    subcategoryId?: string
+  ) => void;
   deleteExtraFilter: (id: string) => void;
-  addFeatureFilter: (name: string, parentId: string, subcategoryId?: string) => void;
+  addFeatureFilter: (name: string | string[], parentId: string, subcategoryId?: string) => void;
   editFeatureFilter: (
     id: string,
     name: string,
@@ -89,7 +129,7 @@ interface AdminTaxonomyContextValue {
     subcategoryId?: string
   ) => void;
   deleteFeatureFilter: (id: string) => void;
-  addCustomItem: (tabId: string, name: string, subcategoryId?: string) => void;
+  addCustomItem: (tabId: string, name: string | string[], subcategoryId?: string) => void;
   editCustomItem: (
     tabId: string,
     id: string,
@@ -117,7 +157,7 @@ function persist(data: TaxonomyData): TaxonomyData {
   const next = normalizeTaxonomy(data);
   saveTaxonomy(next);
   if (shouldUseSharedTaxonomy()) {
-    void saveTaxonomyToApi(next).catch(() => null);
+    void saveTaxonomyToApi(next).catch(() => {});
   }
   return next;
 }
@@ -127,28 +167,89 @@ async function persistAsync(data: TaxonomyData): Promise<TaxonomyData> {
   saveTaxonomy(next);
   if (!shouldUseSharedTaxonomy()) return next;
   const saved = await saveTaxonomyToApi(next);
-  return normalizeTaxonomy(saved);
+  const merged = mergeApiTaxonomyWithLocal(saved, next);
+  saveTaxonomy(merged);
+  return merged;
+}
+
+let taxonomyRefreshInflight: Promise<void> | null = null;
+let taxonomyCache: { at: number; data: TaxonomyData } | null = null;
+const TAXONOMY_CACHE_MS = 30_000;
+
+function taxonomySnapshotKey(data: TaxonomyData): string {
+  return `${data.mainTabs.length}|${data.countries.length}|${data.parents.length}`;
 }
 
 export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<TaxonomyData>(SEED_TAXONOMY);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(!shouldUseSharedTaxonomy());
   const hydratedRef = useRef(false);
+  const dataRef = useRef(data);
+  const refreshGenRef = useRef(0);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   const refresh = useCallback(async () => {
-    if (shouldUseSharedTaxonomy()) {
-      try {
-        setData(await fetchTaxonomyFromApi());
+    if (taxonomyRefreshInflight) return taxonomyRefreshInflight;
+    const refreshGen = ++refreshGenRef.current;
+    taxonomyRefreshInflight = (async () => {
+      if (
+        taxonomyCache &&
+        Date.now() - taxonomyCache.at < TAXONOMY_CACHE_MS &&
+        taxonomySnapshotKey(taxonomyCache.data) === taxonomySnapshotKey(dataRef.current)
+      ) {
+        if (refreshGen !== refreshGenRef.current) return;
+        setData(taxonomyCache.data);
         hydratedRef.current = true;
         setReady(true);
         return;
-      } catch {
-        // fall through
       }
+
+      if (shouldUseSharedTaxonomy()) {
+        try {
+          const apiData = await fetchTaxonomyFromApi();
+          if (refreshGen !== refreshGenRef.current) return;
+
+          const localData = loadTaxonomy();
+          const merged = mergeTaxonomySources(apiData, localData, dataRef.current);
+          const missingCount = merged.mainTabs.length - apiData.mainTabs.length;
+          const wouldWipeLocal = localData.mainTabs.some(
+            (tab) => !merged.mainTabs.some((m) => m.id === tab.id)
+          );
+
+          if (refreshGen !== refreshGenRef.current) return;
+          if (taxonomySnapshotKey(merged) !== taxonomySnapshotKey(dataRef.current)) {
+            setData(merged);
+            taxonomyCache = { at: Date.now(), data: merged };
+          }
+          if (!wouldWipeLocal) {
+            saveTaxonomy(merged);
+          }
+          if (missingCount > 0) {
+            void saveTaxonomyToApi(merged).catch(() => {});
+          }
+          hydratedRef.current = true;
+          setReady(true);
+          return;
+        } catch {
+          // fall through
+        }
+      }
+      const local = loadTaxonomy();
+      if (taxonomySnapshotKey(local) !== taxonomySnapshotKey(dataRef.current)) {
+        setData(local);
+        taxonomyCache = { at: Date.now(), data: local };
+      }
+      hydratedRef.current = true;
+      setReady(true);
+    })();
+    try {
+      await taxonomyRefreshInflight;
+    } finally {
+      taxonomyRefreshInflight = null;
     }
-    setData(loadTaxonomy());
-    hydratedRef.current = true;
-    setReady(true);
   }, []);
 
   useEffect(() => {
@@ -190,6 +291,8 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
 
       let createdId = "";
       let blocked = false;
+      let apiDraft: TaxonomyData | null = null;
+
       update((prev) => {
         if (prev.mainTabs.some((t) => t.label.toLowerCase() === trimmed.toLowerCase())) {
           return prev;
@@ -207,13 +310,24 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
         }
         const id = newId("tab");
         createdId = id;
-        return {
+        apiDraft = {
           ...prev,
           mainTabs: dedupeTabsById([...prev.mainTabs, { id, label: trimmed, builtIn: false }]),
           customItems: { ...prev.customItems, [id]: [] },
         };
+        return apiDraft;
       });
+
       if (blocked) return "";
+
+      if (createdId && apiDraft && shouldUseSharedTaxonomy()) {
+        void persistAsync(apiDraft)
+          .then((saved) => {
+            setData(saved);
+          })
+          .catch(() => {});
+      }
+
       return createdId;
     },
     [update]
@@ -333,26 +447,29 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const addCustomItem = useCallback(
-    (tabId: string, name: string, subcategoryId?: string) =>
+    (tabId: string, nameOrNames: string | string[], subcategoryId?: string) => {
+      const names = asNameList(nameOrNames);
+      if (!names.length) return;
       update((prev) => {
-        const trimmed = name.trim();
         const existing = prev.customItems[tabId] ?? [];
-        if (existing.some((item) => namesMatch(item.name, trimmed))) return prev;
+        const toAdd = namesNotYetIn(existing, names, (item, name) => namesMatch(item.name, name));
+        if (!toAdd.length) return prev;
         return {
           ...prev,
           customItems: {
             ...prev.customItems,
             [tabId]: [
               ...existing,
-              {
+              ...toAdd.map((name) => ({
                 id: newId("ci"),
-                name: trimmed,
+                name,
                 ...(subcategoryId ? { subcategoryId } : {}),
-              },
+              })),
             ],
           },
         };
-      }),
+      });
+    },
     [update]
   );
 
@@ -399,24 +516,29 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const addCountry = useCallback(
-    (name: string) =>
+    (nameOrNames: string | string[]) => {
+      const names = asNameList(nameOrNames);
+      if (!names.length) return;
       update((prev) => {
-        const trimmed = name.trim();
-        if (prev.countries.some((c) => namesMatch(c.name, trimmed))) return prev;
+        const toAdd = namesNotYetIn(prev.countries, names, (item, name) =>
+          namesMatch(item.name, name)
+        );
+        if (!toAdd.length) return prev;
         return {
           ...prev,
           countries: [
             ...prev.countries,
-            {
+            ...toAdd.map((name) => ({
               id: newId("c"),
-              name: trimmed,
+              name,
               enabled: true,
               comingSoon: false,
               exchangeRateToAED: 1,
-            },
+            })),
           ],
         };
-      }),
+      });
+    },
     [update]
   );
 
@@ -525,21 +647,22 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const addState = useCallback(
-    (name: string, countryId: string) =>
+    (nameOrNames: string | string[], countryId: string) => {
+      const names = asNameList(nameOrNames);
+      if (!names.length) return;
       update((prev) => {
-        const trimmed = name.trim();
-        if (
-          prev.states.some(
-            (s) => s.countryId === countryId && namesMatch(s.name, trimmed)
-          )
-        ) {
-          return prev;
-        }
+        const scoped = prev.states.filter((s) => s.countryId === countryId);
+        const toAdd = namesNotYetIn(scoped, names, (item, name) => namesMatch(item.name, name));
+        if (!toAdd.length) return prev;
         return {
           ...prev,
-          states: [...prev.states, { id: newId("s"), name: trimmed, countryId }],
+          states: [
+            ...prev.states,
+            ...toAdd.map((name) => ({ id: newId("s"), name, countryId })),
+          ],
         };
-      }),
+      });
+    },
     [update]
   );
 
@@ -575,21 +698,22 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const addDistrict = useCallback(
-    (name: string, stateId: string) =>
+    (nameOrNames: string | string[], stateId: string) => {
+      const names = asNameList(nameOrNames);
+      if (!names.length) return;
       update((prev) => {
-        const trimmed = name.trim();
-        if (
-          prev.districts.some(
-            (d) => d.stateId === stateId && namesMatch(d.name, trimmed)
-          )
-        ) {
-          return prev;
-        }
+        const scoped = prev.districts.filter((d) => d.stateId === stateId);
+        const toAdd = namesNotYetIn(scoped, names, (item, name) => namesMatch(item.name, name));
+        if (!toAdd.length) return prev;
         return {
           ...prev,
-          districts: [...prev.districts, { id: newId("d"), name: trimmed, stateId }],
+          districts: [
+            ...prev.districts,
+            ...toAdd.map((name) => ({ id: newId("d"), name, stateId })),
+          ],
         };
-      }),
+      });
+    },
     [update]
   );
 
@@ -623,19 +747,24 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const addCity = useCallback(
-    (name: string, districtId: string) =>
+    (nameOrNames: string | string[], districtId: string) => {
+      const names = asNameList(nameOrNames);
+      if (!names.length) return;
       update((prev) => {
-        const trimmed = name.trim();
         if (!districtId || !prev.districts.some((d) => d.id === districtId)) return prev;
         const cities = prev.cities ?? [];
-        if (cities.some((c) => c.districtId === districtId && namesMatch(c.name, trimmed))) {
-          return prev;
-        }
+        const scoped = cities.filter((c) => c.districtId === districtId);
+        const toAdd = namesNotYetIn(scoped, names, (item, name) => namesMatch(item.name, name));
+        if (!toAdd.length) return prev;
         return {
           ...prev,
-          cities: [...cities, { id: newId("ct"), name: trimmed, districtId }],
+          cities: [
+            ...cities,
+            ...toAdd.map((name) => ({ id: newId("ct"), name, districtId })),
+          ],
         };
-      }),
+      });
+    },
     [update]
   );
 
@@ -668,15 +797,20 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const addParent = useCallback(
-    (name: string) =>
+    (nameOrNames: string | string[]) => {
+      const names = asNameList(nameOrNames);
+      if (!names.length) return;
       update((prev) => {
-        const trimmed = name.trim();
-        if (prev.parents.some((p) => namesMatch(p.name, trimmed))) return prev;
+        const toAdd = namesNotYetIn(prev.parents, names, (item, name) =>
+          namesMatch(item.name, name)
+        );
+        if (!toAdd.length) return prev;
         return {
           ...prev,
-          parents: [...prev.parents, { id: newId("p"), name: trimmed }],
+          parents: [...prev.parents, ...toAdd.map((name) => ({ id: newId("p"), name }))],
         };
-      }),
+      });
+    },
     [update]
   );
 
@@ -720,24 +854,22 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const addCategory = useCallback(
-    (name: string, parentId: string) =>
+    (nameOrNames: string | string[], parentId: string) => {
+      const names = asNameList(nameOrNames);
+      if (!names.length) return;
       update((prev) => {
-        const trimmed = name.trim();
-        if (
-          prev.categories.some(
-            (c) => c.parentId === parentId && namesMatch(c.name, trimmed)
-          )
-        ) {
-          return prev;
-        }
+        const scoped = prev.categories.filter((c) => c.parentId === parentId);
+        const toAdd = namesNotYetIn(scoped, names, (item, name) => namesMatch(item.name, name));
+        if (!toAdd.length) return prev;
         return {
           ...prev,
           categories: [
             ...prev.categories,
-            { id: newId("cat"), name: trimmed, parentId },
+            ...toAdd.map((name) => ({ id: newId("cat"), name, parentId })),
           ],
         };
-      }),
+      });
+    },
     [update]
   );
 
@@ -774,31 +906,29 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const addSubcategory = useCallback(
-    (name: string, categoryId: string) =>
+    (nameOrNames: string | string[], categoryId: string) => {
+      const names = asNameList(nameOrNames);
+      if (!names.length) return;
       update((prev) => {
-        const trimmed = name.trim();
         const category = prev.categories.find((c) => c.id === categoryId);
         if (!category) return prev;
-        if (
-          prev.subcategories.some(
-            (sc) => sc.categoryId === categoryId && namesMatch(sc.name, trimmed)
-          )
-        ) {
-          return prev;
-        }
+        const scoped = prev.subcategories.filter((sc) => sc.categoryId === categoryId);
+        const toAdd = namesNotYetIn(scoped, names, (item, name) => namesMatch(item.name, name));
+        if (!toAdd.length) return prev;
         return {
           ...prev,
           subcategories: [
             ...prev.subcategories,
-            {
+            ...toAdd.map((name) => ({
               id: newId("sc"),
-              name: trimmed,
+              name,
               parentId: category.parentId,
               categoryId,
-            },
+            })),
           ],
         };
-      }),
+      });
+    },
     [update]
   );
 
@@ -838,40 +968,59 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const addExtraFilter = useCallback(
-    (name: string, type: string, parentId?: string) =>
+    (
+      nameOrNames: string | string[],
+      type: string,
+      parentId?: string,
+      categoryId?: string,
+      subcategoryId?: string
+    ) => {
+      const names = asNameList(nameOrNames);
+      if (!names.length) return;
+      const parentScope = parentId?.trim() || "";
+      const categoryScope = categoryId?.trim() || "";
+      const subScope = subcategoryId?.trim() || "";
       update((prev) => {
-        const trimmed = name.trim();
-        const scope = parentId?.trim() || "";
-        if (
-          prev.extraFilters.some(
-            (ef) =>
-              ef.type === type &&
-              (ef.parentId ?? "") === scope &&
-              namesMatch(ef.name, trimmed)
-          )
-        ) {
-          return prev;
-        }
+        const scoped = prev.extraFilters.filter(
+          (ef) =>
+            ef.type === type &&
+            (ef.parentId ?? "") === parentScope &&
+            (ef.categoryId ?? "") === categoryScope &&
+            (ef.subcategoryId ?? "") === subScope
+        );
+        const toAdd = namesNotYetIn(scoped, names, (item, name) => namesMatch(item.name, name));
+        if (!toAdd.length) return prev;
         return {
           ...prev,
           extraFilters: [
             ...prev.extraFilters,
-            {
+            ...toAdd.map((name) => ({
               id: newId("ef"),
-              name: trimmed,
+              name,
               type,
-              ...(scope ? { parentId: scope } : {}),
-            },
+              ...(parentScope ? { parentId: parentScope } : {}),
+              ...(categoryScope ? { categoryId: categoryScope } : {}),
+              ...(subScope ? { subcategoryId: subScope } : {}),
+            })),
           ],
         };
-      }),
+      });
+    },
     [update]
   );
 
   const editExtraFilter = useCallback(
-    (id: string, name: string, parentId?: string) => {
+    (
+      id: string,
+      name: string,
+      parentId?: string,
+      categoryId?: string,
+      subcategoryId?: string
+    ) => {
       const trimmed = name.trim();
-      const scope = parentId?.trim() || "";
+      const parentScope = parentId?.trim() || "";
+      const categoryScope = categoryId?.trim() || "";
+      const subScope = subcategoryId?.trim() || "";
       update((prev) => {
         const from = prev.extraFilters.find((ef) => ef.id === id)?.name;
         if (from && from !== trimmed) {
@@ -884,7 +1033,9 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
               ? {
                   ...ef,
                   name: trimmed,
-                  parentId: scope || undefined,
+                  parentId: parentScope || undefined,
+                  categoryId: categoryScope || undefined,
+                  subcategoryId: subScope || undefined,
                 }
               : ef
           ),
@@ -904,29 +1055,27 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   );
 
   const addFeatureFilter = useCallback(
-    (name: string, parentId: string, subcategoryId?: string) =>
+    (nameOrNames: string | string[], parentId: string, subcategoryId?: string) => {
+      const names = asNameList(nameOrNames);
+      if (!names.length) return;
       update((prev) => {
-        const trimmed = name.trim();
-        if (
-          prev.featureFilters.some(
-            (ff) => ff.parentId === parentId && namesMatch(ff.name, trimmed)
-          )
-        ) {
-          return prev;
-        }
+        const scoped = prev.featureFilters.filter((ff) => ff.parentId === parentId);
+        const toAdd = namesNotYetIn(scoped, names, (item, name) => namesMatch(item.name, name));
+        if (!toAdd.length) return prev;
         return {
           ...prev,
           featureFilters: [
             ...prev.featureFilters,
-            {
+            ...toAdd.map((name) => ({
               id: newId("ff"),
-              name: trimmed,
+              name,
               parentId,
               ...(subcategoryId ? { subcategoryId } : {}),
-            },
+            })),
           ],
         };
-      }),
+      });
+    },
     [update]
   );
 

@@ -12,6 +12,7 @@ import {
 import { quoteCartTotal } from "@/lib/guest/cart-quote";
 import { useCartPricing } from "@/lib/guest/use-cart-pricing";
 import { formatMoney } from "@/lib/currency";
+import { isDataImageUrl } from "@/lib/utils";
 
 export function CartCheckoutContent() {
   const { user, loading } = useAuth();
@@ -87,7 +88,7 @@ export function CartCheckoutContent() {
                         fill
                         className="object-cover"
                         sizes="112px"
-                        unoptimized={line.img.startsWith("data:")}
+                        unoptimized={isDataImageUrl(line.img)}
                       />
                     ) : null}
                   </div>

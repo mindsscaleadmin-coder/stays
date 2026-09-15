@@ -2,6 +2,36 @@ import type { TaxonomyData } from "@/lib/admin/taxonomy-types";
 import { isExcludedFromListingForm, isFilterEnabled } from "@/lib/admin/taxonomy-types";
 import type { ListingFilterValues } from "./submission-types";
 
+/** Amenity chips on the listing form are stored in advancedIds, not listing.amenities. */
+export function countAmenitySelections(
+  taxonomy: TaxonomyData,
+  advancedIds: string[],
+  legacyAmenities: string[] = []
+): number {
+  const amenityIds = new Set(
+    taxonomy.extraFilters
+      .filter((filter) => filter.type === "amenity")
+      .map((filter) => filter.id)
+  );
+  const fromAdvanced = advancedIds.filter((id) => amenityIds.has(id)).length;
+  return fromAdvanced + legacyAmenities.length;
+}
+
+export function countAmenitySelectionsFromNames(
+  taxonomy: TaxonomyData,
+  advancedFilterNames: string[],
+  legacyAmenities: string[] = []
+): number {
+  const fromAdvanced = advancedFilterNames.filter((name) => {
+    const normalized = name.trim().toLowerCase();
+    const filter = taxonomy.extraFilters.find(
+      (item) => item.name.trim().toLowerCase() === normalized
+    );
+    return filter?.type === "amenity";
+  }).length;
+  return fromAdvanced + legacyAmenities.length;
+}
+
 function tabOn(taxonomy: TaxonomyData, id: string) {
   return isFilterEnabled(taxonomy.mainTabs.find((t) => t.id === id));
 }

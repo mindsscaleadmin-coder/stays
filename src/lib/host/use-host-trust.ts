@@ -15,8 +15,10 @@ import {
 import type { HostTrustData } from "./host-trust-types";
 
 export function useHostTrust(hostId: string | undefined) {
-  const [data, setData] = useState<HostTrustData | null>(null);
-  const [ready, setReady] = useState(false);
+  const [data, setData] = useState<HostTrustData | null>(() =>
+    hostId ? loadHostTrust(hostId) : null
+  );
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedHostTrust();
 
   const refresh = useCallback(async () => {

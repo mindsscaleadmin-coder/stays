@@ -33,7 +33,7 @@ import { tabEnabled } from "@/lib/admin/taxonomy-nav";
 import { getFavoriteIds, setFavoriteIds } from "@/lib/mock/guest-data";
 import type { Stay } from "@/lib/mock/data";
 import { listingHref } from "@/lib/guest/stay-search-dates";
-import { cn } from "@/lib/utils";
+import { cn, isDataImageUrl } from "@/lib/utils";
 import { BASE_CURRENCY, formatStoredMoney  } from "@/lib/currency";
 import { findCountryByListingName } from "@/lib/admin/country-utils";
 import { useCountry } from "@/components/providers/country-provider";
@@ -214,7 +214,7 @@ function StayListRow({
 }) {
   const name = stay.name;
   const location = stay.location;
-  const isDataUrl = stay.img.startsWith("data:");
+  const isDataUrl = isDataImageUrl(stay.img);
   const listingUrl = listingHref(stay.id, {
     checkIn,
     checkOut,

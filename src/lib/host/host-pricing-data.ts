@@ -250,6 +250,8 @@ export async function seedPricingFromListingForm(input: {
   country?: CountryPricingConfig;
   similarListingIds?: string[];
   seedSessions?: ListingPricingSettings["sessions"];
+  /** When set, wins over similar-listing copy for the base nightly rate. */
+  initialBasePrice?: number | null;
 }): Promise<ListingPricingSettings> {
   const map = readAll();
   const existing = map[input.listingId];
@@ -305,6 +307,10 @@ export async function seedPricingFromListingForm(input: {
 
   if (input.seedSessions?.length && !(existing?.sessions?.length)) {
     base = { ...base, sessions: input.seedSessions };
+  }
+
+  if (input.initialBasePrice != null && input.initialBasePrice > 0) {
+    base = { ...base, basePrice: Math.max(0, input.initialBasePrice) };
   }
 
   savePricingSettings(base);

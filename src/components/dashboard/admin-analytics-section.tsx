@@ -20,6 +20,20 @@ import {
   formatPlatformMoney,
 } from "@/lib/admin/platform-analytics-data";
 import { useAdminPlatformAnalytics } from "@/lib/admin/use-admin-platform-analytics";
+import type { PlatformAnalyticsSnapshot } from "@/lib/admin/platform-analytics-types";
+
+export type AdminAnalyticsSectionData = {
+  ready: boolean;
+  snapshot: PlatformAnalyticsSnapshot;
+  lastUpdatedLabel: string;
+};
+
+interface AdminAnalyticsSectionViewProps {
+  compact?: boolean;
+  showViewAll?: boolean;
+  countryFilter?: string;
+  analytics: AdminAnalyticsSectionData;
+}
 
 interface AdminAnalyticsSectionProps {
   compact?: boolean;
@@ -92,7 +106,24 @@ export function AdminAnalyticsSection({
   showViewAll = true,
   countryFilter = "",
 }: AdminAnalyticsSectionProps) {
-  const { ready, snapshot, lastUpdatedLabel } = useAdminPlatformAnalytics(countryFilter);
+  const analytics = useAdminPlatformAnalytics(countryFilter);
+  return (
+    <AdminAnalyticsSectionView
+      compact={compact}
+      showViewAll={showViewAll}
+      countryFilter={countryFilter}
+      analytics={analytics}
+    />
+  );
+}
+
+export function AdminAnalyticsSectionView({
+  compact = false,
+  showViewAll = true,
+  countryFilter = "",
+  analytics,
+}: AdminAnalyticsSectionViewProps) {
+  const { ready, snapshot, lastUpdatedLabel } = analytics;
   const { kpis, monthlyTrends, bookingStatusBreakdown, regionalByState } = snapshot;
 
   if (!ready) {

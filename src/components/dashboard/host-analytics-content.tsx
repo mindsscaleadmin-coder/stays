@@ -5,6 +5,7 @@ import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell"
 import { useAuth } from "@/components/providers/auth-provider";
 import { resolveHostId } from "@/lib/listings/use-listing-submissions";
 import { useHostAnalytics } from "@/lib/host/use-host-analytics";
+import type { HostAnalyticsData } from "@/lib/host/host-analytics-types";
 import { cn, formatPrice } from "@/lib/utils";
 
 function BarRow({
@@ -39,20 +40,24 @@ function BarRow({
 
 export function HostAnalyticsPanel({
   className,
-  data: dataProp,
-  ready: readyProp,
 }: {
   className?: string;
-  data?: ReturnType<typeof useHostAnalytics>["data"];
-  ready?: boolean;
 }) {
   const { user } = useAuth();
   const hostId = resolveHostId(user);
-  const controlled = readyProp !== undefined;
-  const fetched = useHostAnalytics(controlled ? undefined : hostId);
-  const data = dataProp ?? fetched.data;
-  const ready = controlled ? Boolean(readyProp) : fetched.ready;
+  const { data, ready } = useHostAnalytics(hostId);
+  return <HostAnalyticsPanelView className={className} data={data} ready={ready} />;
+}
 
+export function HostAnalyticsPanelView({
+  className,
+  data,
+  ready,
+}: {
+  className?: string;
+  data?: HostAnalyticsData | null;
+  ready: boolean;
+}) {
   if (!ready || !data) {
     return (
       <div className={cn("flex items-center justify-center min-h-[240px]", className)}>
@@ -94,7 +99,7 @@ export function HostAnalyticsPanel({
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <section className="bg-white rounded-2xl border p-5 space-y-4">
-            <h3 className="text-sm font-semibold text-gray-900">Revenue reports</h3>
+            <h3 className="font-display text-sm font-semibold text-gray-900">Revenue reports</h3>
             <div>
               <p className="text-xs font-semibold uppercase text-gray-400 mb-2">Monthly</p>
               <ul className="space-y-2">
@@ -130,7 +135,7 @@ export function HostAnalyticsPanel({
           </section>
 
           <section className="bg-white rounded-2xl border p-5 space-y-4">
-            <h3 className="text-sm font-semibold text-gray-900">Guest demographics</h3>
+            <h3 className="font-display text-sm font-semibold text-gray-900">Guest demographics</h3>
             <div className="grid grid-cols-3 gap-3">
               <div className="bg-gray-50 rounded-xl p-3 text-center">
                 <Globe2 className="w-4 h-4 text-green-700 mx-auto mb-1" />
@@ -171,7 +176,7 @@ export function HostAnalyticsPanel({
         </div>
 
         <section className="bg-white rounded-2xl border p-5 space-y-4">
-          <h3 className="text-sm font-semibold text-gray-900">
+          <h3 className="font-display text-sm font-semibold text-gray-900">
             Benchmarking — similar listings nearby
           </h3>
           <div className="overflow-x-auto">

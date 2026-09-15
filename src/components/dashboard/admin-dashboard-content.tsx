@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentType } from "react";
+import { type ComponentType } from "react";
 import { Link } from "@/i18n/routing";
 import {
   Building2,
@@ -15,10 +15,10 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { AdminDashboardShell } from "./admin-dashboard-shell";
-import { AdminAnalyticsSection } from "./admin-analytics-section";
+import { AdminAnalyticsSectionView } from "./admin-analytics-section";
 import { useAdminPlatformAnalytics } from "@/lib/admin/use-admin-platform-analytics";
 import { useAdminUsers } from "@/lib/admin/use-admin-users";
-import { useListingSubmissions } from "@/lib/listings/use-listing-submissions";
+import { usePendingListingBadgeCount } from "@/lib/admin/use-pending-listing-badge";
 import { useHostVerification } from "@/lib/host/use-host-verification";
 import { formatAmount } from "@/lib/utils";
 import { formatPlatformMoney } from "@/lib/admin/platform-analytics-data";
@@ -76,22 +76,23 @@ function OverviewCard({
 export function AdminDashboardContent() {
   const { user, signOut } = useAuth();
   const { users } = useAdminUsers();
-  const { all: listings, ready: listingsReady } = useListingSubmissions();
+  const pendingListings = usePendingListingBadgeCount();
   const { pendingCount: pendingVerifications, ready: verificationsReady } =
     useHostVerification();
-  const { ready: analyticsReady, snapshot } = useAdminPlatformAnalytics();
+  const analytics = useAdminPlatformAnalytics();
+  const { ready: analyticsReady, snapshot } = analytics;
   const { kpis } = snapshot;
 
-  const pendingListings = listings.filter((listing) => listing.status === "pending").length;
   const pendingUsers = users.filter((account) => account.status === "pending").length;
-  const operationalQueue = pendingListings + pendingVerifications + pendingUsers;
-  const ready = listingsReady && verificationsReady && analyticsReady;
+  const pendingListingCount = pendingListings ?? 0;
+  const operationalQueue = pendingListingCount + pendingVerifications + pendingUsers;
+  const ready = verificationsReady && analyticsReady;
 
   const cards = [
     {
       label: "Active listings",
       value: formatAmount(kpis.activeListings),
-      detail: `${pendingListings} awaiting review`,
+      detail: `${pendingListingCount} awaiting review`,
       href: "/admin/listings",
       icon: Building2,
       tone: "bg-blue-50 text-blue-600",
@@ -172,7 +173,7 @@ export function AdminDashboardContent() {
           </div>
         )}
 
-        <AdminAnalyticsSection compact />
+        <AdminAnalyticsSectionView compact analytics={analytics} />
 
         <div className="rounded-2xl border bg-white p-5">
           <div className="mb-4 flex items-center gap-2">

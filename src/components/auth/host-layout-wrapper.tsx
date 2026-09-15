@@ -23,8 +23,8 @@ function HostChrome({ children }: { children: ReactNode }) {
 
 export function HostLayoutWrapper({ children }: { children: ReactNode }) {
   return (
-    <HostRouteGuard>
-      <HostChrome>{children}</HostChrome>
-    </HostRouteGuard>
+    <HostChrome>
+      <HostRouteGuard>{children}</HostRouteGuard>
+    </HostChrome>
   );
 }

@@ -31,15 +31,17 @@ import {
 import {
   GUEST_BOOKINGS_SYNC_EVENT,
   fetchGuestBookingsFromServer,
+  invalidateGuestBookingsCache,
   loadGuestBookings,
   mergeServerGuestBookings,
   type GuestBookingSummary,
 } from "@/lib/guest/guest-bookings-data";
 import { BookingMessageThread } from "@/components/booking/booking-message-thread";
 import { StayReviewForm } from "@/components/booking/stay-review-form";
+import { getHostBookingRecord } from "@/lib/host/host-booking-data";
 import { appendBookingMessage, loadBookingMessages } from "@/lib/booking/booking-messages-data";
 import { guestHasStayed, getReviewForBooking } from "@/lib/booking/stay-reviews-data";
-import { getHostBookingRecord } from "@/lib/host/host-booking-data";
+import { loadHostBookings } from "@/lib/host/host-booking-data";
 import {
   cancelGuestBooking,
   previewGuestCancelRefund,
@@ -102,9 +104,10 @@ export function AccountContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading, signOut, updateProfile, isDemo } = useAuth();
-  const { listings: publicListings } = usePublicListings();
-
   const tab = tabFromSearch(searchParams.get("tab"));
+  const { listings: publicListings } = usePublicListings(undefined, {
+    enabled: tab === "favorites",
+  });
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [language] = useState<"en">("en");
@@ -190,6 +193,7 @@ export function AccountContent() {
   }, [user?.id]);
 
   const bookings = useMemo(() => {
+    const hostById = new Map(loadHostBookings().map((h) => [h.id, h]));
     const map = new Map<string, GuestBookingSummary>();
     // Seed sample trips only in demo mode when this guest has no real bookings yet
     const hasOwnLive = liveBookings.some(
@@ -219,7 +223,7 @@ export function AccountContent() {
     }
     // Prefer host-side completed status when guest mirror lags
     return Array.from(map.values()).map((b) => {
-      const host = getHostBookingRecord(b.id);
+      const host = hostById.get(b.id);
       if (host?.status === "completed" && b.status !== "completed") {
         return { ...b, status: "completed", listingId: host.listingId || b.listingId };
       }
@@ -281,7 +285,8 @@ export function AccountContent() {
     setCancelBookingId(null);
     setCancelReason("");
     if (user?.id) {
-      const server = await fetchGuestBookingsFromServer(user.id);
+      invalidateGuestBookingsCache(user.id);
+      const server = await fetchGuestBookingsFromServer(user.id, true);
       if (server) mergeServerGuestBookings(server);
     }
     setLiveBookings(loadGuestBookings());

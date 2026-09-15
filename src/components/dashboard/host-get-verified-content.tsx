@@ -110,7 +110,7 @@ export function HostVerificationTrustSection() {
     <div id="verification" className="space-y-5 scroll-mt-28">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">Verification & Trust</h3>
+          <h3 className="font-display text-sm font-semibold text-gray-900">Verification & Trust</h3>
           <p className="text-xs text-gray-500 mt-0.5">
             ID verification, farm certifications, and safety compliance.
           </p>
@@ -175,7 +175,7 @@ export function HostVerificationTrustSection() {
           <div className="relative w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border max-h-[92vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b px-5 py-4 flex items-center justify-between gap-3 z-10">
               <div>
-                <h3 className="text-base font-bold text-gray-900">Request verification</h3>
+                <h3 className="font-display text-base font-bold text-gray-900">Request verification</h3>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Upload documents for admin review
                 </p>
@@ -362,7 +362,7 @@ function VerificationRequestCard({
           <VerifiedBadge size="md" className="mt-0.5" />
         )}
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+          <h3 className="font-display text-sm font-semibold text-gray-900">{title}</h3>
           <p className="text-sm text-gray-600 mt-1">{body}</p>
         </div>
       </div>

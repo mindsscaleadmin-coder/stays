@@ -545,6 +545,8 @@ export function SearchFilterBar({
                   featureFilters={featureFilters}
                   parents={parents}
                   parentCategoryId={selectedParentId}
+                  categoryId={selectedCategoryId}
+                  subcategoryId={selectedSubcategoryId}
                   selectedIds={draftAdvancedIds}
                   onChange={setDraftAdvancedIds}
                   onApply={applyAdvancedFilters}

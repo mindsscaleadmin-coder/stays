@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { ExtraFilter, FeatureFilter, ParentCategory } from "@/lib/admin/taxonomy-types";
-import { extraFilterMatchesParent } from "@/lib/admin/extra-filter-scope";
+import { extraFilterMatchesScope } from "@/lib/admin/extra-filter-scope";
 import { cn } from "@/lib/utils";
 
 const VISIBLE_PILL_COUNT = 5;
@@ -118,6 +118,8 @@ export function AdvancedFilterPanel({
   featureFilters = [],
   parents = [],
   parentCategoryId = "",
+  categoryId = "",
+  subcategoryId = "",
   selectedIds,
   onChange,
   onApply,
@@ -131,6 +133,8 @@ export function AdvancedFilterPanel({
   featureFilters?: FeatureFilter[];
   parents?: ParentCategory[];
   parentCategoryId?: string;
+  categoryId?: string;
+  subcategoryId?: string;
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   onApply: () => void;
@@ -178,7 +182,11 @@ export function AdvancedFilterPanel({
                 items={extraFilters.filter(
                   (ef) =>
                     ef.type === tab.id &&
-                    extraFilterMatchesParent(ef, parentCategoryId || null)
+                    extraFilterMatchesScope(ef, {
+                      parentId: parentCategoryId || null,
+                      categoryId: categoryId || null,
+                      subcategoryId: subcategoryId || null,
+                    })
                 )}
                 selectedIds={selectedIds}
                 onToggle={toggle}

@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { usePathname } from "@/i18n/routing";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   LISTINGS_SYNC_EVENT,
   addRoomToListing,
@@ -50,16 +49,46 @@ export {
   filterHostListings,
 };
 
-async function fetchSharedListings(): Promise<SubmittedListing[]> {
-  // Host/admin dashboards need the full (hard-capped) set, not a public search page.
-  const res = await fetch("/api/listings?all=1", { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load listings");
-  const data = (await res.json()) as { listings: SubmittedListing[] };
-  const listings = (data.listings ?? []).map(normalizeSubmittedListing);
-  // Silent mirror — caller already updates React state. Emitting sync here
-  // re-entered listeners and could cancel the in-flight `ready` flag.
-  replaceListingsMirror(listings, { emit: false });
-  return listings;
+let sharedListingsInflight: Promise<SubmittedListing[]> | null = null;
+let sharedListingsCache: SubmittedListing[] | null = null;
+let sharedListingsFetchedAt = 0;
+const SHARED_LISTINGS_TTL_MS = 8_000;
+
+function sharedListingsFetchUrl(): string {
+  if (typeof window !== "undefined" && window.location.pathname.includes("/admin")) {
+    return "/api/listings?all=1";
+  }
+  return "/api/listings";
+}
+
+async function fetchSharedListings(force = false): Promise<SubmittedListing[]> {
+  if (sharedListingsInflight) return sharedListingsInflight;
+  if (
+    !force &&
+    sharedListingsCache &&
+    Date.now() - sharedListingsFetchedAt < SHARED_LISTINGS_TTL_MS
+  ) {
+    return sharedListingsCache;
+  }
+  sharedListingsInflight = (async () => {
+    try {
+      const res = await fetch(sharedListingsFetchUrl(), { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load listings");
+      const data = (await res.json()) as { listings: SubmittedListing[] };
+      const listings = (data.listings ?? []).map(normalizeSubmittedListing);
+      replaceListingsMirror(listings, { emit: false });
+      sharedListingsCache = listings;
+      sharedListingsFetchedAt = Date.now();
+      return listings;
+    } catch {
+      return sharedListingsCache ?? loadMirroredSubmissions();
+    }
+  })();
+  try {
+    return await sharedListingsInflight;
+  } finally {
+    sharedListingsInflight = null;
+  }
 }
 
 async function postListingAction(body: unknown) {
@@ -68,29 +97,21 @@ async function postListingAction(body: unknown) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(
-        (err as { error?: string }).error || `Listing request failed (${res.status})`
-      );
-    }
-  return res.json();
-}
-
-function pathNeedsAllListings(pathname: string) {
-  if (/\/(host|admin)\/(login|signup|forgot-password|reset-password)/.test(pathname)) {
-    return false;
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(
+      (err as { error?: string }).error || `Listing request failed (${res.status})`
+    );
   }
-  return pathname.includes("/host") || pathname.includes("/admin");
+  return res.json();
 }
 
 export function useListingSubmissionsStore() {
   const shared = isSharedListingsEnabled();
-  const pathname = usePathname();
-  const needsAllListings = pathNeedsAllListings(pathname);
   // Always start empty so SSR + first client paint match (avoid hydration errors).
   const [all, setAll] = useState<SubmittedListing[]>([]);
   const [ready, setReady] = useState(false);
+  const [loadActive, setLoadActive] = useState(false);
 
   const refresh = useCallback(async () => {
     if (shared) {
@@ -108,26 +129,43 @@ export function useListingSubmissionsStore() {
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
 
-  useEffect(() => {
+  const ensureLoaded = useCallback(() => {
+    setLoadActive(true);
+  }, []);
+
+  // Hydrate local mirror before paint; no network fetch until ensureLoaded().
+  useLayoutEffect(() => {
+    if (shared) {
+      const mirrored = loadMirroredSubmissions();
+      if (mirrored.length > 0) {
+        setAll(mirrored);
+        sharedListingsCache = mirrored;
+        sharedListingsFetchedAt = Date.now();
+      }
+    }
+  }, [shared]);
+
+  useLayoutEffect(() => {
+    if (!loadActive) {
+      setReady(true);
+      return;
+    }
+
     let cancelled = false;
 
-    if (!needsAllListings) {
-      if (shared) {
-        const mirrored = loadMirroredSubmissions();
-        if (mirrored.length > 0) setAll(mirrored);
-      }
+    if (!shared) {
+      setAll(loadAllSubmissions());
       setReady(true);
       return () => {
         cancelled = true;
       };
     }
 
-    if (shared) {
-      const mirrored = loadMirroredSubmissions();
-      if (mirrored.length > 0) setAll(mirrored);
-    } else {
-      setAll(loadAllSubmissions());
+    const mirrored = loadMirroredSubmissions();
+    if (mirrored.length > 0) {
+      setAll(mirrored);
     }
+    setReady(true);
 
     (async () => {
       try {
@@ -164,9 +202,7 @@ export function useListingSubmissionsStore() {
       window.removeEventListener("storage", onStorage);
       if (poll) window.clearInterval(poll);
     };
-    // Intentionally only re-bind when shared mode or dashboard path flips.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shared, needsAllListings]);
+  }, [loadActive, shared]);
 
   const pending = all.filter((l) => l.status === "pending");
   const active = all.filter((l) => l.status === "approved");
@@ -182,6 +218,7 @@ export function useListingSubmissionsStore() {
     activeCount: active.length,
     flaggedCount,
     ready,
+    ensureLoaded,
     refresh,
     shared,
     submit: async (input: SubmitListingInput) => {
@@ -370,4 +407,3 @@ export function useListingSubmissionsStore() {
     },
   };
 }
-

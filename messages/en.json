@@ -4,6 +4,7 @@
     "brandShort": "Greenfield",
     "brandTagline": "Farm Stays",
     "search": "Search",
+    "all": "All",
     "viewAll": "View All",
     "bookNow": "Book Now",
     "checkAvailability": "Check Availability",
@@ -163,6 +164,7 @@
       "reviews": "Reviews",
       "policies": "Policies"
     },
+    "availabilityCalendar": "Availability calendar",
     "aboutTitle": "About this stay",
     "propertyHighlights": "Property Highlights",
     "roomsTitle": "Rooms & Prices",

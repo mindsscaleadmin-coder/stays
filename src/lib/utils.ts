@@ -6,6 +6,10 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+export function isDataImageUrl(src?: string | null): boolean {
+  return typeof src === "string" && src.startsWith("data:");
+}
+
 /** Deterministic thousands grouping (avoids Node vs browser locale hydration mismatches). */
 export function formatAmount(amount: number): string {
   const n = Math.round(Number.isFinite(amount) ? amount : 0);

@@ -58,7 +58,7 @@ export function HostCalendarContent() {
   const calendarSyncEnabled = platformConfig.features.hostFeatures.calendarSync;
   const hostId = resolveHostId(user);
   const hostName = resolveHostName(user);
-  const { all, ready: listingsReady } = useListingSubmissions();
+  const { all, ready: listingsReady } = useListingSubmissions({ load: true });
   const submissions = useMemo(
     () => filterHostListings(all, hostId ?? "", hostName),
     [all, hostId, hostName]

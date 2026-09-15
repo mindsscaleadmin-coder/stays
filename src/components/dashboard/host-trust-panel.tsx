@@ -50,7 +50,7 @@ export function HostTrustPanel() {
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-green-700" />
-          <h4 className="text-sm font-semibold text-gray-900">ID / document verification</h4>
+          <h4 className="font-display text-sm font-semibold text-gray-900">ID / document verification</h4>
         </div>
         <p className="text-sm text-gray-600 flex flex-wrap items-center gap-1.5">
           Status:{" "}
@@ -81,7 +81,7 @@ export function HostTrustPanel() {
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <Award className="w-4 h-4 text-green-700" />
-          <h4 className="text-sm font-semibold text-gray-900">Farm certification badges</h4>
+          <h4 className="font-display text-sm font-semibold text-gray-900">Farm certification badges</h4>
         </div>
         <p className="text-xs text-gray-500">
           Apply for a badge, then an admin reviews it under Admin → Trust → Certificates.
@@ -174,7 +174,7 @@ export function HostTrustPanel() {
       </section>
 
       <section className="space-y-3">
-        <h4 className="text-sm font-semibold text-gray-900">Safety compliance checklist</h4>
+        <h4 className="font-display text-sm font-semibold text-gray-900">Safety compliance checklist</h4>
         <ul className="space-y-2">
           {data.safetyChecklist.map((item) => (
             <li

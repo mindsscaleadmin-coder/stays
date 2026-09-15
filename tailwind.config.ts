@@ -29,6 +29,16 @@ const config: Config = {
         sans: ["var(--font-inter)", "system-ui", "sans-serif"],
         display: ["var(--font-poppins)", "system-ui", "sans-serif"],
       },
+      fontSize: {
+        "2xs": ["0.625rem", { lineHeight: "0.875rem" }],
+        "3xs": ["0.6875rem", { lineHeight: "1rem" }],
+        "body-sm": ["0.8125rem", { lineHeight: "1.25rem" }],
+        "body-md": ["0.9375rem", { lineHeight: "1.375rem" }],
+        "heading-sm": ["1.0625rem", { lineHeight: "1.5rem" }],
+        "display-sm": ["1.625rem", { lineHeight: "1.15" }],
+        "display-lg": ["2rem", { lineHeight: "1.15" }],
+        "display-md": ["2.125rem", { lineHeight: "1" }],
+      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",

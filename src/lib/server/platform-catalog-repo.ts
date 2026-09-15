@@ -79,9 +79,12 @@ export async function getTaxonomyFromDb(): Promise<TaxonomyData> {
     const missingCategoryLayer =
       !parsed.categories?.length ||
       !(parsed.mainTabs ?? []).some((tab) => tab.id === "category");
-    if (missingCategoryLayer) {
+    const mainTabsChanged =
+      JSON.stringify(normalized.mainTabs) !== JSON.stringify(parsed.mainTabs ?? []);
+    if (missingCategoryLayer || mainTabsChanged) {
       await savePayload(CATALOG_KEYS.taxonomy, normalized);
     }
+
     return normalized;
   } catch {
     return SEED_TAXONOMY;
@@ -91,6 +94,7 @@ export async function getTaxonomyFromDb(): Promise<TaxonomyData> {
 export async function saveTaxonomyToDb(data: TaxonomyData): Promise<TaxonomyData> {
   const next = normalizeTaxonomy(data);
   await savePayload(CATALOG_KEYS.taxonomy, next);
+
   return next;
 }
 

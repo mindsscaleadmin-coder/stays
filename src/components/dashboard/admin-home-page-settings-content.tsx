@@ -17,6 +17,7 @@ import {
   HOME_PAGE_BANNER_SPECS,
   HOME_PAGE_FAVICON_SPECS,
 } from "@/lib/admin/home-page-settings-types";
+import { loadFaviconUrl, loadHeroBannerUrl } from "@/lib/admin/home-page-settings-data";
 import { HERO_BG } from "@/lib/mock/data";
 import { cn } from "@/lib/utils";
 
@@ -68,7 +69,8 @@ export function AdminHomePageSettingsContent() {
 
   const banner = settings.heroBanner;
   const favicon = settings.favicon;
-  const previewSrc = banner?.url || HERO_BG;
+  const previewSrc = banner?.url || loadHeroBannerUrl() || HERO_BG;
+  const faviconPreviewSrc = favicon?.url || loadFaviconUrl();
 
   function flash(text: string) {
     setMessage(text);
@@ -326,9 +328,9 @@ export function AdminHomePageSettingsContent() {
 
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="w-16 h-16 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden shrink-0">
-            {favicon?.url ? (
+            {faviconPreviewSrc ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={favicon.url} alt="Favicon preview" className="w-10 h-10 object-contain" />
+              <img src={faviconPreviewSrc} alt="Favicon preview" className="w-10 h-10 object-contain" />
             ) : (
               <span className="text-[10px] text-gray-400 text-center px-1">Default</span>
             )}

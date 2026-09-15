@@ -3,8 +3,9 @@ import { currencyForCountryName } from "@/lib/currency";
 import { payingGuestsCapacity, readGuestPartyFromFilters } from "./guest-capacity";
 import type { SubmittedListing } from "./submission-types";
 
-const DEFAULT_IMG =
+export const LISTING_PLACEHOLDER_IMG =
   "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1200";
+const DEFAULT_IMG = LISTING_PLACEHOLDER_IMG;
 
 function parseCount(label: string, value: string, fallback: number): number {
   const match = value.match(/\d+/);

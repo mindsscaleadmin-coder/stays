@@ -16,8 +16,8 @@ import {
 import type { StaffMember, StaffMemberInput } from "./staff-types";
 
 export function useAdminStaff() {
-  const [staff, setStaff] = useState<StaffMember[]>([]);
-  const [ready, setReady] = useState(false);
+  const [staff, setStaff] = useState<StaffMember[]>(() => loadStaffMembers());
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedAdminStaff();
 
   const refresh = useCallback(async () => {

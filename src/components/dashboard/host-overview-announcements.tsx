@@ -114,7 +114,7 @@ export function HostOverviewAnnouncements({
                 <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 leading-none">
                   Announcement
                 </p>
-                <p className="text-sm font-semibold text-amber-950 mt-0.5 leading-snug truncate">
+                <p className="font-display text-sm font-semibold text-amber-950 mt-0.5 leading-snug truncate">
                   {banner.title}
                 </p>
                 <p className="text-xs text-amber-900/80 mt-0.5 line-clamp-2 whitespace-pre-wrap leading-snug">

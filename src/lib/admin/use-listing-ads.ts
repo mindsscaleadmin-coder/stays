@@ -14,8 +14,8 @@ import {
 import type { ListingAdsSettings, ListingSidebarAd } from "./listing-ads-types";
 
 export function useListingAds() {
-  const [settings, setSettings] = useState<ListingAdsSettings | null>(null);
-  const [ready, setReady] = useState(false);
+  const [settings, setSettings] = useState<ListingAdsSettings | null>(() => loadListingAds());
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedListingAds();
 
   const refresh = useCallback(async () => {

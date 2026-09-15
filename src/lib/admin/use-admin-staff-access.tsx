@@ -86,7 +86,8 @@ function useAdminStaffAccessState() {
     return resolveStaffForAdminEmail(user.email);
   }, [user, isAdmin, shared, apiStaff]);
 
-  const ready = !isAdmin || !shared || apiStaff !== undefined || !!staff;
+  // Stale-while-revalidate: local staff is enough to render nav; API refines permissions.
+  const ready = !isAdmin || !user || !shared || apiStaff !== undefined || !!staff;
 
   const can = useCallback(
     (permission: StaffPermission) => staffHasPermission(staff, permission),

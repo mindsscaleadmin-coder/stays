@@ -14,7 +14,6 @@ import {
   BadgeCheck,
 } from "lucide-react";
 import { useTranslations, useLocale } from "next-intl";
-import { MegaMenu, useHeaderNav } from "./mega-menu";
 import { useCountry } from "@/components/providers/country-provider";
 import { useAuth } from "@/components/providers/auth-provider";
 import { ListPropertyLink } from "@/components/auth/list-property-link";
@@ -26,9 +25,13 @@ import { cn } from "@/lib/utils";
 
 function CountrySwitcher() {
   const { country, setCountry, enabledCountries, allCountries } = useCountry();
-  const locale = useLocale();
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -38,11 +41,28 @@ function CountrySwitcher() {
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
+  const countryBadge = (
+    <>
+      <span className="text-base leading-none">{country.flag}</span>
+      <span>{country.code}</span>
+    </>
+  );
+
+  if (!mounted) {
+    return (
+      <div
+        className="hidden lg:flex items-center gap-1.5 border border-gray-200 text-gray-500 text-xs font-medium px-2.5 py-1.5 rounded-lg select-none"
+        aria-hidden
+      >
+        {countryBadge}
+      </div>
+    );
+  }
+
   if (enabledCountries.length <= 1) {
     return (
       <div className="hidden lg:flex items-center gap-1.5 border border-gray-200 text-gray-500 text-xs font-medium px-2.5 py-1.5 rounded-lg select-none">
-        <span className="text-base leading-none">{country.flag}</span>
-        <span>{country.code}</span>
+        {countryBadge}
       </div>
     );
   }
@@ -54,8 +74,7 @@ function CountrySwitcher() {
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 border border-gray-200 hover:border-green-400 text-gray-500 hover:text-green-700 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
       >
-        <span className="text-base leading-none">{country.flag}</span>
-        <span>{country.code}</span>
+        {countryBadge}
         <ChevronDown className={`w-3 h-3 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
@@ -154,18 +173,22 @@ export function Header() {
   const router = useRouter();
   const { user, loading, isAdmin, isHost, signOut } = useAuth();
   const dashboardChrome = isDashboardChromePath(pathname);
-  const headerNav = useHeaderNav();
   const [hostHref, setHostHref] = useState("/host/login");
   const [profileHref, setProfileHref] = useState("/account");
   const [verifyHref, setVerifyHref] = useState("/account/verify");
   const [menuOpen, setMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [mobileExpanded, setMobileExpanded] = useState<string | null>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    setHostHref(isHost ? "/host" : "/host/login");
-  }, [isHost]);
+    if (isHost) {
+      setHostHref("/host");
+    } else if (user) {
+      setHostHref("/host/signup");
+    } else {
+      setHostHref("/host/login");
+    }
+  }, [isHost, user]);
 
   useEffect(() => {
     if (isAdmin) {
@@ -201,11 +224,11 @@ export function Header() {
   return (
     <header
       className={cn(
-        "bg-white shadow-sm sticky top-0 z-[70] pt-[env(safe-area-inset-top)]",
+        "relative z-[100] w-full min-w-0 bg-white shadow-sm",
         dashboardChrome && "lg:border-b lg:border-gray-100"
       )}
     >
-      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+      <div className="site-page-container py-3 flex items-center justify-between gap-3">
         <Link href="/" className="relative z-[80] flex items-center gap-2 shrink-0">
           <div className="w-9 h-9 bg-green-700 rounded-lg flex items-center justify-center">
             <Leaf className="w-5 h-5 text-white" />
@@ -220,11 +243,7 @@ export function Header() {
           </div>
         </Link>
 
-        <div className="flex-1 flex justify-center overflow-visible">
-          {!dashboardChrome ? <MegaMenu /> : null}
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 ms-auto">
           <CountrySwitcher />
           <Link
             href={isAdmin ? "/admin" : "/admin/login"}
@@ -324,45 +343,6 @@ export function Header() {
 
       {menuOpen && (
         <div className="lg:hidden bg-white border-t overflow-y-auto max-h-[75vh]">
-          {headerNav.map((item) => (
-              <div key={item.id} className="border-b border-gray-50">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setMobileExpanded(mobileExpanded === item.id ? null : item.id)
-                  }
-                  className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-                >
-                  {item.label}
-                  <ChevronDown
-                    className={`w-4 h-4 text-gray-400 transition-transform ${mobileExpanded === item.id ? "rotate-180" : ""}`}
-                  />
-                </button>
-                {mobileExpanded === item.id ? (
-                  <div className="bg-gray-50 px-4 pb-3">
-                    {item.groups.map((group) => (
-                      <div key={group.title} className="mt-3">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
-                          {group.title}
-                        </p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {group.links.map((link) => (
-                            <Link
-                              key={`${link.href}-${link.label}`}
-                              href={link.href}
-                              onClick={() => setMenuOpen(false)}
-                              className="text-xs bg-white border border-gray-200 text-gray-600 hover:border-green-400 hover:text-green-700 px-2.5 py-1 rounded-full transition-colors"
-                            >
-                              {link.label}
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ))}
           <div className="p-4 border-t border-gray-100 space-y-2">
             <MobileCountryPicker onPick={() => setMenuOpen(false)} />
             <Link

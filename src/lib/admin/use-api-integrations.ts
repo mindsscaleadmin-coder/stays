@@ -16,7 +16,7 @@ import {
 
 export function useApiIntegrations() {
   const [items, setItems] = useState<ApiIntegration[]>(DEFAULT_API_INTEGRATIONS);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(true);
 
   const refresh = useCallback(() => {
     setItems(loadApiIntegrations());

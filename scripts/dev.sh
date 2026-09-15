@@ -80,6 +80,14 @@ stop_stale_dev_servers() {
   # Safe here: our own wrapper is `npm run dev`, and next dev starts later.
   pkill -9 -f "npm exec next dev" 2>/dev/null || true
   sleep 0.5
+
+  # Stale watchers rewrite .next under the new server → 500s with
+  # "module factory is not available ... deleted in an HMR update".
+  if [ -d ".next" ]; then
+    echo "Clearing .next cache (stale dev server left a corrupted Turbopack build)..."
+    chmod -R u+w .next 2>/dev/null || true
+    rm -rf .next
+  fi
 }
 
 load_dotenv() {

@@ -27,7 +27,7 @@ export function AnnouncementBar({ preview = false }: AnnouncementBarProps) {
 
   return (
     <div
-      className="bg-amber-400 text-gray-900 text-xs py-1.5 announcement-marquee-wrapper"
+      className="w-full min-w-0 bg-amber-400 text-gray-900 text-xs py-1.5 announcement-marquee-wrapper"
       aria-label="Site announcements"
     >
       <div className="announcement-marquee-track">

@@ -109,7 +109,7 @@ export function AdminGuestReviewsSettingsPanel() {
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+          <h4 className="font-display text-sm font-semibold text-gray-900 flex items-center gap-2">
             <Star className="w-4 h-4 text-amber-500" />
             Rating breakdown
           </h4>
@@ -237,7 +237,7 @@ export function AdminGuestReviewsSettingsPanel() {
 
       <div className="space-y-3 border-t pt-5">
         <div className="flex items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-gray-900">Sample guest reviews</h4>
+          <h4 className="font-display text-sm font-semibold text-gray-900">Sample guest reviews</h4>
           <button
             type="button"
             onClick={() => {

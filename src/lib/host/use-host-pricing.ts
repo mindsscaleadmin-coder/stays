@@ -24,8 +24,10 @@ import type {
 } from "./host-pricing-types";
 
 export function useHostPricing(listingId?: string, country?: CountryPricingConfig) {
-  const [settings, setSettings] = useState<ListingPricingSettings | null>(null);
-  const [ready, setReady] = useState(false);
+  const [settings, setSettings] = useState<ListingPricingSettings | null>(() =>
+    listingId ? loadPricingSettings(listingId, country) : null
+  );
+  const [ready, setReady] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
   const shared = shouldUseSharedPricingStore();
 

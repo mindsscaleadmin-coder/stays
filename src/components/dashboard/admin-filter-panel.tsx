@@ -2,45 +2,81 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Filter, Layers, Pencil, Plus, Sparkles, Trash2, X, Check } from "lucide-react";
-import { Link, useRouter } from "@/i18n/routing";
-import { useSearchParams } from "next/navigation";
+import { Link } from "@/i18n/routing";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import type { FilterTab } from "@/lib/admin/taxonomy-types";
 import {
   isBuiltInMainTab,
   isDefaultPropertyTab,
   isFilterEnabled,
+  mergeMainTabs,
   resolveBuiltInMainTabId,
 } from "@/lib/admin/taxonomy-types";
+import { parseBulkNames } from "@/lib/admin/parse-bulk-names";
 import { cn } from "@/lib/utils";
 
 interface AdminFilterPanelProps {
   showTitle?: boolean;
+  tabParam?: string | null;
+  countryFromUrl?: string;
+  stateFromUrl?: string;
+  districtFromUrl?: string;
+  onNavigate?: (href: string) => void;
 }
 
-export function AdminFilterPanel({ showTitle = true }: AdminFilterPanelProps) {
+export function AdminFilterPanel({
+  showTitle = true,
+  tabParam = null,
+  countryFromUrl = "",
+  stateFromUrl = "",
+  districtFromUrl = "",
+  onNavigate,
+}: AdminFilterPanelProps) {
+  return (
+    <AdminFilterPanelBody
+      showTitle={showTitle}
+      tabParam={tabParam}
+      countryFromUrl={countryFromUrl}
+      stateFromUrl={stateFromUrl}
+      districtFromUrl={districtFromUrl}
+      onNavigate={onNavigate}
+    />
+  );
+}
+
+function AdminFilterPanelBody({
+  showTitle = true,
+  tabParam = null,
+  countryFromUrl = "",
+  stateFromUrl = "",
+  districtFromUrl = "",
+  onNavigate,
+}: AdminFilterPanelProps) {
   const taxonomy = useAdminTaxonomy();
   const { data, ready, addMainTab, editMainTab, deleteMainTab, setMainTabEnabled } = taxonomy;
-  const allTabs = data.mainTabs;
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const tabParam = searchParams.get("tab");
-  const countryFromUrl = searchParams.get("country") || "";
-  const stateFromUrl = searchParams.get("state") || "";
-  const districtFromUrl = searchParams.get("district") || "";
+  const allTabs = useMemo(() => mergeMainTabs(data.mainTabs), [data.mainTabs]);
   const allowedTabIds = allTabs.map((t) => t.id);
   const activeTab =
     tabParam && allowedTabIds.includes(tabParam) ? tabParam : (allowedTabIds[0] ?? "country");
   const [addingTab, setAddingTab] = useState(false);
 
+  useEffect(() => {
+    if (!onNavigate || !tabParam || allowedTabIds.includes(tabParam)) return;
+    const fallback = allowedTabIds[0] ?? "country";
+    const params = new URLSearchParams();
+    params.set("tab", fallback);
+    onNavigate(`/admin/settings/filters?${params.toString()}`);
+  }, [tabParam, allowedTabIds, onNavigate]);
+
   function selectTab(id: string) {
+    if (!onNavigate) return;
     const params = new URLSearchParams();
     params.set("tab", id);
     const geoTabs = new Set(["state", "district", "city"]);
     if (geoTabs.has(id) && countryFromUrl) params.set("country", countryFromUrl);
     if ((id === "district" || id === "city") && stateFromUrl) params.set("state", stateFromUrl);
     if (id === "city" && districtFromUrl) params.set("district", districtFromUrl);
-    router.replace(`/admin/settings/filters?${params.toString()}`);
+    onNavigate(`/admin/settings/filters?${params.toString()}`);
   }
 
   if (!ready) {
@@ -55,7 +91,7 @@ export function AdminFilterPanel({ showTitle = true }: AdminFilterPanelProps) {
     <div className="bg-white rounded-2xl border shadow-sm">
       <div className="p-5 border-b">
         {showTitle && (
-          <h3 className="font-bold text-gray-900 flex items-center gap-2">
+          <h3 className="font-display font-bold text-gray-900 flex items-center gap-2">
             <Filter className="w-4 h-4 text-green-600" />
             Filter control panel
           </h3>
@@ -69,6 +105,7 @@ export function AdminFilterPanel({ showTitle = true }: AdminFilterPanelProps) {
 
       <FilterTabBar
         tabs={allTabs}
+        orderMainTabs
         activeTab={activeTab}
         onSelect={selectTab}
         accent="green"
@@ -131,14 +168,14 @@ export function AdminExtraFiltersPanel() {
   return (
     <div className="bg-white rounded-2xl border shadow-sm">
       <div className="p-5 border-b">
-        <h3 className="font-bold text-gray-900 flex items-center gap-2">
+        <h3 className="font-display font-bold text-gray-900 flex items-center gap-2">
           <Layers className="w-4 h-4 text-blue-600" />
           Extra filters
         </h3>
         <p className="text-xs text-gray-500 mt-0.5">
           Amenities, tags, price ranges, and activities for search and listing filters. Optionally
-          tag each option to a parent category (Stays, Experiences, …) so listing forms only show
-          relevant choices. Leave parent as All to show everywhere. Toggle Active to show or hide
+          tag each option to a parent category, category, and sub category so listing forms only show
+          relevant choices. Leave scopes as All to show everywhere. Toggle Active to show or hide
           options.
         </p>
       </div>
@@ -187,7 +224,7 @@ export function AdminFeatureFiltersPanel() {
   return (
     <div className="bg-white rounded-2xl border shadow-sm">
       <div className="p-5 border-b">
-        <h3 className="font-bold text-gray-900 flex items-center gap-2">
+        <h3 className="font-display font-bold text-gray-900 flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-violet-600" />
           Feature filters
         </h3>
@@ -220,8 +257,8 @@ export function AdminFeatureFiltersPanel() {
               parentValue: sc.parentId,
             }))}
           tagLabel="Sub category"
-          onAdd={(name, pid, tagId) => addFeatureFilter(name, pid!, tagId)}
-          onEdit={(id, name, pid, tagId) => editFeatureFilter(id, name, pid!, tagId)}
+          onAdd={(name, pid, _cat, tagId) => addFeatureFilter(name, pid!, tagId)}
+          onEdit={(id, name, pid, _cat, tagId) => editFeatureFilter(id, name, pid!, tagId)}
           onDelete={deleteFeatureFilter}
           onToggleEnabled={setFeatureFilterEnabled}
           placeholder="e.g. Private Pool"
@@ -242,6 +279,7 @@ function FilterTabBar({
   deleteLockReason,
   onToggleEnabled,
   onAddingChange,
+  orderMainTabs = false,
 }: {
   tabs: FilterTab[];
   activeTab: string;
@@ -255,7 +293,13 @@ function FilterTabBar({
   deleteLockReason?: (tab: FilterTab) => string | null;
   onToggleEnabled?: (id: string, enabled: boolean) => void;
   onAddingChange?: (adding: boolean) => void;
+  /** Canonicalize built-in + subcategory extension tab order (Filter control panel). */
+  orderMainTabs?: boolean;
 }) {
+  const displayTabs = useMemo(
+    () => (orderMainTabs ? mergeMainTabs(tabs) : tabs),
+    [orderMainTabs, tabs]
+  );
   const [adding, setAdding] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [editing, setEditing] = useState(false);
@@ -263,7 +307,7 @@ function FilterTabBar({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [notice, setNotice] = useState("");
 
-  const active = tabs.find((t) => t.id === activeTab);
+  const active = displayTabs.find((t) => t.id === activeTab);
   const activeEnabled = isFilterEnabled(active);
   const lockReason = active ? (deleteLockReason?.(active) ?? null) : null;
 
@@ -323,7 +367,7 @@ function FilterTabBar({
   return (
     <div className="border-b bg-gray-50">
       <div className="flex flex-wrap items-center gap-2 p-3">
-        {tabs.map((tab) => {
+        {displayTabs.map((tab) => {
           const enabled = isFilterEnabled(tab);
           return (
             <button
@@ -667,6 +711,7 @@ function MainTabContent({
               id: c.id,
               name: c.name,
               enabled: isFilterEnabled(c),
+              parentId: c.parentId,
               parentLabel: data.parents.find((p) => p.id === c.parentId)?.name ?? "—",
             }))}
             parentOptions={data.parents
@@ -695,6 +740,7 @@ function MainTabContent({
                 id: sc.id,
                 name: sc.name,
                 enabled: isFilterEnabled(sc),
+                parentId: sc.categoryId,
                 parentLabel: cat
                   ? parentName
                     ? `${cat.name} (${parentName})`
@@ -747,11 +793,11 @@ function MainTabContent({
           };
         })}
       tagLabel="Sub category"
-      onAdd={(name, _pid, tagId) => taxonomy.addCustomItem(tabId, name, tagId)}
-      onEdit={(id, name, _pid, tagId) => taxonomy.editCustomItem(tabId, id, name, tagId)}
+      onAdd={(name, _pid, _cat, tagId) => taxonomy.addCustomItem(tabId, name, tagId)}
+      onEdit={(id, name, _pid, _cat, tagId) => taxonomy.editCustomItem(tabId, id, name, tagId)}
       onDelete={(id) => taxonomy.deleteCustomItem(tabId, id)}
       onToggleEnabled={(id, enabled) => taxonomy.setCustomItemEnabled(tabId, id, enabled)}
-      placeholder="Enter filter value..."
+      placeholder="e.g. WiFi, Pet Friendly, Pool"
     />
   );
 }
@@ -781,17 +827,56 @@ function ExtraTabContent({
         parentLabel: ef.parentId
           ? data.parents.find((p) => p.id === ef.parentId)?.name ?? "—"
           : "All parents",
+        categoryId: ef.categoryId,
+        categoryLabel: ef.categoryId
+          ? (data.categories ?? []).find((c) => c.id === ef.categoryId)?.name ?? "—"
+          : "All categories",
+        tagId: ef.subcategoryId,
+        tagLabel: ef.subcategoryId
+          ? data.subcategories.find((sc) => sc.id === ef.subcategoryId)?.name
+          : "All sub categories",
       }))}
       parentOptions={data.parents
         .filter((p) => isFilterEnabled(p))
         .map((p) => ({ value: p.id, label: p.name }))}
       parentLabel="Parent category"
       parentOptional
-      onAdd={(name, pid) => addExtraFilter(name, tabId, pid)}
-      onEdit={(id, name, pid) => editExtraFilter(id, name, pid)}
+      categoryOptions={(data.categories ?? [])
+        .filter((c) => isFilterEnabled(c))
+        .map((c) => {
+          const parentName = data.parents.find((p) => p.id === c.parentId)?.name;
+          return {
+            value: c.id,
+            label: parentName ? `${c.name} (${parentName})` : c.name,
+            parentValue: c.parentId,
+          };
+        })}
+      categoryLabel="Category"
+      tagOptions={data.subcategories
+        .filter((sc) => isFilterEnabled(sc))
+        .map((sc) => {
+          const cat = (data.categories ?? []).find((c) => c.id === sc.categoryId);
+          const parentName = data.parents.find((p) => p.id === sc.parentId)?.name;
+          const label = cat
+            ? parentName
+              ? `${sc.name} · ${cat.name} (${parentName})`
+              : `${sc.name} · ${cat.name}`
+            : parentName
+              ? `${sc.name} (${parentName})`
+              : sc.name;
+          return {
+            value: sc.id,
+            label,
+            parentValue: sc.parentId,
+            categoryValue: sc.categoryId,
+          };
+        })}
+      tagLabel="Sub category"
+      onAdd={(name, pid, catId, subId) => addExtraFilter(name, tabId, pid, catId, subId)}
+      onEdit={(id, name, pid, catId, subId) => editExtraFilter(id, name, pid, catId, subId)}
       onDelete={deleteExtraFilter}
       onToggleEnabled={setExtraFilterEnabled}
-      placeholder="Enter filter value..."
+      placeholder="e.g. WiFi, Pet Friendly, Pool"
     />
   );
 }
@@ -801,6 +886,8 @@ interface CrudItem {
   name: string;
   parentId?: string;
   parentLabel?: string;
+  categoryId?: string;
+  categoryLabel?: string;
   groupId?: string;
   midId?: string;
   midLabel?: string;
@@ -820,6 +907,8 @@ function ItemCrud({
   parentOptions,
   parentLabel,
   parentOptional = false,
+  categoryOptions,
+  categoryLabel,
   tagOptions,
   tagLabel,
   placeholder,
@@ -847,11 +936,19 @@ function ItemCrud({
   parentLabel?: string;
   /** When true, parent/tag select may be left as "All". */
   parentOptional?: boolean;
-  tagOptions?: { value: string; label: string; parentValue?: string }[];
+  categoryOptions?: { value: string; label: string; parentValue?: string }[];
+  categoryLabel?: string;
+  tagOptions?: { value: string; label: string; parentValue?: string; categoryValue?: string }[];
   tagLabel?: string;
   placeholder: string;
-  onAdd: (name: string, parentId?: string, tagId?: string) => void;
-  onEdit: (id: string, name: string, parentId?: string, tagId?: string) => void;
+  onAdd: (names: string[], parentId?: string, categoryId?: string, subcategoryId?: string) => void;
+  onEdit: (
+    id: string,
+    name: string,
+    parentId?: string,
+    categoryId?: string,
+    subcategoryId?: string
+  ) => void;
   onDelete: (id: string) => void;
   onToggleEnabled?: (id: string, enabled: boolean) => void;
   hideAdd?: boolean;
@@ -869,13 +966,16 @@ function ItemCrud({
   requireParentScope?: boolean;
 }) {
   const [addName, setAddName] = useState("");
+  const pendingNames = useMemo(() => parseBulkNames(addName), [addName]);
   const [addParentId, setAddParentId] = useState(
     parentOptional || requireParentScope ? "" : parentOptions?.[0]?.value ?? ""
   );
+  const [addCategoryId, setAddCategoryId] = useState("");
   const [addTagId, setAddTagId] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editParentId, setEditParentId] = useState("");
+  const [editCategoryId, setEditCategoryId] = useState("");
   const [editTagId, setEditTagId] = useState("");
   const [addError, setAddError] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -892,8 +992,10 @@ function ItemCrud({
   const [page, setPage] = useState(1);
 
   const needsParent = Boolean(parentOptions?.length) && Boolean(parentLabel);
+  const needsCategory = Boolean(categoryOptions?.length) && Boolean(categoryLabel);
   const needsTag = Boolean(tagLabel);
   const hasParents = (parentOptions?.length ?? 0) > 0;
+  const hasCategories = (categoryOptions?.length ?? 0) > 0;
   const hasTags = (tagOptions?.length ?? 0) > 0;
 
   useEffect(() => {
@@ -929,17 +1031,41 @@ function ItemCrud({
     });
   }, [parentOptions, groupId, midId]);
 
+  const filteredAddCategories = useMemo(() => {
+    if (!categoryOptions?.length) return [];
+    if (!addParentId) return categoryOptions;
+    return categoryOptions.filter((o) => !o.parentValue || o.parentValue === addParentId);
+  }, [categoryOptions, addParentId]);
+
+  const filteredEditCategories = useMemo(() => {
+    if (!categoryOptions?.length) return [];
+    if (!editParentId) return categoryOptions;
+    return categoryOptions.filter((o) => !o.parentValue || o.parentValue === editParentId);
+  }, [categoryOptions, editParentId]);
+
   const filteredAddTags = useMemo(() => {
     if (!tagOptions?.length) return [];
-    if (!needsParent || !addParentId) return tagOptions;
-    return tagOptions.filter((o) => !o.parentValue || o.parentValue === addParentId);
-  }, [tagOptions, needsParent, addParentId]);
+    return tagOptions.filter((o) => {
+      if (addParentId && o.parentValue && o.parentValue !== addParentId) return false;
+      if (addCategoryId && o.categoryValue && o.categoryValue !== addCategoryId) return false;
+      if (!needsCategory && needsParent && addParentId) {
+        return !o.parentValue || o.parentValue === addParentId;
+      }
+      return true;
+    });
+  }, [tagOptions, needsCategory, needsParent, addParentId, addCategoryId]);
 
   const filteredEditTags = useMemo(() => {
     if (!tagOptions?.length) return [];
-    if (!needsParent || !editParentId) return tagOptions;
-    return tagOptions.filter((o) => !o.parentValue || o.parentValue === editParentId);
-  }, [tagOptions, needsParent, editParentId]);
+    return tagOptions.filter((o) => {
+      if (editParentId && o.parentValue && o.parentValue !== editParentId) return false;
+      if (editCategoryId && o.categoryValue && o.categoryValue !== editCategoryId) return false;
+      if (!needsCategory && needsParent && editParentId) {
+        return !o.parentValue || o.parentValue === editParentId;
+      }
+      return true;
+    });
+  }, [tagOptions, needsCategory, needsParent, editParentId, editCategoryId]);
 
   useEffect(() => {
     if (!parentOptions?.length) {
@@ -953,10 +1079,22 @@ function ItemCrud({
   }, [parentOptions, scopedParentOptions, addParentId, parentOptional, requireParentScope]);
 
   useEffect(() => {
+    if (addCategoryId && !filteredAddCategories.some((o) => o.value === addCategoryId)) {
+      setAddCategoryId("");
+    }
+  }, [filteredAddCategories, addCategoryId]);
+
+  useEffect(() => {
     if (addTagId && !filteredAddTags.some((o) => o.value === addTagId)) {
       setAddTagId("");
     }
   }, [filteredAddTags, addTagId]);
+
+  useEffect(() => {
+    if (editCategoryId && !filteredEditCategories.some((o) => o.value === editCategoryId)) {
+      setEditCategoryId("");
+    }
+  }, [filteredEditCategories, editCategoryId]);
 
   function startEdit(item: CrudItem) {
     setPendingDeleteId(null);
@@ -969,13 +1107,15 @@ function ItemCrud({
           (parentOptional ? "" : parentOptions[0]?.value ?? "")
       );
     }
+    setEditCategoryId(item.categoryId ?? "");
     setEditTagId(item.tagId ?? "");
   }
 
   function submitAdd(e: React.FormEvent) {
     e.preventDefault();
     setAddError("");
-    if (!addName.trim()) {
+    const names = parseBulkNames(addName);
+    if (names.length === 0) {
       setAddError("Enter a name.");
       return;
     }
@@ -987,13 +1127,13 @@ function ItemCrud({
       setAddError(`Select a ${parentLabel?.toLowerCase() ?? "parent"}.`);
       return;
     }
-    onAdd(
-      addName.trim(),
-      needsParent ? addParentId || undefined : undefined,
-      needsTag ? addTagId || undefined : undefined
-    );
+    const parentId = needsParent ? addParentId || undefined : undefined;
+    const categoryId = needsCategory ? addCategoryId || undefined : undefined;
+    const subcategoryId = needsTag ? addTagId || undefined : undefined;
+    onAdd(names, parentId, categoryId, subcategoryId);
     setAddName("");
     if (parentOptional) setAddParentId("");
+    setAddCategoryId("");
     setAddTagId("");
   }
 
@@ -1004,6 +1144,7 @@ function ItemCrud({
       editingId,
       editName.trim(),
       needsParent ? editParentId || undefined : undefined,
+      needsCategory ? editCategoryId || undefined : undefined,
       needsTag ? editTagId || undefined : undefined
     );
     setEditingId(null);
@@ -1012,6 +1153,7 @@ function ItemCrud({
   const colSpan =
     2 +
     (parentLabel && parentOptions?.length ? 1 : 0) +
+    (categoryLabel && categoryOptions?.length ? 1 : 0) +
     (detailColumnLabel ? 1 : 0) +
     (tagLabel ? 1 : 0) +
     (onToggleEnabled ? 1 : 0);
@@ -1044,14 +1186,18 @@ function ItemCrud({
   }, [sortedItems, groupId, midId, parentFilterId, query]);
 
   const waitingOnScope =
-    (requireParentScope || items.length > SCOPE_THRESHOLD) &&
+    requireParentScope &&
     Boolean(
       (groupOptions?.length && !groupId) ||
         (midOptions?.length && !midId) ||
-        ((parentOptions?.length ?? 0) > 0 &&
-          !parentFilterId &&
-          (requireParentScope || !groupOptions?.length))
+        ((parentOptions?.length ?? 0) > 0 && !parentFilterId)
     );
+
+  const suggestCategoryFilter =
+    !requireParentScope &&
+    items.length > SCOPE_THRESHOLD &&
+    (parentOptions?.length ?? 0) > 0 &&
+    !parentFilterId;
 
   const pageCount = Math.max(1, Math.ceil(visibleItems.length / LIST_PAGE_SIZE));
   const pageItems = waitingOnScope
@@ -1067,11 +1213,12 @@ function ItemCrud({
   }, [page, pageCount]);
 
   const showParentColumn = Boolean(parentLabel && parentOptions?.length);
+  const showCategoryColumn = Boolean(categoryLabel && categoryOptions?.length);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
-        <h4 className="font-semibold text-gray-900">{title}</h4>
+        <h4 className="font-display font-semibold text-gray-900">{title}</h4>
         {(groupOptions?.length || midOptions?.length || parentOptions?.length || items.length > 8) && (
           <div className="flex flex-wrap items-end gap-2">
             {groupOptions && groupOptions.length > 0 && (
@@ -1153,6 +1300,18 @@ function ItemCrud({
         )}
       </div>
 
+      {waitingOnScope ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Pick a {(parentLabel ?? midLabel ?? groupLabel ?? "country").toLowerCase()} in the
+          filters above to load saved items for this tab.
+        </p>
+      ) : suggestCategoryFilter && visibleItems.length > 0 ? (
+        <p className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+          Showing all {visibleItems.length} saved items. Filter by{" "}
+          {parentLabel?.toLowerCase() ?? "category"} above to narrow the list.
+        </p>
+      ) : null}
+
       <div className="overflow-x-auto rounded-xl border">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
@@ -1160,6 +1319,9 @@ function ItemCrud({
               <th className="px-4 py-3 text-start font-semibold">{nameColumnLabel}</th>
               {showParentColumn && (
                 <th className="px-4 py-3 text-start font-semibold">{parentLabel}</th>
+              )}
+              {showCategoryColumn && (
+                <th className="px-4 py-3 text-start font-semibold">{categoryLabel}</th>
               )}
               {detailColumnLabel && (
                 <th className="px-4 py-3 text-start font-semibold">{detailColumnLabel}</th>
@@ -1178,13 +1340,18 @@ function ItemCrud({
               <tr>
                 <td colSpan={colSpan} className="px-4 py-6 text-center text-gray-500 text-sm">
                   Select a {(parentLabel ?? midLabel ?? groupLabel ?? "country").toLowerCase()}{" "}
-                  first. Location names are not unique worldwide — they belong to their parent.
+                  using the filters above to view saved items. Location names belong to their
+                  parent district.
                 </td>
               </tr>
             ) : visibleItems.length === 0 ? (
               <tr>
                 <td colSpan={colSpan} className="px-4 py-6 text-center text-gray-500 text-sm">
-                  No items yet. Use the form below to add one.
+                  {suggestCategoryFilter
+                    ? `No items match the current filter. Choose “All” in ${parentLabel?.toLowerCase() ?? "category"} or add a new item below.`
+                    : items.length > 0
+                      ? "No items match the current filter. Clear the filters above to see all saved items."
+                      : "No items yet. Use the form below to add one."}
                 </td>
               </tr>
             ) : (
@@ -1205,6 +1372,7 @@ function ItemCrud({
                             value={editParentId}
                             onChange={(e) => {
                               setEditParentId(e.target.value);
+                              setEditCategoryId("");
                               setEditTagId("");
                             }}
                             className="border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white"
@@ -1213,6 +1381,23 @@ function ItemCrud({
                               <option value="">All</option>
                             )}
                             {scopedParentOptions.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        {needsCategory && (
+                          <select
+                            value={editCategoryId}
+                            onChange={(e) => {
+                              setEditCategoryId(e.target.value);
+                              setEditTagId("");
+                            }}
+                            className="border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white"
+                          >
+                            <option value="">All categories</option>
+                            {filteredEditCategories.map((o) => (
                               <option key={o.value} value={o.value}>
                                 {o.label}
                               </option>
@@ -1266,6 +1451,11 @@ function ItemCrud({
                     {showParentColumn && (
                       <td className="px-4 py-3 text-gray-500 text-xs">
                         {item.parentLabel || "All"}
+                      </td>
+                    )}
+                    {showCategoryColumn && (
+                      <td className="px-4 py-3 text-gray-500 text-xs">
+                        {item.categoryLabel || "All"}
                       </td>
                     )}
                     {detailColumnLabel && (
@@ -1396,6 +1586,9 @@ function ItemCrud({
               placeholder={placeholder}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
+            <p className="text-[10px] text-gray-400 mt-1">
+              Separate multiple names with commas.
+            </p>
           </div>
           {needsParent && (
             <div className="flex-1 min-w-[160px]">
@@ -1405,6 +1598,7 @@ function ItemCrud({
                   value={addParentId}
                   onChange={(e) => {
                     setAddParentId(e.target.value);
+                    setAddCategoryId("");
                     setAddTagId("");
                     if (addError) setAddError("");
                   }}
@@ -1423,6 +1617,26 @@ function ItemCrud({
                   {emptyParentMessage || "No parent options yet."}
                 </p>
               )}
+            </div>
+          )}
+          {needsCategory && (
+            <div className="flex-1 min-w-[160px]">
+              <label className="block text-xs font-medium text-gray-600 mb-1">{categoryLabel}</label>
+              <select
+                value={addCategoryId}
+                onChange={(e) => {
+                  setAddCategoryId(e.target.value);
+                  setAddTagId("");
+                }}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+              >
+                <option value="">All categories</option>
+                {filteredAddCategories.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
           {needsTag && (
@@ -1452,7 +1666,8 @@ function ItemCrud({
             disabled={needsParent && !parentOptional && !hasParents}
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-green-700 hover:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg"
           >
-            <Plus className="w-3.5 h-3.5" /> {addButtonLabel}
+            <Plus className="w-3.5 h-3.5" />{" "}
+            {pendingNames.length > 1 ? `Add ${pendingNames.length}` : addButtonLabel}
           </button>
           {addError ? <p className="w-full text-xs text-red-600">{addError}</p> : null}
         </form>

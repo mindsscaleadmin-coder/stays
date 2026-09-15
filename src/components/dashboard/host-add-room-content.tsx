@@ -37,7 +37,7 @@ export function HostAddRoomContent({ listingId }: { listingId: string }) {
   const { enabledItems: photoTags } = usePhotoTagsCatalog();
   const hostId = resolveHostId(user);
   const hostName = resolveHostName(user);
-  const { all, addRoom, adminUpdate, ready } = useListingSubmissions();
+  const { all, addRoom, adminUpdate, ready } = useListingSubmissions({ load: true });
   const hostListings = filterHostListings(all, hostId ?? "", hostName);
 
   const listing = useMemo(() => {

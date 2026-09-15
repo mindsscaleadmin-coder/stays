@@ -16,7 +16,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import type { EventSpace } from "@/components/listing/event-listing-detail-content";
+import type { EventSpace } from "@/lib/listings/event-space-types";
 
 export interface EventEnquiryDraft {
   occasion: string;
@@ -209,7 +209,7 @@ export function EventEnquiryModal({
         {/* Context rail — keeps the venue and the remaining steps in view. */}
         <aside className="hidden w-[268px] shrink-0 flex-col justify-between bg-green-900 p-7 lg:flex">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-300">
+            <p className="text-2xs font-bold uppercase tracking-[0.18em] text-amber-300">
               Venue enquiry
             </p>
             <p className="mt-2 font-display text-xl font-bold leading-snug text-white">
@@ -229,7 +229,7 @@ export function EventEnquiryModal({
                     }`}
                   >
                     <span
-                      className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+                      className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-3xs font-bold ${
                         done
                           ? "bg-amber-400 text-green-950"
                           : active
@@ -241,13 +241,13 @@ export function EventEnquiryModal({
                     </span>
                     <span>
                       <span
-                        className={`block text-[13px] font-semibold ${
+                        className={`block text-body-sm font-semibold ${
                           active || done ? "text-white" : "text-white/60"
                         }`}
                       >
                         {item.title}
                       </span>
-                      <span className="block text-[11px] text-white/45">{item.hint}</span>
+                      <span className="block text-3xs text-white/45">{item.hint}</span>
                     </span>
                   </li>
                 );
@@ -255,7 +255,7 @@ export function EventEnquiryModal({
             </ol>
           </div>
 
-          <ul className="space-y-2 border-t border-white/10 pt-5 text-[11px] leading-4 text-white/70">
+          <ul className="space-y-2 border-t border-white/10 pt-5 text-3xs leading-4 text-white/70">
             {[
               "The host confirms your date first",
               "Contact details shared after confirmation",
@@ -273,13 +273,13 @@ export function EventEnquiryModal({
           <header className="shrink-0 border-b border-gray-100 px-5 pb-3.5 pt-4 sm:px-7">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-green-700 lg:hidden">
+                <p className="text-2xs font-bold uppercase tracking-[0.16em] text-green-700 lg:hidden">
                   Venue enquiry
                 </p>
-                <p className="truncate font-display text-[15px] font-bold text-gray-950 lg:hidden">
+                <p className="truncate font-display text-body-md font-bold text-gray-950 lg:hidden">
                   {listingTitle}
                 </p>
-                <p className="hidden text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 lg:block">
+                <p className="hidden text-3xs font-semibold uppercase tracking-[0.14em] text-gray-400 lg:block">
                   Step {step} of 3 · {STEPS[step - 1].title}
                 </p>
               </div>
@@ -314,7 +314,7 @@ export function EventEnquiryModal({
                 >
                   What’s the occasion?
                 </h2>
-                <p className="mt-1.5 text-[13px] text-gray-500">
+                <p className="mt-1.5 text-body-sm text-gray-500">
                   This tells the host what kind of event to plan around.
                 </p>
 
@@ -359,16 +359,16 @@ export function EventEnquiryModal({
                 >
                   Tell us the details
                 </h2>
-                <p className="mt-1.5 text-[13px] text-gray-500">
+                <p className="mt-1.5 text-body-sm text-gray-500">
                   Enough for the host to check the right space on your date.
                 </p>
 
                 <div className="mt-5 space-y-5">
                   <fieldset>
                     <div className="flex items-baseline justify-between gap-3">
-                      <legend className="text-[13px] font-bold text-gray-900">Guest count</legend>
+                      <legend className="text-body-sm font-bold text-gray-900">Guest count</legend>
                       {maxCapacity > 0 && (
-                        <span className="text-[11px] text-gray-500">
+                        <span className="text-3xs text-gray-500">
                           venue holds up to {maxCapacity}
                         </span>
                       )}
@@ -383,7 +383,7 @@ export function EventEnquiryModal({
                               setGuestPreset(count);
                               setLocalError(null);
                             }}
-                            className={`min-w-[54px] rounded-lg border px-3 py-2 text-[13px] font-semibold transition-colors ${choiceClass(
+                            className={`min-w-[54px] rounded-lg border px-3 py-2 text-body-sm font-semibold transition-colors ${choiceClass(
                               guestPreset === count
                             )}`}
                           >
@@ -394,7 +394,7 @@ export function EventEnquiryModal({
                       <button
                         type="button"
                         onClick={() => setGuestPreset("other")}
-                        className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition-colors ${choiceClass(
+                        className={`rounded-lg border px-3.5 py-2 text-body-sm font-semibold transition-colors ${choiceClass(
                           guestPreset === "other"
                         )}`}
                       >
@@ -416,7 +416,7 @@ export function EventEnquiryModal({
                   </fieldset>
 
                   <fieldset>
-                    <legend className="text-[13px] font-bold text-gray-900">Preferred date</legend>
+                    <legend className="text-body-sm font-bold text-gray-900">Preferred date</legend>
                     <div className="mt-2.5 grid gap-2 sm:grid-cols-[1fr_auto]">
                       <label className="relative block">
                         <CalendarDays className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-green-700" />
@@ -437,7 +437,7 @@ export function EventEnquiryModal({
                           setDateFlexible((value) => !value);
                           setLocalError(null);
                         }}
-                        className={`rounded-lg border px-3.5 py-2.5 text-[13px] font-semibold transition-colors ${choiceClass(
+                        className={`rounded-lg border px-3.5 py-2.5 text-body-sm font-semibold transition-colors ${choiceClass(
                           dateFlexible
                         )}`}
                       >
@@ -445,7 +445,7 @@ export function EventEnquiryModal({
                       </button>
                     </div>
                     {dateFromCalendar && !dateFlexible && (
-                      <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-green-800">
+                      <p className="mt-2 flex items-center gap-1.5 text-3xs font-medium text-green-800">
                         <Check className="h-3.5 w-3.5" />
                         Taken from the availability calendar — change it here if you need to.
                       </p>
@@ -453,7 +453,7 @@ export function EventEnquiryModal({
                   </fieldset>
 
                   <label className="block">
-                    <span className="text-[13px] font-bold text-gray-900">Party type</span>
+                    <span className="text-body-sm font-bold text-gray-900">Party type</span>
                     <select
                       value={partyType}
                       onChange={(event) => {
@@ -473,7 +473,7 @@ export function EventEnquiryModal({
 
                   {spaces.length > 1 && (
                     <label className="block">
-                      <span className="text-[13px] font-bold text-gray-900">Preferred space</span>
+                      <span className="text-body-sm font-bold text-gray-900">Preferred space</span>
                       <select
                         value={spaceId}
                         onChange={(event) => setSpaceId(event.target.value)}
@@ -499,7 +499,7 @@ export function EventEnquiryModal({
                 >
                   How should the host reach you?
                 </h2>
-                <p className="mt-1.5 text-[13px] text-gray-500">
+                <p className="mt-1.5 text-body-sm text-gray-500">
                   Review your request, then add anything that helps them answer.
                 </p>
 
@@ -512,14 +512,14 @@ export function EventEnquiryModal({
                     ...(selectedSpace ? [{ label: "Space", value: selectedSpace.name }] : []),
                   ].map((row) => (
                     <div key={row.label}>
-                      <dt className="text-[11px] text-gray-500">{row.label}</dt>
-                      <dd className="mt-0.5 text-[13px] font-bold text-gray-900">{row.value}</dd>
+                      <dt className="text-3xs text-gray-500">{row.label}</dt>
+                      <dd className="mt-0.5 text-body-sm font-bold text-gray-900">{row.value}</dd>
                     </div>
                   ))}
                 </dl>
 
                 <label className="mt-4 block">
-                  <span className="text-[13px] font-bold text-gray-900">
+                  <span className="text-body-sm font-bold text-gray-900">
                     Phone number <span className="font-normal text-gray-400">(optional)</span>
                   </span>
                   <input
@@ -532,7 +532,7 @@ export function EventEnquiryModal({
                 </label>
 
                 <label className="mt-4 block">
-                  <span className="text-[13px] font-bold text-gray-900">
+                  <span className="text-body-sm font-bold text-gray-900">
                     Message to the host{" "}
                     <span className="font-normal text-gray-400">(optional)</span>
                   </span>
@@ -545,7 +545,7 @@ export function EventEnquiryModal({
                   />
                 </label>
 
-                <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-[11px] leading-5 text-amber-900">
+                <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-3xs leading-5 text-amber-900">
                   The host confirms availability first. Their WhatsApp details stay hidden until
                   they confirm your date.
                 </p>
@@ -556,7 +556,7 @@ export function EventEnquiryModal({
               <p
                 role="status"
                 aria-live="polite"
-                className="mt-4 rounded-xl bg-red-50 px-3.5 py-2.5 text-[13px] font-medium text-red-700"
+                className="mt-4 rounded-xl bg-red-50 px-3.5 py-2.5 text-body-sm font-medium text-red-700"
               >
                 {localError || error}
               </p>
@@ -571,12 +571,12 @@ export function EventEnquiryModal({
                   setLocalError(null);
                   setStep((current) => Math.max(1, current - 1));
                 }}
-                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-[13px] font-semibold text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-body-sm font-semibold text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
               >
                 <ChevronLeft className="h-4 w-4" /> Back
               </button>
             ) : (
-              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400 lg:hidden">
+              <span className="text-3xs font-semibold uppercase tracking-[0.12em] text-gray-400 lg:hidden">
                 Step {step} of 3
               </span>
             )}

@@ -12,14 +12,47 @@ export function shouldUseSharedAdminSupport() {
   return isSharedDbEnabled();
 }
 
+const SUPPORT_TICKETS_TTL_MS = 8_000;
+const supportTicketsPull = new Map<
+  string,
+  {
+    rows: FlatSupportTicket[] | null;
+    at: number;
+    inflight?: Promise<FlatSupportTicket[]>;
+  }
+>();
+
 export async function fetchAdminSupportTicketsFromApi(
-  hostId?: string
+  hostId?: string,
+  force = false
 ): Promise<FlatSupportTicket[]> {
-  const qs = hostId ? `?hostId=${encodeURIComponent(hostId)}` : "";
-  const res = await fetch(`/api/admin/support${qs}`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load support tickets");
-  const json = (await res.json()) as { tickets: FlatSupportTicket[] };
-  return json.tickets;
+  const key = hostId || "*";
+  const cached = supportTicketsPull.get(key);
+  if (!force && cached?.inflight) return cached.inflight;
+  if (!force && cached && Date.now() - cached.at < SUPPORT_TICKETS_TTL_MS) {
+    return cached.rows ?? [];
+  }
+
+  const inflight = (async () => {
+    try {
+      const qs = hostId ? `?hostId=${encodeURIComponent(hostId)}` : "";
+      const res = await fetch(`/api/admin/support${qs}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load support tickets");
+      const json = (await res.json()) as { tickets: FlatSupportTicket[] };
+      const rows = json.tickets ?? [];
+      supportTicketsPull.set(key, { rows, at: Date.now() });
+      return rows;
+    } catch {
+      return cached?.rows ?? [];
+    }
+  })();
+
+  supportTicketsPull.set(key, {
+    rows: cached?.rows ?? null,
+    at: cached?.at ?? 0,
+    inflight,
+  });
+  return inflight;
 }
 
 export type SupportTicketAction =

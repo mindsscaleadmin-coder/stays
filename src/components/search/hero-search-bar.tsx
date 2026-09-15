@@ -81,7 +81,15 @@ function resolveCountryId(
   return countries.find((c) => c.name.toLowerCase() === name)?.id ?? countries[0]?.id ?? "";
 }
 
-export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: string }) {
+export function HeroSearchBar({
+  resultsPath = "/listings",
+  parentId = "",
+  parentName = "",
+}: {
+  resultsPath?: string;
+  parentId?: string;
+  parentName?: string;
+}) {
   const t = useTranslations("home.search");
   const router = useRouter();
   const { data } = useAdminTaxonomy();
@@ -99,7 +107,32 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
   const [adults, setAdults] = useState(0);
   const [children, setChildren] = useState(0);
   const [infants, setInfants] = useState(0);
+  const [categoryId, setCategoryId] = useState("");
   const [minDate] = useState(() => new Date().toISOString().split("T")[0]);
+
+  const isEventsMode = /event/i.test(parentName);
+
+  const eventCategories = useMemo(() => {
+    if (!isEventsMode || !parentId) return [];
+    return (data.categories ?? []).filter(
+      (c) => c.enabled !== false && c.parentId === parentId
+    );
+  }, [data.categories, isEventsMode, parentId]);
+
+  const selectedCategory = useMemo(
+    () => eventCategories.find((c) => c.id === categoryId) ?? null,
+    [eventCategories, categoryId]
+  );
+
+  const categoryLabel = selectedCategory?.name ?? "";
+
+  useEffect(() => {
+    setCategoryId("");
+    setAdults(0);
+    setChildren(0);
+    setInfants(0);
+    setOpenPanel(null);
+  }, [parentId]);
 
   const countries = useMemo(() => filterActiveCountries(data.countries), [data.countries]);
   const countryId = resolveCountryId(countries, headerCountry);
@@ -187,12 +220,18 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
     if (state) params.set("state", state);
     if (district) params.set("district", district);
     if (city) params.set("city", city);
+    if (parentName) params.set("parent", parentName);
+    if (isEventsMode && selectedCategory?.name) {
+      params.set("category", selectedCategory.name);
+    }
     if (checkIn) params.set("checkIn", checkIn);
     if (checkOut) params.set("checkOut", checkOut);
-    if (payingGuests > 0) params.set("guests", String(payingGuests));
-    if (adults > 0) params.set("adults", String(adults));
-    if (children > 0) params.set("children", String(children));
-    if (infants > 0) params.set("infants", String(infants));
+    if (!isEventsMode) {
+      if (payingGuests > 0) params.set("guests", String(payingGuests));
+      if (adults > 0) params.set("adults", String(adults));
+      if (children > 0) params.set("children", String(children));
+      if (infants > 0) params.set("infants", String(infants));
+    }
 
     if (country?.code) setHeaderCountry(country.code.toUpperCase());
     setOpenPanel(null);
@@ -204,15 +243,15 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
   const cellClass = (panel: OpenPanel) =>
     cn(
       "relative flex-1 min-w-0 text-start px-4 py-2 rounded-lg transition-colors",
-      openPanel === panel ? "bg-white shadow-sm" : "hover:bg-gray-100"
+      openPanel === panel ? "z-30 bg-white shadow-sm" : "hover:bg-gray-100"
     );
 
   return (
     <div ref={rootRef} className="w-full">
       <div
         className={cn(
-          "flex flex-col sm:flex-row sm:items-center shadow-lg border border-black/5 rounded-xl p-1",
-          openPanel ? "bg-gray-100" : "bg-white"
+          "relative flex flex-col sm:flex-row sm:items-center shadow-lg border border-black/5 rounded-xl p-1",
+          openPanel ? "z-20 bg-gray-100" : "bg-white"
         )}
       >
         <div className={cellClass("where")}>
@@ -258,7 +297,7 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
           </div>
 
           {openPanel === "where" && (
-            <div className="absolute start-0 top-[calc(100%+0.75rem)] z-50 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden">
+            <div className="absolute start-0 top-[calc(100%+0.75rem)] z-40 w-[min(22rem,calc(100vw-2rem))] rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden">
               <ul className="max-h-72 overflow-y-auto py-2">
                 {hits.length === 0 ? (
                   <li className="px-4 py-3 text-sm text-gray-500">{t("whereEmpty")}</li>
@@ -321,14 +360,20 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
             onClick={() => setOpenPanel(openPanel === "who" ? null : "who")}
             aria-expanded={openPanel === "who"}
           >
-            <span className="block text-[11px] font-bold text-gray-900">{t("who")}</span>
+            <span className="block text-[11px] font-bold text-gray-900">
+              {isEventsMode ? t("category") : t("who")}
+            </span>
             <span
               className={cn(
                 "block text-[13px] truncate",
-                guestLabel ? "text-gray-800 font-medium" : "text-gray-400"
+                (isEventsMode ? categoryLabel : guestLabel)
+                  ? "text-gray-800 font-medium"
+                  : "text-gray-400"
               )}
             >
-              {guestLabel || t("whoPlaceholder")}
+              {isEventsMode
+                ? categoryLabel || t("categoryPlaceholder")
+                : guestLabel || t("whoPlaceholder")}
             </span>
           </button>
 
@@ -341,8 +386,49 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
             <Search className="w-4 h-4" />
           </button>
 
-          {openPanel === "who" && (
-            <div className="absolute end-0 top-[calc(100%+0.75rem)] z-50 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-gray-200 bg-white shadow-xl p-5 space-y-4">
+          {openPanel === "who" && isEventsMode ? (
+            <div className="absolute end-0 top-[calc(100%+0.75rem)] z-40 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden">
+              <ul className="max-h-72 overflow-y-auto py-2">
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategoryId("");
+                      setOpenPanel(null);
+                    }}
+                    className={cn(
+                      "w-full text-start px-4 py-2.5 text-sm hover:bg-gray-50",
+                      !categoryId ? "font-semibold text-green-800 bg-green-50/60" : "text-gray-700"
+                    )}
+                  >
+                    {t("categoryPlaceholder")}
+                  </button>
+                </li>
+                {eventCategories.map((category) => (
+                  <li key={category.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCategoryId(category.id);
+                        setOpenPanel(null);
+                      }}
+                      className={cn(
+                        "w-full text-start px-4 py-2.5 text-sm hover:bg-gray-50",
+                        categoryId === category.id
+                          ? "font-semibold text-green-800 bg-green-50/60"
+                          : "text-gray-700"
+                      )}
+                    >
+                      {category.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {openPanel === "who" && !isEventsMode ? (
+            <div className="absolute end-0 top-[calc(100%+0.75rem)] z-40 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-gray-200 bg-white shadow-xl p-5 space-y-4">
               <GuestStepper
                 label={t("adults")}
                 hint={t("adultsHint")}
@@ -377,7 +463,7 @@ export function HeroSearchBar({ resultsPath = "/listings" }: { resultsPath?: str
                 plusDisabled={infants >= MAX_INFANTS}
               />
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

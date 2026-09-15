@@ -16,28 +16,78 @@ import type {
 } from "./verification-types";
 import { isSharedDbEnabled } from "@/lib/shared-db";
 
-async function fetchVerification(hostId?: string): Promise<{
+type VerificationPayload = {
   request: HostVerificationRequest | null;
   all: HostVerificationRequest[];
-}> {
-  if (hostId) {
-    const res = await fetch(`/api/hosts/${encodeURIComponent(hostId)}/verification`, {
-      cache: "no-store",
-    });
-    if (!res.ok) throw new Error("Failed to load verification");
-    const data = (await res.json()) as { request: HostVerificationRequest | null };
-    return { request: data.request, all: data.request ? [data.request] : [] };
+};
+
+const VERIFICATION_PULL_TTL_MS = 30_000;
+const verificationPull = new Map<
+  string,
+  {
+    data: VerificationPayload;
+    at: number;
+    inflight?: Promise<VerificationPayload>;
   }
-  const res = await fetch("/api/hosts/all/verification", { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load verifications");
-  const data = (await res.json()) as { requests: HostVerificationRequest[] };
-  return { request: null, all: data.requests ?? [] };
+>();
+
+function verificationCacheKey(hostId?: string) {
+  return hostId || "*all*";
+}
+
+export function invalidateHostVerificationCache(hostId?: string) {
+  verificationPull.delete(verificationCacheKey(hostId));
+}
+
+async function fetchVerification(
+  hostId?: string,
+  force = false
+): Promise<VerificationPayload> {
+  const key = verificationCacheKey(hostId);
+  const cached = verificationPull.get(key);
+  if (!force && cached?.inflight) {
+    return cached.inflight;
+  }
+  if (!force && cached && Date.now() - cached.at < VERIFICATION_PULL_TTL_MS) {
+    return cached.data;
+  }
+
+  const inflight = (async () => {
+    if (hostId) {
+      const res = await fetch(`/api/hosts/${encodeURIComponent(hostId)}/verification`, {
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("Failed to load verification");
+      const data = (await res.json()) as { request: HostVerificationRequest | null };
+      const payload = { request: data.request, all: data.request ? [data.request] : [] };
+      verificationPull.set(key, { data: payload, at: Date.now() });
+      return payload;
+    }
+    const res = await fetch("/api/hosts/all/verification", { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to load verifications");
+    const data = (await res.json()) as { requests: HostVerificationRequest[] };
+    const payload = { request: null, all: data.requests ?? [] };
+    verificationPull.set(key, { data: payload, at: Date.now() });
+    return payload;
+  })().catch((error) => {
+    verificationPull.delete(key);
+    throw error;
+  });
+
+  verificationPull.set(key, {
+    data: cached?.data ?? { request: null, all: [] },
+    at: cached?.at ?? 0,
+    inflight,
+  });
+  return inflight;
 }
 
 export function useHostVerification(hostId?: string) {
-  const [request, setRequest] = useState<HostVerificationRequest | null>(null);
-  const [all, setAll] = useState<HostVerificationRequest[]>([]);
-  const [ready, setReady] = useState(false);
+  const [request, setRequest] = useState<HostVerificationRequest | null>(() =>
+    hostId ? getHostVerification(hostId) : null
+  );
+  const [all, setAll] = useState<HostVerificationRequest[]>(() => loadAllHostVerifications());
+  const [ready, setReady] = useState(true);
   const shared = isSharedDbEnabled();
 
   const refresh = useCallback(() => {
@@ -89,6 +139,8 @@ export function useHostVerification(hostId?: string) {
       documents: HostVerificationDocument[];
     }) => {
       const saved = submitHostVerification(input);
+      invalidateHostVerificationCache();
+      invalidateHostVerificationCache(input.hostId);
       if (shared) {
         void fetch(`/api/hosts/${encodeURIComponent(input.hostId)}/verification`, {
           method: "POST",
@@ -101,6 +153,8 @@ export function useHostVerification(hostId?: string) {
     },
     approve: (id: string, note?: string) => {
       const saved = reviewHostVerification(id, "verified", note);
+      invalidateHostVerificationCache();
+      invalidateHostVerificationCache(id);
       if (shared) {
         void fetch(`/api/hosts/${encodeURIComponent(id)}/verification`, {
           method: "PATCH",
@@ -113,6 +167,8 @@ export function useHostVerification(hostId?: string) {
     },
     reject: (id: string, note?: string) => {
       const saved = reviewHostVerification(id, "rejected", note);
+      invalidateHostVerificationCache();
+      invalidateHostVerificationCache(id);
       if (shared) {
         void fetch(`/api/hosts/${encodeURIComponent(id)}/verification`, {
           method: "PATCH",

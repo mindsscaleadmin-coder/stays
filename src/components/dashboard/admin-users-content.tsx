@@ -296,7 +296,7 @@ export function AdminUsersContent() {
           : "users";
 
   const { users, suspend, verify, unsuspend } = useAdminUsers();
-  const { all: listings } = useListingSubmissions();
+  const { all: listings } = useListingSubmissions({ load: true });
   const { data: taxonomy } = useAdminTaxonomy();
   const [nameQuery, setNameQuery] = useState("");
   const [role, setRole] = useState("");

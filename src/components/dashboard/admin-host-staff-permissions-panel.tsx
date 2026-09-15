@@ -160,7 +160,7 @@ export function AdminHostStaffPermissionsPanel({
       <div className="flex items-start gap-2">
         <Shield className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">Host team permissions</h3>
+          <h3 className="font-display text-sm font-semibold text-gray-900">Host team permissions</h3>
           <p className="text-xs text-gray-500 mt-0.5">
             Only platform admin can allow or block host dashboard areas. The host can still invite
             staff and set passwords; access rights are controlled here.

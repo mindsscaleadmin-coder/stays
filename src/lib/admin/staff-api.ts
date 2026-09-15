@@ -5,11 +5,33 @@ export function shouldUseSharedAdminStaff() {
   return isSharedDbEnabled();
 }
 
-export async function fetchAdminStaffFromApi(): Promise<StaffMember[]> {
-  const res = await fetch("/api/admin/staff", { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load admin staff");
-  const json = (await res.json()) as { staff: StaffMember[] };
-  return json.staff;
+const STAFF_LIST_TTL_MS = 8_000;
+let staffListCache: StaffMember[] | null = null;
+let staffListFetchedAt = 0;
+let staffListInflight: Promise<StaffMember[]> | null = null;
+
+export async function fetchAdminStaffFromApi(force = false): Promise<StaffMember[]> {
+  if (!force && staffListInflight) return staffListInflight;
+  if (!force && staffListCache && Date.now() - staffListFetchedAt < STAFF_LIST_TTL_MS) {
+    return staffListCache;
+  }
+
+  staffListInflight = (async () => {
+    try {
+      const res = await fetch("/api/admin/staff", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load admin staff");
+      const json = (await res.json()) as { staff: StaffMember[] };
+      staffListCache = json.staff;
+      staffListFetchedAt = Date.now();
+      return json.staff;
+    } catch {
+      return staffListCache ?? [];
+    } finally {
+      staffListInflight = null;
+    }
+  })();
+
+  return staffListInflight;
 }
 
 const STAFF_BY_EMAIL_TTL_MS = 15_000;

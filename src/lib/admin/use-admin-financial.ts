@@ -30,7 +30,7 @@ export function useAdminFinancial() {
   const shared = shouldUseSharedAdminFinancial();
   const [settings, setSettings] = useState<FinancialSettings>(() => loadFinancialSettings());
   const [ledger, setLedger] = useState<PlatformLedger | null>(null);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(true);
 
   const applyPayload = useCallback(
     (payload: { settings: FinancialSettings; ledger?: PlatformLedger }) => {

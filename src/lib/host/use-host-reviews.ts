@@ -16,8 +16,10 @@ import {
 import type { HostReviewsData } from "./host-reviews-types";
 
 export function useHostReviews(hostId: string | undefined) {
-  const [data, setData] = useState<HostReviewsData | null>(null);
-  const [ready, setReady] = useState(false);
+  const [data, setData] = useState<HostReviewsData | null>(() =>
+    hostId ? loadHostReviews(hostId) : null
+  );
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedHostReviews();
 
   const refresh = useCallback(async () => {

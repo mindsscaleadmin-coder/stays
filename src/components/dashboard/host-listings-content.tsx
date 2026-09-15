@@ -50,7 +50,7 @@ export function HostListingsContent() {
   const roomAdded = searchParams.get("roomAdded") === "1";
   const hostId = resolveHostId(user);
   const hostName = resolveHostName(user);
-  const { all, deleteListing, ready, shared } = useListingSubmissions();
+  const { all, deleteListing, ready, shared } = useListingSubmissions({ load: true });
   const hostSubmissions = filterHostListings(all, hostId ?? "", hostName);
   const [approvalNotice, setApprovalNotice] = useState("");
   const [parentFilter, setParentFilter] = useState("all");

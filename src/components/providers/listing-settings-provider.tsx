@@ -37,12 +37,12 @@ interface ListingSettingsContextValue {
   enabledFeatureIcons: ListingFeatureIcon[];
   enabledRatingCategories: ListingRatingCategory[];
   enabledGuestReviews: ListingGuestReview[];
-  addHighlight: (input: ListingHighlightInput) => void;
+  addHighlight: (input: ListingHighlightInput | ListingHighlightInput[]) => void;
   updateHighlight: (id: string, updates: Partial<ListingHighlightInput>) => void;
   removeHighlight: (id: string) => void;
   reorderHighlight: (id: string, direction: "up" | "down") => void;
   resetHighlights: () => void;
-  addFeatureIcon: (input: ListingFeatureIconInput) => void;
+  addFeatureIcon: (input: ListingFeatureIconInput | ListingFeatureIconInput[]) => void;
   updateFeatureIcon: (id: string, updates: Partial<ListingFeatureIconInput>) => void;
   removeFeatureIcon: (id: string) => void;
   reorderFeatureIcon: (id: string, direction: "up" | "down") => void;
@@ -109,9 +109,16 @@ export function ListingSettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addHighlight = useCallback(
-    (input: ListingHighlightInput) => {
-      const item: ListingHighlight = { ...input, id: newListingHighlightId() };
-      persist((prev) => ({ ...prev, highlights: [...prev.highlights, item] }));
+    (input: ListingHighlightInput | ListingHighlightInput[]) => {
+      const inputs = Array.isArray(input) ? input : [input];
+      if (!inputs.length) return;
+      persist((prev) => ({
+        ...prev,
+        highlights: [
+          ...prev.highlights,
+          ...inputs.map((entry) => ({ ...entry, id: newListingHighlightId() })),
+        ],
+      }));
     },
     [persist]
   );
@@ -154,9 +161,16 @@ export function ListingSettingsProvider({ children }: { children: ReactNode }) {
   }, [persist]);
 
   const addFeatureIcon = useCallback(
-    (input: ListingFeatureIconInput) => {
-      const item: ListingFeatureIcon = { ...input, id: newListingFeatureIconId() };
-      persist((prev) => ({ ...prev, featureIcons: [...prev.featureIcons, item] }));
+    (input: ListingFeatureIconInput | ListingFeatureIconInput[]) => {
+      const inputs = Array.isArray(input) ? input : [input];
+      if (!inputs.length) return;
+      persist((prev) => ({
+        ...prev,
+        featureIcons: [
+          ...prev.featureIcons,
+          ...inputs.map((entry) => ({ ...entry, id: newListingFeatureIconId() })),
+        ],
+      }));
     },
     [persist]
   );

@@ -81,6 +81,12 @@ function enabledParents(data: TaxonomyData) {
   return data.parents.filter((p) => p.enabled !== false);
 }
 
+/** Parent categories for the home hero tab bar (excludes Destinations). */
+export function enabledParentTabs(data: TaxonomyData) {
+  if (!tabEnabled(data, "parent")) return [];
+  return enabledParents(data);
+}
+
 function parentCategories(data: TaxonomyData, parentId: string) {
   if (!tabEnabled(data, "category")) return [];
   return data.categories.filter((c) => c.enabled !== false && c.parentId === parentId);
@@ -178,18 +184,8 @@ function destinationsNav(data: TaxonomyData): HeaderNavItem | null {
 
 /** Header / mega-menu items from the live Filter taxonomy. */
 export function buildHeaderNav(data: TaxonomyData): HeaderNavItem[] {
-  const items: HeaderNavItem[] = [];
-  if (tabEnabled(data, "parent")) {
-    for (const parent of enabledParents(data)) {
-      items.push(parentNavItem(data, parent));
-    }
-  }
-  const dest = destinationsNav(data);
-  if (dest) {
-    if (items.length > 0) items.splice(1, 0, dest);
-    else items.push(dest);
-  }
-  return items;
+  if (!tabEnabled(data, "parent")) return [];
+  return enabledParents(data).map((parent) => parentNavItem(data, parent));
 }
 
 function findParentByHint(data: TaxonomyData, hint: RegExp, fallbackId?: string) {

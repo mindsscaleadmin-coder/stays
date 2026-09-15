@@ -62,9 +62,17 @@ async function postBooking(path: string, body: unknown): Promise<boolean> {
 }
 
 export function useAdminBookings(bookingId?: string) {
-  const [bookings, setBookings] = useState<HostBookingRecord[]>([]);
-  const [booking, setBooking] = useState<HostBookingRecord | null>(null);
-  const [ready, setReady] = useState(false);
+  const [bookings, setBookings] = useState<HostBookingRecord[]>(() =>
+    loadHostBookings().map(resolveBookingHost)
+  );
+  const [booking, setBooking] = useState<HostBookingRecord | null>(() => {
+    if (!bookingId) return null;
+    const found =
+      loadHostBookings().find((row) => row.id === bookingId) ??
+      getHostBookingRecord(bookingId);
+    return found ? resolveBookingHost(found) : null;
+  });
+  const [ready, setReady] = useState(true);
   const shared = isSharedDbEnabled();
 
   const refresh = useCallback(async () => {
@@ -93,6 +101,7 @@ export function useAdminBookings(bookingId?: string) {
   }, [bookingId]);
 
   useEffect(() => {
+    refreshLocal();
     void refresh();
     function onStorage(e: StorageEvent) {
       if (e.key === "farm-stays-host-bookings") refreshLocal();

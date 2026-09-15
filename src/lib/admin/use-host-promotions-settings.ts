@@ -20,8 +20,10 @@ import type {
 } from "@/lib/host/host-promotions-types";
 
 export function useHostPromotionsSettings() {
-  const [settings, setSettings] = useState<HostPromotionsSettings | null>(null);
-  const [ready, setReady] = useState(false);
+  const [settings, setSettings] = useState<HostPromotionsSettings | null>(() =>
+    loadHostPromotionsSettings()
+  );
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedPromotionCatalog();
 
   const refresh = useCallback(async () => {

@@ -49,6 +49,7 @@ export function normalizeSubmittedListing(
     farmActivities: listing.farmActivities ?? [],
     houseRules: listing.houseRules ?? [],
     rooms: listing.rooms ?? [],
+    venueDetails: listing.venueDetails,
   });
 }
 
@@ -189,7 +190,7 @@ export function updateListing(id: string, input: UpdateListingInput): boolean {
     id: existing.id,
     hostId: existing.hostId,
     hostName: existing.hostName,
-    rooms: existing.rooms ?? [],
+    rooms: input.rooms ?? existing.rooms ?? [],
     status: "pending",
     submittedAt: now,
     statusUpdatedAt: now,

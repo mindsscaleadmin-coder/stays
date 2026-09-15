@@ -12,8 +12,10 @@ import {
 import type { HostExtraChargeTemplate } from "./host-extra-charges-library-types";
 
 export function useHostExtraLibrary(hostId?: string) {
-  const [items, setItems] = useState<HostExtraChargeTemplate[]>([]);
-  const [ready, setReady] = useState(false);
+  const [items, setItems] = useState<HostExtraChargeTemplate[]>(() =>
+    hostId ? loadHostExtraLibrary(hostId) : []
+  );
+  const [ready, setReady] = useState(true);
 
   const refresh = useCallback(() => {
     if (!hostId) {

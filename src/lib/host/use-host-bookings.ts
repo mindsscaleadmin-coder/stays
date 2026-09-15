@@ -49,7 +49,7 @@ const hostBookingsPull = new Map<
   { rows: HostBookingRecord[] | null; at: number; inflight?: Promise<HostBookingRecord[] | null> }
 >();
 
-async function fetchServerHostBookings(
+export async function fetchServerHostBookings(
   hostId?: string,
   force = false
 ): Promise<HostBookingRecord[] | null> {
@@ -86,9 +86,15 @@ async function fetchServerHostBookings(
 export function useHostBookings(bookingId?: string) {
   const { user } = useAuth();
   const hostId = resolveHostId(user);
-  const [bookings, setBookings] = useState<HostBookingRecord[]>([]);
-  const [booking, setBooking] = useState<HostBookingRecord | null>(null);
-  const [ready, setReady] = useState(false);
+  const [bookings, setBookings] = useState<HostBookingRecord[]>(() =>
+    loadHostBookings().filter((row) => !row.id.startsWith("GF-"))
+  );
+  const [booking, setBooking] = useState<HostBookingRecord | null>(() => {
+    if (!bookingId) return null;
+    const local = loadHostBookings();
+    return local.find((b) => b.id === bookingId) ?? getHostBookingRecord(bookingId) ?? null;
+  });
+  const [ready, setReady] = useState(true);
 
   const refresh = useCallback(
     async (opts?: { force?: boolean }) => {

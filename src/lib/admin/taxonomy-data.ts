@@ -6,6 +6,7 @@ import {
   mergeCustomItems,
   mergeExtraTabs,
   mergeMainTabs,
+  isSubcategoryExtensionTab,
   resolveBuiltInMainTabId,
   type Country,
   type TaxonomyData,
@@ -154,6 +155,39 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     { id: "ef10", name: "Horse Riding", type: "activity", parentId: "p1" },
     { id: "ef11", name: "Fruit Picking", type: "activity", parentId: "p1" },
     { id: "ef12", name: "Desert Safari", type: "activity", parentId: "p2" },
+    // Events → Venue (scoped to parent p3)
+    { id: "ev-ef1", name: "Air conditioning", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef2", name: "Wi-Fi", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef3", name: "Restrooms", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef4", name: "Bridal room", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef5", name: "Stage", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef6", name: "Dance floor", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef7", name: "Sound system", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef8", name: "Projector", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef9", name: "LED screen", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef10", name: "Catering facilities", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef11", name: "Kitchen", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef12", name: "Prayer room", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef13", name: "Outdoor area", type: "venueFacility", parentId: "p3" },
+    { id: "ev-ef14", name: "Weddings", type: "suitableFor", parentId: "p3" },
+    { id: "ev-ef15", name: "Engagements", type: "suitableFor", parentId: "p3" },
+    { id: "ev-ef16", name: "Birthday parties", type: "suitableFor", parentId: "p3" },
+    { id: "ev-ef17", name: "Corporate events", type: "suitableFor", parentId: "p3" },
+    { id: "ev-ef18", name: "Conferences", type: "suitableFor", parentId: "p3" },
+    { id: "ev-ef19", name: "Seminars", type: "suitableFor", parentId: "p3" },
+    { id: "ev-ef20", name: "Private parties", type: "suitableFor", parentId: "p3" },
+    { id: "ev-ef21", name: "Exhibitions", type: "suitableFor", parentId: "p3" },
+    { id: "ev-ef22", name: "Parking available", type: "venueParking", parentId: "p3" },
+    { id: "ev-ef23", name: "Valet parking", type: "venueParking", parentId: "p3" },
+    { id: "ev-ef24", name: "Covered parking", type: "venueParking", parentId: "p3" },
+    { id: "ev-ef25", name: "In-house catering", type: "venueCatering", parentId: "p3" },
+    { id: "ev-ef26", name: "Outside catering allowed", type: "venueCatering", parentId: "p3" },
+    { id: "ev-ef27", name: "Kitchen available", type: "venueCatering", parentId: "p3" },
+    { id: "ev-ef28", name: "Outside decorators allowed", type: "venueRule", parentId: "p3" },
+    { id: "ev-ef29", name: "Music / DJ allowed", type: "venueRule", parentId: "p3" },
+    { id: "ev-ef30", name: "Alcohol allowed", type: "venueRule", parentId: "p3" },
+    { id: "ev-ef31", name: "Smoking allowed", type: "venueRule", parentId: "p3" },
+    { id: "ev-ef32", name: "Pets allowed", type: "venueRule", parentId: "p3" },
   ],
   featureFilters: [
     { id: "ff1", name: "Private Pool", parentId: "p1" },
@@ -165,9 +199,17 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
   ],
 };
 
+const EVENT_VENUE_EXTRA_TABS = [
+  { id: "venueFacility", label: "Venue facilities", listingSection: "venueDetails" as const },
+  { id: "suitableFor", label: "Suitable for", listingSection: "venueDetails" as const },
+  { id: "venueParking", label: "Parking", listingSection: "venueOptions" as const },
+  { id: "venueCatering", label: "Catering", listingSection: "venueOptions" as const },
+  { id: "venueRule", label: "Rules", listingSection: "venueOptions" as const },
+];
+
 export const SEED_TAXONOMY: TaxonomyData = {
   mainTabs: [...DEFAULT_MAIN_TABS, ...DEFAULT_PROPERTY_TABS],
-  extraTabs: DEFAULT_EXTRA_TABS,
+  extraTabs: [...DEFAULT_EXTRA_TABS, ...EVENT_VENUE_EXTRA_TABS],
   customItems: Object.fromEntries(
     Object.entries(DEFAULT_CUSTOM_ITEMS).map(([key, items]) => [
       key,
@@ -340,6 +382,19 @@ function dedupeExtraFilters(
     seen.add(key);
     return true;
   });
+}
+
+/** Add seed filters/tabs that are missing from stored admin data (additive upgrades). */
+function mergeMissingExtraFilters<T extends { id: string }>(stored: T[], seed: T[]): T[] {
+  const ids = new Set(stored.map((item) => item.id));
+  const missing = seed.filter((item) => !ids.has(item.id));
+  return missing.length > 0 ? [...stored, ...missing] : stored;
+}
+
+function mergeEventVenueExtraTabs(
+  tabs: { id: string; label: string; builtIn?: boolean; enabled?: boolean }[]
+) {
+  return mergeMissingExtraFilters(tabs, EVENT_VENUE_EXTRA_TABS);
 }
 
 function dedupeCustomItems(
@@ -575,7 +630,22 @@ function migrateLegacyParentTaxonomy(parsed: Partial<TaxonomyData>): Partial<Tax
 }
 
 export function normalizeTaxonomy(parsed: Partial<TaxonomyData>): TaxonomyData {
-  const migrated = migrateLegacyParentTaxonomy(parsed);
+  const extensionTabIds = new Set(
+    (parsed.mainTabs ?? []).filter(isSubcategoryExtensionTab).map((tab) => tab.id)
+  );
+  const parsedWithoutExtensionTabs: Partial<TaxonomyData> = {
+    ...parsed,
+    mainTabs: (parsed.mainTabs ?? []).filter((tab) => !isSubcategoryExtensionTab(tab)),
+  };
+  if (extensionTabIds.size > 0) {
+    const customItems = { ...(parsed.customItems ?? {}) };
+    for (const id of Array.from(extensionTabIds)) {
+      delete customItems[id];
+    }
+    parsedWithoutExtensionTabs.customItems = customItems;
+  }
+
+  const migrated = migrateLegacyParentTaxonomy(parsedWithoutExtensionTabs);
   const incoming: TaxonomyData = {
     ...SEED_TAXONOMY,
     ...migrated,
@@ -585,11 +655,15 @@ export function normalizeTaxonomy(parsed: Partial<TaxonomyData>): TaxonomyData {
     featureFilters: migrated.featureFilters ?? SEED_TAXONOMY.featureFilters,
   };
 
-  const mainTabs = mergeMainTabs(parsed.mainTabs);
+  const mainTabs = mergeMainTabs(parsedWithoutExtensionTabs.mainTabs);
   const parents = normalizeParents(incoming.parents);
   const categories = normalizeCategories(incoming.categories, parents);
   const customItems = dedupeCustomItems(
-    mergeCustomItems(parsed.customItems, parsed.mainTabs, mainTabs)
+    mergeCustomItems(
+      parsedWithoutExtensionTabs.customItems,
+      parsedWithoutExtensionTabs.mainTabs,
+      mainTabs
+    )
   );
 
   // Promote items from legacy custom tabs named like "Sub Category" into real subcategories
@@ -606,9 +680,14 @@ export function normalizeTaxonomy(parsed: Partial<TaxonomyData>): TaxonomyData {
     ...SEED_TAXONOMY,
     ...migrated,
     mainTabs,
-    extraTabs: mergeExtraTabs(migrated.extraTabs),
+    extraTabs: mergeEventVenueExtraTabs(mergeExtraTabs(migrated.extraTabs)),
     customItems: cleanedCustom,
-    extraFilters: dedupeExtraFilters(migrated.extraFilters ?? SEED_TAXONOMY.extraFilters),
+    extraFilters: dedupeExtraFilters(
+      mergeMissingExtraFilters(
+        migrated.extraFilters ?? [],
+        SEED_TAXONOMY.extraFilters
+      )
+    ),
     featureFilters: dedupeByNameAndParent(
       incoming.featureFilters ?? SEED_TAXONOMY.featureFilters,
       "parentId"
@@ -697,6 +776,40 @@ export function saveTaxonomy(data: TaxonomyData): void {
   const normalized = normalizeTaxonomy(data);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
   emitSyncCustomEvent(TAXONOMY_SYNC_EVENT);
+}
+
+/** Merge custom tabs from later sources into the first (shared DB + local + in-memory). */
+export function mergeTaxonomySources(...sources: TaxonomyData[]): TaxonomyData {
+  if (sources.length === 0) return SEED_TAXONOMY;
+  let merged = sources[0];
+  for (let i = 1; i < sources.length; i++) {
+    merged = mergeApiTaxonomyWithLocal(merged, sources[i]);
+  }
+  return merged;
+}
+
+/** When shared DB is missing locally saved custom tabs, merge them back in. */
+export function mergeApiTaxonomyWithLocal(
+  api: TaxonomyData,
+  local: TaxonomyData
+): TaxonomyData {
+  const apiTabIds = new Set(api.mainTabs.map((tab) => tab.id));
+  const missingTabs = local.mainTabs.filter(
+    (tab) => !apiTabIds.has(tab.id) && !isSubcategoryExtensionTab(tab)
+  );
+  if (missingTabs.length === 0) return normalizeTaxonomy(api);
+
+  const customItems = { ...api.customItems };
+  for (const tab of missingTabs) {
+    const items = local.customItems[tab.id];
+    if (items) customItems[tab.id] = items;
+  }
+
+  return normalizeTaxonomy({
+    ...api,
+    mainTabs: [...api.mainTabs, ...missingTabs],
+    customItems,
+  });
 }
 
 export function newId(prefix: string): string {

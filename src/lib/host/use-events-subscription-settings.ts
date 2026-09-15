@@ -21,7 +21,7 @@ export function useEventsSubscriptionSettings() {
     freeDuringLaunch: true,
     plans: DEFAULT_EVENTS_SUBSCRIPTION_PLANS,
   });
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(true);
 
   useEffect(() => {
     let cancelled = false;

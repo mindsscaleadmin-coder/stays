@@ -5,11 +5,34 @@ export function shouldUseSharedAdminAlerts() {
   return isSharedDbEnabled();
 }
 
-export async function fetchAdminAlertsStateFromApi(): Promise<AdminAlertsState> {
-  const res = await fetch("/api/admin/alerts", { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load admin alerts state");
-  const json = (await res.json()) as { state: AdminAlertsState };
-  return json.state;
+const ALERTS_STATE_TTL_MS = 8_000;
+let alertsStateCache: AdminAlertsState | null = null;
+let alertsStateFetchedAt = 0;
+let alertsStateInflight: Promise<AdminAlertsState> | null = null;
+
+export async function fetchAdminAlertsStateFromApi(force = false): Promise<AdminAlertsState> {
+  if (!force && alertsStateInflight) return alertsStateInflight;
+  if (!force && alertsStateCache && Date.now() - alertsStateFetchedAt < ALERTS_STATE_TTL_MS) {
+    return alertsStateCache;
+  }
+
+  alertsStateInflight = (async () => {
+    try {
+      const res = await fetch("/api/admin/alerts", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load admin alerts state");
+      const json = (await res.json()) as { state: AdminAlertsState };
+      alertsStateCache = json.state;
+      alertsStateFetchedAt = Date.now();
+      return json.state;
+    } catch {
+      if (alertsStateCache) return alertsStateCache;
+      throw new Error("Failed to load admin alerts state");
+    } finally {
+      alertsStateInflight = null;
+    }
+  })();
+
+  return alertsStateInflight;
 }
 
 export type AdminAlertsPatchAction =

@@ -8,7 +8,7 @@ import { useHostVerification } from "@/lib/host/use-host-verification";
 import { useHostAnalytics } from "@/lib/host/use-host-analytics";
 import { resolveHostId } from "@/lib/listings/host-listings-utils";
 import { VerifiedBadge } from "@/components/ui/verified-badge";
-import { HostAnalyticsPanel } from "./host-analytics-content";
+import { HostAnalyticsPanelView } from "./host-analytics-content";
 import { HostDailyOpsPanel } from "./host-daily-ops-panel";
 import { HostOverviewAnnouncements } from "./host-overview-announcements";
 import { cn, formatPrice } from "@/lib/utils";
@@ -177,7 +177,7 @@ export function HostDashboardContent() {
 
         <HostDailyOpsPanel />
 
-        <HostAnalyticsPanel data={data} ready={analyticsReady} />
+        <HostAnalyticsPanelView data={data} ready={analyticsReady} />
       </div>
     </HostDashboardShell>
   );

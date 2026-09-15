@@ -6,7 +6,10 @@ import {
   resolveHighlightLabels,
 } from "@/lib/admin/listing-settings-data";
 import { getApprovedListingDetail } from "@/lib/listings/public-listings-server";
-import { submissionGalleryPhotos } from "@/lib/listings/submission-to-stay";
+import {
+  LISTING_PLACEHOLDER_IMG,
+  submissionGalleryPhotos,
+} from "@/lib/listings/submission-to-stay";
 import { readGuestPartyFromFilters } from "@/lib/listings/guest-capacity";
 
 export const revalidate = 60;
@@ -38,7 +41,9 @@ export default async function ListingPage({
       maxInfants: room.maxInfants,
       beds: room.beds,
       baths: room.baths,
-      img: room.img,
+      img: room.img || stay.img || LISTING_PLACEHOLDER_IMG,
+      advancedFilterIds: room.advancedFilterIds,
+      venueDetails: room.venueDetails,
     };
   });
 
@@ -57,6 +62,8 @@ export default async function ListingPage({
       rooms={rooms}
       guestParty={readGuestPartyFromFilters(listing.customFilters, stay.guests)}
       amenities={[...(listing.amenities ?? []), ...(listing.advancedFilters ?? [])]}
+      advancedFilters={listing.advancedFilters ?? []}
+      venueDetails={listing.venueDetails}
       extraCharges={pricing?.extraChargesEnabled ? pricing.extraCharges : []}
       extraChargesCurrency={pricing?.currency}
       itinerary={listing.itinerary}

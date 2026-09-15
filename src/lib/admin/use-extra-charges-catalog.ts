@@ -20,7 +20,7 @@ import type {
 
 export function useExtraChargesCatalog() {
   const [items, setItems] = useState<ExtraChargeCatalogItem[]>(DEFAULT_EXTRA_CHARGES_CATALOG);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedExtraCharges();
 
   const refresh = useCallback(async () => {

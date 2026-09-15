@@ -29,8 +29,10 @@ export function useHostStaff(
   hostId: string | undefined,
   owner?: { name: string; email: string } | null
 ) {
-  const [staff, setStaff] = useState<HostStaffMember[]>([]);
-  const [ready, setReady] = useState(false);
+  const [staff, setStaff] = useState<HostStaffMember[]>(() =>
+    hostId ? loadHostStaffMembers(hostId) : []
+  );
+  const [ready, setReady] = useState(true);
   const shared = shouldUseSharedHostStaff();
   const ownerName = owner?.name ?? "";
   const ownerEmail = owner?.email ?? "";

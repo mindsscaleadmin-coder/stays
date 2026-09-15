@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { Link, useRouter } from "@/i18n/routing";
+import { Link } from "@/i18n/routing";
 import { ImagePlus, MapPin, Pencil, Upload } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
 import { ListingFilterFields } from "@/components/dashboard/listing-filter-fields";
@@ -10,7 +10,6 @@ import {
   ListingPhotosManager,
   type ManagedListingPhoto,
 } from "@/components/dashboard/listing-photos-manager";
-import { ListingQualityChecklist } from "@/components/dashboard/listing-quality-checklist";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { useListingQualityRules } from "@/components/providers/listing-quality-rules-provider";
@@ -22,11 +21,32 @@ import {
 import { EMPTY_LISTING_FILTERS } from "@/lib/listings/submission-types";
 import { resolveHostId, resolveHostName } from "@/lib/listings/host-listings-utils";
 import {
+  countAmenitySelections,
   listingToFilterValues,
   resolveListingLabels,
 } from "@/lib/listings/validate-listing-filters";
 import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
-import { seedPricingFromListingForm } from "@/lib/host/host-pricing-data";
+import {
+  loadPricingSettings,
+  savePricingSettings,
+  seedPricingFromListingForm,
+  syncRoomPricesFromListing,
+} from "@/lib/host/host-pricing-data";
+import {
+  createEmptyDraftRoom,
+  draftRoomPhotosFromListing,
+  ListingDraftRoomsEditor,
+  ListingPricingModePicker,
+  MAX_ROOM_PHOTOS,
+  type DraftListingRoom,
+  type ListingPricingMode,
+} from "@/components/dashboard/listing-draft-rooms-panel";
+import {
+  createEmptyDraftVenueSpace,
+  ListingDraftVenueSpacesEditor,
+  type DraftVenueSpace,
+} from "@/components/dashboard/listing-draft-venue-spaces-panel";
+import type { ListingRoom } from "@/lib/listings/submission-types";
 import { loadAllSubmissions } from "@/lib/listings/submission-data";
 import { parseMapEmbedUrl } from "@/lib/listings/map-embed";
 import {
@@ -43,18 +63,54 @@ import {
   clampListingTitle,
   listingTitleWordCount,
 } from "@/lib/listings/listing-title";
+import {
+  ListingAdvancedFiltersField,
+  splitAdvancedIdsByVenueSection,
+  useListingAdvancedFilterRows,
+} from "@/components/dashboard/listing-advanced-filters-field";
+import { VenueRulesFields } from "@/components/dashboard/host-venue-listing-sections";
+import {
+  createEmptyVenueDetails,
+  hydrateVenueDetails,
+  normalizeVenueDetails,
+  type VenueDetails,
+} from "@/lib/listings/venue-details-types";
 import { RichTextEditor } from "@/components/dashboard/rich-text-editor";
+import { ListPropertySubscriptionModal } from "@/components/auth/list-property-subscription-modal";
+import { HostListingPricingSection } from "@/components/dashboard/host-listing-pricing-section";
+import {
+  buildNewListingPath,
+  categoryKeyFromParentName,
+  requiresListPropertySubscription,
+  resolveListPropertyCategories,
+} from "@/lib/host/list-property";
 
 const MAX_PHOTOS = 12;
 
 type ItineraryStep = { step: number; title: string; description?: string };
 
-export function HostNewListingContent({ listingId }: { listingId?: string }) {
-  const router = useRouter();
+type HostNewListingQuery = {
+  initialParentName?: string;
+  showSubscriptionParam?: boolean;
+  subscriptionPlan?: string;
+  showSavedMessage?: boolean;
+  onNavigate?: (href: string) => void;
+};
+
+export function HostNewListingContent({
+  listingId,
+  initialParentName = "",
+  showSubscriptionParam = false,
+  subscriptionPlan = "",
+  showSavedMessage = false,
+  onNavigate,
+}: {
+  listingId?: string;
+} & HostNewListingQuery) {
   const { user } = useAuth();
   const { data: taxonomy } = useAdminTaxonomy();
   const { rulesForParent, ready: qualityReady } = useListingQualityRules();
-  const { all, submit, update } = useListingSubmissions();
+  const { all, submit, update } = useListingSubmissions({ load: true });
   const hostId = resolveHostId(user);
   const hostName = resolveHostName(user);
   const hostListings = filterHostListings(all, hostId ?? "", hostName);
@@ -72,11 +128,18 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
   const formRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const photosRef = useRef<ManagedListingPhoto[]>([]);
+  /** Prevent re-hydration from wiping in-progress edits when listing/taxonomy refs change. */
+  const hydratedListingIdRef = useRef<string | null>(null);
   const [photos, setPhotos] = useState<ManagedListingPhoto[]>([]);
   const [managerOpen, setManagerOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [filterValues, setFilterValues] = useState(EMPTY_LISTING_FILTERS);
   const [title, setTitle] = useState("");
+  const [basePrice, setBasePrice] = useState("");
+  const [pricingMode, setPricingMode] = useState<ListingPricingMode>("whole_property");
+  const [draftRooms, setDraftRooms] = useState<DraftListingRoom[]>([]);
+  const [draftVenueSpaces, setDraftVenueSpaces] = useState<DraftVenueSpace[]>([]);
+  const [venueDetails, setVenueDetails] = useState<VenueDetails>(createEmptyVenueDetails());
   const [description, setDescription] = useState("");
   const [mapEmbedInput, setMapEmbedInput] = useState("");
   const [meetingPoint, setMeetingPoint] = useState("");
@@ -89,6 +152,18 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [hydrated, setHydrated] = useState(!listingId);
+  const [subscriptionOpen, setSubscriptionOpen] = useState(false);
+  const [parentPrefilled, setParentPrefilled] = useState(false);
+
+  const listPropertyCategories = useMemo(
+    () => resolveListPropertyCategories(taxonomy.parents),
+    [taxonomy.parents]
+  );
+  const selectedListCategory = useMemo(() => {
+    const key = categoryKeyFromParentName(initialParentName);
+    if (!key) return null;
+    return listPropertyCategories.find((c) => c.key === key) ?? null;
+  }, [initialParentName, listPropertyCategories]);
 
   const mapEmbedPreview = useMemo(
     () => parseMapEmbedUrl(mapEmbedInput),
@@ -107,8 +182,78 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
   });
   const isExperience = draftMode === "experience";
   const isEvent = draftMode === "event";
+  const showBasePrice = !isExperience && !isEvent;
+
+  const countryConfig = useMemo(
+    () => resolveCountryPricingConfig(taxonomy.countries, draftLabels.country),
+    [taxonomy.countries, draftLabels.country]
+  );
+
+  const isMultiRate = pricingMode === "multi_rate_rooms";
+  const isEventMultiRate = isEvent && isMultiRate;
+  const isEventSingleRate = isEvent && !isMultiRate;
+  const isEventVenueForm = isEventMultiRate || isEventSingleRate;
+  const venueOptionsFilterRows = useListingAdvancedFilterRows(
+    filterValues,
+    "venueOptionsRemainder"
+  );
+  const venueDetailFilterRows = useListingAdvancedFilterRows(
+    filterValues,
+    "venueSpaceColumn"
+  );
+
+  const eventSubmitFilterValues = useMemo(() => {
+    if (!isEventMultiRate) return filterValues;
+    return {
+      ...filterValues,
+      advancedIds: Array.from(
+        new Set([
+          ...filterValues.advancedIds,
+          ...draftVenueSpaces.flatMap((space) => space.advancedIds ?? []),
+        ])
+      ),
+    };
+  }, [isEventMultiRate, filterValues, draftVenueSpaces]);
+
+  function handlePricingModeChange(mode: ListingPricingMode) {
+    setPricingMode(mode);
+    if (mode === "multi_rate_rooms") {
+      if (isEvent && draftVenueSpaces.length === 0) {
+        setDraftVenueSpaces([createEmptyDraftVenueSpace()]);
+      } else if (!isEvent && draftRooms.length === 0) {
+        setDraftRooms([createEmptyDraftRoom()]);
+      }
+    }
+    if (mode === "whole_property" && isEvent) {
+      if (draftVenueSpaces.length === 0) {
+        const space = createEmptyDraftVenueSpace();
+        if (title.trim()) space.name = title.trim();
+        setDraftVenueSpaces([space]);
+      } else if (draftVenueSpaces.length > 1) {
+        const first = draftVenueSpaces[0];
+        setDraftVenueSpaces([
+          { ...first, name: title.trim() || first.name },
+        ]);
+      } else if (title.trim() && !draftVenueSpaces[0].name.trim()) {
+        setDraftVenueSpaces([{ ...draftVenueSpaces[0], name: title.trim() }]);
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (showBasePrice && isMultiRate && draftRooms.length === 0) {
+      setDraftRooms([createEmptyDraftRoom()]);
+    }
+  }, [showBasePrice, isMultiRate, draftRooms.length]);
+
+  useEffect(() => {
+    if (isEvent && draftVenueSpaces.length === 0) {
+      setDraftVenueSpaces([createEmptyDraftVenueSpace()]);
+    }
+  }, [isEvent, draftVenueSpaces.length]);
 
   const wasExperienceRef = useRef(isExperience);
+  const wasEventRef = useRef(isEvent);
   // Clear experience-only fields only when host switches away from Experiences.
   useEffect(() => {
     if (wasExperienceRef.current && !isExperience) {
@@ -121,11 +266,43 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
     wasExperienceRef.current = isExperience;
   }, [isExperience]);
 
+  useEffect(() => {
+    if (wasEventRef.current && !isEvent) {
+      setDraftVenueSpaces([]);
+      setVenueDetails(createEmptyVenueDetails());
+      setPricingMode("whole_property");
+    }
+    wasEventRef.current = isEvent;
+  }, [isEvent]);
+
+  const multiRateRoomPhotoCount = useMemo(
+    () => draftRooms.reduce((count, room) => count + room.photos.length, 0),
+    [draftRooms]
+  );
+
+  const venueSpacePhotoCount = useMemo(
+    () => draftVenueSpaces.reduce((count, space) => count + space.photos.length, 0),
+    [draftVenueSpaces]
+  );
+
+  const amenityCount = useMemo(
+    () =>
+      countAmenitySelections(
+        taxonomy,
+        eventSubmitFilterValues.advancedIds,
+        existing?.amenities ?? []
+      ),
+    [taxonomy, eventSubmitFilterValues.advancedIds, existing?.amenities]
+  );
+
   const qualityInput = useMemo(
     () => ({
       title,
       description,
-      photoCount: photos.length,
+      photoCount:
+        photos.length +
+        (isMultiRate ? multiRateRoomPhotoCount : 0) +
+        (isEvent ? venueSpacePhotoCount : 0),
       country: draftLabels.country,
       state: draftLabels.state,
       district: draftLabels.district,
@@ -136,7 +313,8 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
       listingMode: draftMode,
       highlightCount: filterValues.highlightIds.length,
       featureIconCount: filterValues.featureIconIds.length,
-      advancedCount: filterValues.advancedIds.length,
+      advancedCount: eventSubmitFilterValues.advancedIds.length,
+      amenityCount,
       mapEmbedUrl: mapEmbedPreview ?? "",
       customSelections: filterValues.customSelections,
       customFilters: draftLabels.customFilters,
@@ -148,8 +326,14 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
       title,
       description,
       photos.length,
+      isMultiRate,
+      multiRateRoomPhotoCount,
+      isEvent,
+      venueSpacePhotoCount,
       draftLabels,
       filterValues,
+      eventSubmitFilterValues,
+      amenityCount,
       mapEmbedPreview,
       draftMode,
       meetingPoint,
@@ -185,6 +369,27 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
   photosRef.current = photos;
 
   useEffect(() => {
+    if (listingId || parentPrefilled || !initialParentName) return;
+    const parent = taxonomy.parents.find(
+      (p) => p.name.toLowerCase() === initialParentName.toLowerCase()
+    );
+    if (!parent) {
+      setParentPrefilled(true);
+      return;
+    }
+    setFilterValues((prev) =>
+      prev.parentId === parent.id ? prev : { ...prev, parentId: parent.id, categoryId: "", subcategoryId: "" }
+    );
+    setParentPrefilled(true);
+  }, [initialParentName, listingId, parentPrefilled, taxonomy.parents]);
+
+  useEffect(() => {
+    if (listingId || !showSubscriptionParam || !selectedListCategory || subscriptionPlan) return;
+    if (!requiresListPropertySubscription(selectedListCategory.key)) return;
+    setSubscriptionOpen(true);
+  }, [listingId, selectedListCategory, showSubscriptionParam, subscriptionPlan]);
+
+  useEffect(() => {
     return () => {
       photosRef.current.forEach((photo) => {
         if (!photo.persisted && photo.src.startsWith("blob:")) {
@@ -195,11 +400,16 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
   }, []);
 
   useEffect(() => {
-    if (!listingId) return;
+    if (!listingId) {
+      hydratedListingIdRef.current = null;
+      return;
+    }
     if (!existing) {
       setHydrated(true);
       return;
     }
+    if (hydratedListingIdRef.current === listingId) return;
+    hydratedListingIdRef.current = listingId;
 
     setTitle(clampListingTitle(existing.title));
     setDescription(existing.description);
@@ -218,15 +428,159 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         : [{ step: 1, title: "", description: "" }]
     );
     const tags = existing.photoTags ?? [];
-    setPhotos(
-      (existing.photoUrls ?? []).map((url, index) => ({
-        id: `existing-${index}-${url.slice(0, 24)}`,
-        src: url,
-        tag: tags[index] ?? "",
-        persisted: true,
-      }))
-    );
-    setFilterValues(listingToFilterValues(taxonomy, existing));
+    const photoUrls = existing.photoUrls ?? [];
+    const listingFilters = listingToFilterValues(taxonomy, existing);
+    const pricingCountry = resolveCountryPricingConfig(taxonomy.countries, existing.country);
+    const pricing = loadPricingSettings(listingId, pricingCountry);
+    const nightly =
+      pricing.basePrice > 0
+        ? pricing.basePrice
+        : Math.max(0, existing.pricePerNight ?? 0);
+    setBasePrice(nightly > 0 ? String(nightly) : "");
+    const existingMode = getListingMode({
+      parentCategory: existing.parentCategory,
+      type: existing.type,
+      category: existing.category,
+    });
+
+    if (existingMode === "event") {
+      const hydratedVenueDetails = hydrateVenueDetails(existing.venueDetails);
+      setVenueDetails(hydratedVenueDetails);
+      const eventRooms = existing.rooms ?? [];
+      const eventHasMultiRate =
+        eventRooms.length > 1 || eventRooms.some((room) => room.price > 0);
+
+      if (eventHasMultiRate && eventRooms.length > 0) {
+        setPricingMode("multi_rate_rooms");
+        const { venueDetails, venueOptions } = splitAdvancedIdsByVenueSection(
+          taxonomy,
+          listingFilters.advancedIds
+        );
+        setFilterValues({ ...listingFilters, advancedIds: venueOptions });
+        const hydratedVenues = eventRooms.map((room, index) => ({
+          key: room.id || `venue-${index}`,
+          name: room.name,
+          description: room.description ?? "",
+          price: room.price > 0 ? String(room.price) : "",
+          capacity: Math.max(1, room.capacity),
+          photos: draftRoomPhotosFromListing(room, photoUrls, tags),
+          advancedIds:
+            room.advancedFilterIds ??
+            (index === 0 && venueDetails.length > 0 ? venueDetails : []),
+          venueDetails: hydrateVenueDetails(
+            room.venueDetails ?? (index === 0 ? existing.venueDetails : undefined)
+          ),
+        }));
+        setDraftVenueSpaces(hydratedVenues);
+        const venuePhotoUrls = new Set(
+          hydratedVenues.flatMap((space) => space.photos.map((photo) => photo.preview))
+        );
+        setPhotos(
+          photoUrls
+            .map((url, index) => ({ url, tag: tags[index] ?? "" }))
+            .filter(({ url }) => !venuePhotoUrls.has(url))
+            .map(({ url, tag }, index) => ({
+              id: `existing-${index}-${url.slice(0, 24)}`,
+              src: url,
+              tag,
+              persisted: true,
+            }))
+        );
+        setBasePrice("");
+        setDraftRooms([]);
+      } else {
+        setPricingMode("whole_property");
+        setFilterValues(listingFilters);
+        const startingPrice = Math.max(
+          0,
+          hydratedVenueDetails.startingPrice ?? existing.pricePerNight ?? nightly
+        );
+        const singleSpace =
+          eventRooms.length === 1
+            ? {
+                key: eventRooms[0].id || "venue-0",
+                name: eventRooms[0].name,
+                description: eventRooms[0].description ?? "",
+                price: eventRooms[0].price > 0 ? String(eventRooms[0].price) : "",
+                capacity: Math.max(1, eventRooms[0].capacity),
+                photos: draftRoomPhotosFromListing(eventRooms[0], photoUrls, tags),
+                advancedIds: [],
+              }
+            : {
+                key: `venue-${Date.now()}`,
+                name: existing.title,
+                description: "",
+                price: startingPrice > 0 ? String(startingPrice) : "",
+                capacity: Math.max(1, hydratedVenueDetails.maxGuests ?? 50),
+                photos: [],
+                advancedIds: [],
+              };
+        setDraftVenueSpaces([singleSpace]);
+        const spacePhotoUrls = new Set(singleSpace.photos.map((photo) => photo.preview));
+        setBasePrice("");
+        setPhotos(
+          photoUrls
+            .map((url, index) => ({ url, tag: tags[index] ?? "" }))
+            .filter(({ url }) => !spacePhotoUrls.has(url))
+            .map(({ url, tag }, index) => ({
+              id: `existing-${index}-${url.slice(0, 24)}`,
+              src: url,
+              tag,
+              persisted: true,
+            }))
+        );
+        setDraftRooms([]);
+      }
+    } else {
+      setFilterValues(listingFilters);
+      if ((existing.rooms?.length ?? 0) > 0 && existing.rooms!.some((room) => room.price > 0)) {
+      setPricingMode("multi_rate_rooms");
+      const hydratedRooms = existing.rooms!.map((room, index) => {
+        const maxGuests = Math.max(1, room.capacity);
+        const maxAdults = Math.min(Math.max(1, room.maxAdults ?? maxGuests), maxGuests);
+        const maxChildren = maxGuests - maxAdults;
+        return {
+          key: room.id || `room-${index}`,
+          name: room.name,
+          description: room.description ?? "",
+          price: room.price > 0 ? String(room.price) : "",
+          maxGuests,
+          maxAdults,
+          maxChildren,
+          maxInfants: room.maxInfants ?? 0,
+          beds: room.beds,
+          baths: room.baths,
+          photos: draftRoomPhotosFromListing(room, photoUrls, tags),
+        };
+      });
+      setDraftRooms(hydratedRooms);
+      const roomPhotoUrls = new Set(
+        hydratedRooms.flatMap((room) => room.photos.map((photo) => photo.preview))
+      );
+      setPhotos(
+        photoUrls
+          .map((url, index) => ({ url, tag: tags[index] ?? "" }))
+          .filter(({ url }) => !roomPhotoUrls.has(url))
+          .map(({ url, tag }, index) => ({
+            id: `existing-${index}-${url.slice(0, 24)}`,
+            src: url,
+            tag,
+            persisted: true,
+          }))
+      );
+      } else {
+        setPricingMode("whole_property");
+        setDraftRooms([]);
+        setPhotos(
+          photoUrls.map((url, index) => ({
+            id: `existing-${index}-${url.slice(0, 24)}`,
+            src: url,
+            tag: tags[index] ?? "",
+            persisted: true,
+          }))
+        );
+      }
+    }
     setHydrated(true);
   }, [listingId, existing, taxonomy]);
 
@@ -256,7 +610,10 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
     e.preventDefault();
     setError("");
 
-    const labels = resolveListingLabels(taxonomy, filterValues);
+    const labels = resolveListingLabels(
+      taxonomy,
+      isEvent ? eventSubmitFilterValues : filterValues
+    );
     const mapEmbedUrl = parseMapEmbedUrl(mapEmbedInput);
     if (mapEmbedInput.trim() && !mapEmbedUrl) {
       setError(
@@ -274,7 +631,10 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
       {
         title: title.trim(),
         description: description.trim(),
-        photoCount: photos.length,
+        photoCount:
+          photos.length +
+          (isMultiRate ? multiRateRoomPhotoCount : 0) +
+          (isEvent ? venueSpacePhotoCount : 0),
         country: labels.country,
         state: labels.state,
         district: labels.district,
@@ -285,7 +645,8 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         listingMode,
         highlightCount: filterValues.highlightIds.length,
         featureIconCount: filterValues.featureIconIds.length,
-        advancedCount: filterValues.advancedIds.length,
+        advancedCount: eventSubmitFilterValues.advancedIds.length,
+        amenityCount,
         mapEmbedUrl: mapEmbedUrl ?? "",
         customSelections: filterValues.customSelections,
         customFilters: labels.customFilters,
@@ -304,6 +665,67 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
       return;
     }
 
+    if (isEventVenueForm) {
+      if (draftVenueSpaces.length === 0) {
+        setError(
+          isEventSingleRate
+            ? "Add venue details with a starting rate and at least one photo."
+            : "Add at least one venue space with a name, rate, and photo."
+        );
+        return;
+      }
+      for (let i = 0; i < draftVenueSpaces.length; i++) {
+        const space = draftVenueSpaces[i];
+        const label = isEventSingleRate ? "Venue" : `Space ${i + 1}`;
+        if (isEventSingleRate && i === 0 && !title.trim()) {
+          setError("Venue: enter a title.");
+          return;
+        }
+        if (!isEventSingleRate && !space.name.trim()) {
+          setError(`${label}: enter a name.`);
+          return;
+        }
+        if (!Number(space.price) || Number(space.price) <= 0) {
+          setError(`${label}: enter a ${isEventSingleRate ? "starting" : "indicative"} rate.`);
+          return;
+        }
+        if (space.photos.length === 0) {
+          setError(`${label}: upload at least one photo.`);
+          return;
+        }
+        if (space.photos.length > MAX_ROOM_PHOTOS) {
+          setError(`${label}: up to ${MAX_ROOM_PHOTOS} photos.`);
+          return;
+        }
+      }
+    }
+
+    if (showBasePrice && isMultiRate) {
+      if (draftRooms.length === 0) {
+        setError("Add at least one room with its own rate and photo.");
+        return;
+      }
+      for (let i = 0; i < draftRooms.length; i++) {
+        const room = draftRooms[i];
+        if (!room.name.trim()) {
+          setError(`Room ${i + 1}: enter a name.`);
+          return;
+        }
+        if (!Number(room.price) || Number(room.price) <= 0) {
+          setError(`Room ${i + 1}: enter a nightly rate.`);
+          return;
+        }
+        if (room.photos.length === 0) {
+          setError(`Room ${i + 1}: upload at least one photo.`);
+          return;
+        }
+        if (room.photos.length > MAX_ROOM_PHOTOS) {
+          setError(`Room ${i + 1}: up to ${MAX_ROOM_PHOTOS} photos per room.`);
+          return;
+        }
+      }
+    }
+
     setSubmitting(true);
     try {
       const photoUrls: string[] = [];
@@ -319,8 +741,106 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         }
       }
 
+      let listingRooms: ListingRoom[] | undefined;
+      if (isEventVenueForm && draftVenueSpaces.length > 0) {
+        if (isEventMultiRate) listingRooms = [];
+        for (let i = 0; i < draftVenueSpaces.length; i++) {
+          const draft = draftVenueSpaces[i];
+          const processedSpacePhotos: { url: string; tag: string }[] = [];
+          for (const photo of draft.photos) {
+            let url = photo.preview;
+            if (photo.file) {
+              const [dataUrl] = await filesToDataUrls([photo.file]);
+              url = dataUrl ?? url;
+            }
+            if (!url) continue;
+            processedSpacePhotos.push({
+              url,
+              tag: photo.tag || draft.name.trim(),
+            });
+          }
+          const spaceVenueDetails = draft.venueDetails ?? createEmptyVenueDetails();
+          const capacity = Math.max(
+            1,
+            spaceVenueDetails.maxGuests ?? draft.capacity ?? 50
+          );
+          if (isEventMultiRate) {
+            listingRooms!.push({
+              id: draft.key.startsWith("R-") || draft.key.startsWith("V-")
+                ? draft.key
+                : `V-${Date.now()}-${i}`,
+              name: draft.name.trim(),
+              description: draft.description.trim(),
+              price: Math.max(0, Number(draft.price) || 0),
+              capacity,
+              maxAdults: capacity,
+              maxChildren: 0,
+              maxInfants: 0,
+              beds: 1,
+              baths: 1,
+              img: processedSpacePhotos[0]?.url ?? "",
+              typeName: draft.name.trim(),
+              advancedFilterIds: draft.advancedIds ?? [],
+              venueDetails: normalizeVenueDetails(spaceVenueDetails),
+            });
+          }
+          for (const photo of processedSpacePhotos) {
+            photoUrls.push(photo.url);
+            photoTags.push(photo.tag);
+          }
+        }
+      } else if (showBasePrice && isMultiRate && draftRooms.length > 0) {
+        listingRooms = [];
+        for (let i = 0; i < draftRooms.length; i++) {
+          const draft = draftRooms[i];
+          const processedRoomPhotos: { url: string; tag: string }[] = [];
+          for (const photo of draft.photos) {
+            let url = photo.preview;
+            if (photo.file) {
+              const [dataUrl] = await filesToDataUrls([photo.file]);
+              url = dataUrl ?? url;
+            }
+            if (!url) continue;
+            processedRoomPhotos.push({
+              url,
+              tag: photo.tag || draft.name.trim(),
+            });
+          }
+          const maxGuests = Math.max(1, draft.maxGuests);
+          const maxAdults = Math.min(Math.max(1, draft.maxAdults), maxGuests);
+          const maxChildren = maxGuests - maxAdults;
+          listingRooms.push({
+            id: `R-${Date.now()}-${i}`,
+            name: draft.name.trim(),
+            description: draft.description.trim(),
+            price: Math.max(0, Number(draft.price) || 0),
+            capacity: maxGuests,
+            maxAdults,
+            maxChildren,
+            maxInfants: Math.max(0, draft.maxInfants),
+            beds: Math.max(1, draft.beds),
+            baths: Math.max(1, draft.baths),
+            img: processedRoomPhotos[0]?.url ?? "",
+            typeName: draft.name.trim(),
+          });
+          for (const photo of processedRoomPhotos) {
+            photoUrls.push(photo.url);
+            photoTags.push(photo.tag);
+          }
+        }
+      }
+
+      const parsedBasePrice = Math.max(0, Number(basePrice) || 0);
+      const eventStartingPrice = isEventSingleRate
+        ? Math.max(0, Number(draftVenueSpaces[0]?.price) || 0)
+        : parsedBasePrice;
+
       const payload = {
-        title: clampListingTitle(title).trim() || "Untitled listing",
+        title:
+          clampListingTitle(title).trim() ||
+          draftVenueSpaces[0]?.name.trim() ||
+          listingRooms?.[0]?.name.trim() ||
+          "Untitled listing",
         description: description.trim() || "",
         ...labels,
         photoUrls,
@@ -329,6 +849,11 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         highlightIds: filterValues.highlightIds,
         featureIconIds: filterValues.featureIconIds.slice(0, 4),
         mapEmbedUrl: mapEmbedUrl || "",
+        ...(isEvent
+          ? { rooms: isEventMultiRate ? listingRooms ?? [] : [] }
+          : listingRooms?.length
+            ? { rooms: listingRooms }
+            : {}),
         ...(isExperience
           ? {
               meetingPoint: meetingPoint.trim(),
@@ -342,6 +867,23 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
                   title: s.title.trim(),
                   description: s.description?.trim() || undefined,
                 })),
+            }
+          : {}),
+        ...(isEvent
+          ? {
+              venueDetails: normalizeVenueDetails(
+                isEventMultiRate
+                  ? {
+                      additionalRules: venueDetails.additionalRules,
+                      videoTourUrl: venueDetails.videoTourUrl,
+                    }
+                  : {
+                      ...venueDetails,
+                      ...(isEventSingleRate && eventStartingPrice > 0
+                        ? { startingPrice: eventStartingPrice }
+                        : {}),
+                    }
+              ),
             }
           : {}),
       };
@@ -364,7 +906,7 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         });
       }
 
-      const countryConfig = resolveCountryPricingConfig(
+      const submitCountryConfig = resolveCountryPricingConfig(
         taxonomy.countries,
         labels.country
       );
@@ -378,14 +920,53 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         )
         .map((l) => l.id);
 
-      await seedPricingFromListingForm({
-        listingId: savedId,
-        country: countryConfig,
-        similarListingIds,
-        seedSessions: isExperience ? defaultExperienceSessions() : undefined,
-      });
+      if (!isEdit) {
+        await seedPricingFromListingForm({
+          listingId: savedId,
+          country: submitCountryConfig,
+          similarListingIds,
+          seedSessions: isExperience ? defaultExperienceSessions() : undefined,
+          initialBasePrice:
+            showBasePrice && !isMultiRate && parsedBasePrice > 0
+              ? parsedBasePrice
+              : isEventSingleRate && eventStartingPrice > 0
+                ? eventStartingPrice
+                : undefined,
+        });
+      } else if (showBasePrice && !isMultiRate) {
+        const current = loadPricingSettings(savedId, submitCountryConfig);
+        savePricingSettings({
+          ...current,
+          basePrice: parsedBasePrice,
+        });
+      } else if (isEventSingleRate && eventStartingPrice > 0) {
+        const current = loadPricingSettings(savedId, submitCountryConfig);
+        savePricingSettings({
+          ...current,
+          basePrice: eventStartingPrice,
+        });
+      }
 
-      router.push(`/host/pricing?listing=${encodeURIComponent(savedId)}&from=listing`);
+      if (listingRooms?.length) {
+        syncRoomPricesFromListing(
+          savedId,
+          listingRooms.map((room) => ({ id: room.id, price: room.price })),
+          submitCountryConfig
+        );
+      }
+
+      setSubmitting(false);
+
+      if (!isEdit) {
+        onNavigate?.(`/host/listings/${encodeURIComponent(savedId)}/edit?saved=1`);
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        document
+          .getElementById("listing-pricing")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch (err) {
       const detail = err instanceof Error ? err.message : "";
       const fallback = isEdit
@@ -416,9 +997,231 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
     );
   }
 
+  const photosSection = (
+    <div>
+      <div className="flex items-center justify-between gap-3 mb-1.5">
+        <label className="block text-sm font-medium text-gray-700">Photos</label>
+        <span className="text-xs text-gray-400">
+          {photos.length}/{MAX_PHOTOS} uploaded
+        </span>
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files) addFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+
+      {photos.length === 0 ? (
+        <div
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+          }}
+          onClick={() => inputRef.current?.click()}
+          className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
+            dragOver ? "border-green-500 bg-green-50" : "border-amber-300 bg-amber-50/40"
+          }`}
+        >
+          <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+          <p className="text-sm font-medium text-gray-700">Click to upload or drag and drop</p>
+          <p className="text-xs text-gray-400 mt-1">PNG, JPG, WEBP — up to {MAX_PHOTOS} photos</p>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <button
+              type="button"
+              onClick={() => setManagerOpen(true)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              Manage photos
+            </button>
+            {photos.length < MAX_PHOTOS && (
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 text-xs font-medium border border-gray-200 hover:border-green-400 text-gray-600 px-3 py-1.5 rounded-lg"
+              >
+                <ImagePlus className="w-3.5 h-3.5" />
+                Upload more
+              </button>
+            )}
+            <p className="text-xs text-gray-400">
+              {isExperience
+                ? "First photo is the cover. Add activity and location photos in Manage photos."
+                : "First photo is the cover. Tag rooms and rearrange in Manage photos."}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {photos.map((photo, index) => (
+              <button
+                key={photo.id}
+                type="button"
+                onClick={() => setManagerOpen(true)}
+                className="relative group aspect-[4/3] rounded-xl overflow-hidden border bg-gray-100 text-start"
+              >
+                <Image
+                  src={photo.src}
+                  alt={`Listing photo ${index + 1}`}
+                  fill
+                  className="object-cover"
+                  unoptimized
+                />
+                {index === 0 && (
+                  <span className="absolute top-2 start-2 bg-green-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    Cover
+                  </span>
+                )}
+                {photo.tag ? (
+                  <span className="absolute bottom-2 start-2 end-2 truncate bg-black/65 text-white text-[10px] font-medium px-2 py-0.5 rounded-full text-center">
+                    {photo.tag}
+                  </span>
+                ) : null}
+              </button>
+            ))}
+
+            {photos.length < MAX_PHOTOS && (
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className="aspect-[4/3] rounded-xl border-2 border-dashed border-gray-200 hover:border-green-400 hover:bg-green-50 flex flex-col items-center justify-center gap-1 text-gray-500 transition-colors"
+              >
+                <ImagePlus className="w-6 h-6" />
+                <span className="text-xs font-medium">Add more</span>
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const experienceSection =
+    isExperience ? (
+      <div className="space-y-4 border border-gray-200 rounded-xl p-4 bg-white">
+        <div>
+          <p className="text-sm font-semibold text-gray-900">Experience details</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Guests see these on the listing before they pick a session.
+          </p>
+        </div>
+        <label className="block">
+          <span className="text-sm font-medium text-gray-700">Meeting point / pickup</span>
+          <textarea
+            value={meetingPoint}
+            onChange={(e) => setMeetingPoint(e.target.value)}
+            rows={2}
+            className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+            placeholder="Hotel lobby pickup within 30 minutes of agreed time"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-gray-700">Requirements / safety</span>
+          <textarea
+            value={requirements}
+            onChange={(e) => setRequirements(e.target.value)}
+            rows={3}
+            className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+            placeholder="Age limits, clothing advice, health notes…"
+          />
+        </label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-sm font-medium text-gray-700">License / certification</span>
+            <input
+              value={licenseNumber}
+              onChange={(e) => setLicenseNumber(e.target.value)}
+              className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              placeholder="DCT license number"
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-gray-700">Min group size</span>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={groupSizeMin}
+              onChange={(e) => setGroupSizeMin(Math.max(1, Number(e.target.value) || 1))}
+              className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+          </label>
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-gray-700">Itinerary</span>
+            <button
+              type="button"
+              onClick={() =>
+                setItinerary((prev) => [
+                  ...prev,
+                  { step: prev.length + 1, title: "", description: "" },
+                ])
+              }
+              className="text-xs font-semibold text-green-700 hover:text-green-800"
+            >
+              Add step
+            </button>
+          </div>
+          {itinerary.map((step, index) => (
+            <div
+              key={`step-${index}`}
+              className="grid grid-cols-1 sm:grid-cols-[2rem_1fr] gap-2 items-start bg-white border border-gray-100 rounded-lg p-3"
+            >
+              <span className="text-xs font-bold text-green-700 pt-2.5">{index + 1}</span>
+              <div className="space-y-2">
+                <input
+                  value={step.title}
+                  onChange={(e) =>
+                    setItinerary((prev) =>
+                      prev.map((s, i) => (i === index ? { ...s, title: e.target.value } : s))
+                    )
+                  }
+                  placeholder="Pickup from hotel"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+                <input
+                  value={step.description ?? ""}
+                  onChange={(e) =>
+                    setItinerary((prev) =>
+                      prev.map((s, i) =>
+                        i === index ? { ...s, description: e.target.value } : s
+                      )
+                    )
+                  }
+                  placeholder="Optional detail"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    ) : null;
+
   return (
     <HostDashboardShell>
-      <div className="space-y-6 max-w-2xl">
+      <div className="space-y-6 w-full max-w-none">
         <div>
           <h2 className="text-xl font-bold text-gray-900 font-display">
             {isEdit
@@ -433,18 +1236,18 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
             {isEdit
               ? wasLive
                 ? isExperience
-                  ? "Update experience details, then continue to session pricing. Live listings stay pending until admin re-approves."
-                  : "Update details, then continue to Pricing. Live listings stay pending until admin re-approves."
+                  ? "Update details and session pricing on this page. Live listings stay pending until admin re-approves."
+                  : "Update details and pricing on this page. Live listings stay pending until admin re-approves."
                 : isExperience
-                  ? "Update experience details, then continue to session pricing."
-                  : "Update details, then continue to Pricing."
+                  ? "Update experience details and session pricing below."
+                  : "Update listing details and pricing below."
               : isExperience
-                ? "Step 1 of 2 — experience details. Next opens session pricing."
-                : "Step 1 of 2 — listing details. Next opens Pricing."}
+                ? "Add experience details, then set session pricing on the same page."
+                : "Add listing details, then set pricing on the same page."}
           </p>
           {filterValues.parentId ? null : (
             <p className="text-xs text-amber-700 mt-2">
-              Choose a parent category below — the form adapts for Experiences vs Stays.
+              Choose a category below — the form adapts for Experiences vs Stays.
             </p>
           )}
         </div>
@@ -469,289 +1272,222 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
           onSubmit={handleNext}
           noValidate
         >
-          <div>
-            <div className="flex items-center justify-between gap-3 mb-1.5">
-              <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-                Title
-              </label>
-              <span className="text-xs text-gray-400">
-                {listingTitleWordCount(title)}/{LISTING_TITLE_MAX_WORDS} words
-              </span>
-            </div>
-            <input
-              id="title"
-              name="title"
-              value={title}
-              onChange={(e) => setTitle(clampListingTitle(e.target.value))}
-              maxLength={LISTING_TITLE_MAX_CHARS}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-              placeholder={
-                isExperience ? "Sunrise desert safari" : "Green Valley Farmhouse"
-              }
-            />
-            <p className="text-xs text-gray-400 mt-1">
-              Short titles stay on one line on the listing page.
-            </p>
-          </div>
+          <ListingFilterFields
+            values={filterValues}
+            onChange={setFilterValues}
+            hideParent={Boolean(initialParentName)}
+            hideSectionHeadings
+            hideAdvancedFilters
+            renderLayout={({ categoryLocation, extras }) => (
+              <>
+                {categoryLocation}
 
-          <div>
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1.5">
-              Description
-            </label>
-            <RichTextEditor
-              id="description"
-              name="description"
-              rows={8}
-              value={description}
-              onChange={setDescription}
-              placeholder={
-                isExperience
-                  ? "Describe what guests will do, see, and take away…"
-                  : "Describe your property..."
-              }
-            />
-          </div>
+                {(showBasePrice || isEvent) && (
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium text-gray-700">How do you charge?</p>
+                    <ListingPricingModePicker
+                      mode={pricingMode}
+                      onModeChange={handlePricingModeChange}
+                      variant={isEvent ? "venue" : "stay"}
+                    />
+                  </div>
+                )}
 
-          <ListingFilterFields values={filterValues} onChange={setFilterValues} />
-
-          {isExperience && (
-            <div className="space-y-4 border border-gray-200 rounded-xl p-4 bg-white">
-              <div>
-                <p className="text-sm font-semibold text-gray-900">Experience details</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Guests see these on the listing before they pick a session.
-                </p>
-              </div>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Meeting point / pickup</span>
-                <textarea
-                  value={meetingPoint}
-                  onChange={(e) => setMeetingPoint(e.target.value)}
-                  rows={2}
-                  className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="Hotel lobby pickup within 30 minutes of agreed time"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Requirements / safety</span>
-                <textarea
-                  value={requirements}
-                  onChange={(e) => setRequirements(e.target.value)}
-                  rows={3}
-                  className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="Age limits, clothing advice, health notes…"
-                />
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">License / certification</span>
-                  <input
-                    value={licenseNumber}
-                    onChange={(e) => setLicenseNumber(e.target.value)}
-                    className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                    placeholder="DCT license number"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-sm font-medium text-gray-700">Min group size</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={50}
-                    value={groupSizeMin}
-                    onChange={(e) => setGroupSizeMin(Math.max(1, Number(e.target.value) || 1))}
-                    className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
-                  />
-                </label>
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-gray-700">Itinerary</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setItinerary((prev) => [
-                        ...prev,
-                        { step: prev.length + 1, title: "", description: "" },
-                      ])
-                    }
-                    className="text-xs font-semibold text-green-700 hover:text-green-800"
-                  >
-                    Add step
-                  </button>
-                </div>
-                {itinerary.map((step, index) => (
-                  <div
-                    key={`step-${index}`}
-                    className="grid grid-cols-1 sm:grid-cols-[2rem_1fr] gap-2 items-start bg-white border border-gray-100 rounded-lg p-3"
-                  >
-                    <span className="text-xs font-bold text-green-700 pt-2.5">{index + 1}</span>
-                    <div className="space-y-2">
-                      <input
-                        value={step.title}
-                        onChange={(e) =>
-                          setItinerary((prev) =>
-                            prev.map((s, i) =>
-                              i === index ? { ...s, title: e.target.value } : s
-                            )
-                          )
+                {!isEventSingleRate ? (
+                  <>
+                    <div>
+                      <div
+                        className={
+                          showBasePrice && !isMultiRate && !isExperience
+                            ? "grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_11rem] gap-4"
+                            : undefined
                         }
-                        placeholder="Pickup from hotel"
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                      />
-                      <input
-                        value={step.description ?? ""}
-                        onChange={(e) =>
-                          setItinerary((prev) =>
-                            prev.map((s, i) =>
-                              i === index ? { ...s, description: e.target.value } : s
-                            )
-                          )
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-3 mb-1.5">
+                            <label htmlFor="title" className="block text-sm font-medium text-gray-700">
+                              {isMultiRate ? "Venue Title" : "Title"}
+                            </label>
+                            <span className="text-xs text-gray-400">
+                              {listingTitleWordCount(title)}/{LISTING_TITLE_MAX_WORDS} words
+                            </span>
+                          </div>
+                          <input
+                            id="title"
+                            name="title"
+                            value={title}
+                            onChange={(e) => setTitle(clampListingTitle(e.target.value))}
+                            maxLength={LISTING_TITLE_MAX_CHARS}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                            placeholder={
+                              isExperience
+                                ? "Sunrise desert safari"
+                                : isEvent
+                                  ? "Grand Palace Banquet Hall"
+                                  : "Green Valley Farmhouse"
+                            }
+                          />
+                        </div>
+                        {showBasePrice && !isMultiRate && !isExperience && (
+                          <div>
+                            <label
+                              htmlFor="listing-base-price"
+                              className="block text-sm font-medium text-gray-700 mb-1.5"
+                            >
+                              Price / night
+                            </label>
+                            <div className="flex items-stretch">
+                              <div className="inline-flex items-center gap-1 rounded-s-lg border border-gray-200 border-e-0 bg-gray-50 px-2.5 text-xs text-gray-700 shrink-0">
+                                <span className="font-semibold text-gray-900">
+                                  {countryConfig.currency}
+                                </span>
+                                {countryConfig.currencySymbol ? (
+                                  <span className="text-gray-400">{countryConfig.currencySymbol}</span>
+                                ) : null}
+                              </div>
+                              <input
+                                id="listing-base-price"
+                                name="basePrice"
+                                type="number"
+                                min={0}
+                                value={basePrice}
+                                onChange={(e) => setBasePrice(e.target.value)}
+                                placeholder="0"
+                                className="w-full min-w-0 border border-gray-200 rounded-e-lg rounded-s-none px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {isMultiRate
+                          ? isEvent
+                            ? "Overall venue name shown on the listing page."
+                            : "Overall property name shown on the listing page."
+                          : isExperience
+                            ? "Clear titles help guests find your experience."
+                            : isEvent
+                              ? "Short titles stay on one line on the listing page."
+                              : "Short titles stay on one line on the listing page."}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="description"
+                        className="block text-sm font-medium text-gray-700 mb-1.5"
+                      >
+                        {isMultiRate ? "Venue description" : "Description"}
+                      </label>
+                      <RichTextEditor
+                        id="description"
+                        name="description"
+                        rows={8}
+                        value={description}
+                        onChange={setDescription}
+                        placeholder={
+                          isExperience
+                            ? "Describe what guests will do, see, and take away…"
+                            : "Describe your property..."
                         }
-                        placeholder="Optional detail"
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                       />
                     </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
-          <div>
-            <div className="flex items-center justify-between gap-3 mb-1.5">
-              <label className="block text-sm font-medium text-gray-700">
-                Photos
-              </label>
-              <span className="text-xs text-gray-400">
-                {photos.length}/{MAX_PHOTOS} uploaded
-              </span>
-            </div>
-
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files) addFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
-
-            {photos.length === 0 ? (
-              <div
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOver(true);
-                }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOver(false);
-                  if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
-                }}
-                onClick={() => inputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
-                  dragOver
-                    ? "border-green-500 bg-green-50"
-                    : "border-amber-300 bg-amber-50/40"
-                }`}
-              >
-                <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-sm font-medium text-gray-700">
-                  Click to upload or drag and drop
-                </p>
-                <p className="text-xs text-gray-400 mt-1">
-                  PNG, JPG, WEBP — up to {MAX_PHOTOS} photos
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-wrap items-center gap-2 mb-3">
-                  <button
-                    type="button"
-                    onClick={() => setManagerOpen(true)}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                    Manage photos
-                  </button>
-                  {photos.length < MAX_PHOTOS && (
-                    <button
-                      type="button"
-                      onClick={() => inputRef.current?.click()}
-                      className="inline-flex items-center gap-1.5 text-xs font-medium border border-gray-200 hover:border-green-400 text-gray-600 px-3 py-1.5 rounded-lg"
-                    >
-                      <ImagePlus className="w-3.5 h-3.5" />
-                      Upload more
-                    </button>
-                  )}
-                  <p className="text-xs text-gray-400">
-                    {isExperience
-                      ? "First photo is the cover. Add activity and location photos in Manage photos."
-                      : "First photo is the cover. Tag rooms and rearrange in Manage photos."}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {photos.map((photo, index) => (
-                    <button
-                      key={photo.id}
-                      type="button"
-                      onClick={() => setManagerOpen(true)}
-                      className="relative group aspect-[4/3] rounded-xl overflow-hidden border bg-gray-100 text-start"
-                    >
-                      <Image
-                        src={photo.src}
-                        alt={`Listing photo ${index + 1}`}
-                        fill
-                        className="object-cover"
-                        unoptimized
-                      />
-                      {index === 0 && (
-                        <span className="absolute top-2 start-2 bg-green-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          Cover
-                        </span>
-                      )}
-                      {photo.tag ? (
-                        <span className="absolute bottom-2 start-2 end-2 truncate bg-black/65 text-white text-[10px] font-medium px-2 py-0.5 rounded-full text-center">
-                          {photo.tag}
-                        </span>
+                    <div>
+                      {isEvent && !isEventSingleRate ? (
+                        <p className="text-xs text-gray-500 mb-1.5">
+                          Venue overview photos (exterior, entrance, common areas). Space photos go
+                          in the venue card below.
+                        </p>
                       ) : null}
-                    </button>
-                  ))}
+                      {photosSection}
+                    </div>
+                  </>
+                ) : null}
 
-                  {photos.length < MAX_PHOTOS && (
-                    <button
-                      type="button"
-                      onClick={() => inputRef.current?.click()}
-                      className="aspect-[4/3] rounded-xl border-2 border-dashed border-gray-200 hover:border-green-400 hover:bg-green-50 flex flex-col items-center justify-center gap-1 text-gray-500 transition-colors"
-                    >
-                      <ImagePlus className="w-6 h-6" />
-                      <span className="text-xs font-medium">Add more</span>
-                    </button>
-                  )}
-                </div>
+                {showBasePrice && isMultiRate && !isExperience && (
+                  <ListingDraftRoomsEditor
+                    rooms={draftRooms}
+                    onRoomsChange={setDraftRooms}
+                    currency={countryConfig.currency}
+                    currencySymbol={countryConfig.currencySymbol}
+                  />
+                )}
+
+                {experienceSection}
+
+                <div className="space-y-5 pt-1 border-t border-gray-100">{extras}</div>
               </>
             )}
-          </div>
+          />
+
+          {showBasePrice ? (
+            <ListingAdvancedFiltersField values={filterValues} onChange={setFilterValues} />
+          ) : null}
+
+          {isEventVenueForm ? (
+            <ListingDraftVenueSpacesEditor
+              spaces={draftVenueSpaces}
+              onSpacesChange={setDraftVenueSpaces}
+              venueDetails={venueDetails}
+              onVenueDetailsChange={setVenueDetails}
+              currency={countryConfig.currency}
+              currencySymbol={countryConfig.currencySymbol}
+              singleVenueMode={isEventSingleRate}
+              title={isEventSingleRate ? title : undefined}
+              onTitleChange={isEventSingleRate ? setTitle : undefined}
+              description={isEventSingleRate ? description : undefined}
+              onDescriptionChange={isEventSingleRate ? setDescription : undefined}
+              overviewPhotos={isEventSingleRate ? photosSection : undefined}
+              filterValues={isEventMultiRate ? filterValues : undefined}
+              onFilterValuesChange={isEventMultiRate ? setFilterValues : undefined}
+            />
+          ) : null}
+
+          {isEvent && filterValues.categoryId ? (
+            <div className="space-y-4">
+              {isEventSingleRate && venueDetailFilterRows.length > 0 ? (
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">Venue details</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Suitable events, amenities, and facilities for this venue.
+                    </p>
+                  </div>
+                  <ListingAdvancedFiltersField
+                    values={filterValues}
+                    onChange={setFilterValues}
+                    placement="venueSpaceColumn"
+                  />
+                </div>
+              ) : null}
+              {venueOptionsFilterRows.length > 0 ? (
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">Venue options</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Parking, catering, and rules — configured in Admin → Filter.
+                    </p>
+                  </div>
+                  <ListingAdvancedFiltersField
+                    values={filterValues}
+                    onChange={setFilterValues}
+                    placement="venueOptionsRemainder"
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {isEventVenueForm ? (
+            <VenueRulesFields value={venueDetails} onChange={setVenueDetails} />
+          ) : null}
 
           <div className="space-y-3 border border-gray-100 rounded-xl p-4 bg-gray-50/60">
             <div className="flex items-start gap-2">
               <MapPin className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-gray-900">Embed map</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Optional. In Google Maps open your place → Share → Embed a map → copy the
-                  iframe or embed URL. Guests will see it on the listing location section.
-                </p>
               </div>
             </div>
             <textarea
@@ -787,8 +1523,6 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
             </p>
           )}
 
-          <ListingQualityChecklist items={qualityChecklist} />
-
           <div className="flex gap-3 pt-2">
             <button
               type="submit"
@@ -802,17 +1536,35 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
             >
               {submitting
                 ? "Saving…"
-                : isExperience
-                  ? "Next: Session pricing"
-                  : "Next: Pricing"}
+                : isEdit
+                  ? "Save details"
+                  : isExperience
+                    ? "Save & continue to pricing"
+                    : "Save & continue to pricing"}
             </button>
           </div>
           <p className="text-xs text-gray-400">
-            {isExperience
-              ? "Saves this experience and opens session pricing. Currency and tax come from the selected country."
-              : "Next saves this listing and opens Pricing. Currency and tax come from the selected country; rates copy from a similar listing when available."}
+            {isEdit
+              ? isExperience
+                ? "Saves experience details. Session pricing is below — use Save & submit when ready for review."
+                : "Saves listing details. Pricing is below — use Save & submit when ready for review."
+              : isExperience
+                ? "Saves this experience and reveals session pricing below. Currency and tax come from the selected country."
+                : "Saves this listing and reveals pricing below. Currency and tax come from the selected country."}
           </p>
         </form>
+
+        {listingId && !isEvent && (
+          <HostListingPricingSection
+            listingId={listingId}
+            embedded
+            initialMessage={
+              showSavedMessage
+                ? "Listing saved. Set rates below — currency and tax follow the listing country."
+                : ""
+            }
+          />
+        )}
       </div>
 
       <ListingPhotosManager
@@ -821,6 +1573,20 @@ export function HostNewListingContent({ listingId }: { listingId?: string }) {
         photos={photos}
         maxPhotos={MAX_PHOTOS}
         onChange={handlePhotosChange}
+      />
+
+      <ListPropertySubscriptionModal
+        open={subscriptionOpen}
+        category={selectedListCategory}
+        onClose={() => setSubscriptionOpen(false)}
+        onContinue={(planId) => {
+          setSubscriptionOpen(false);
+          if (selectedListCategory) {
+            onNavigate?.(
+              buildNewListingPath(selectedListCategory.parentName, { subscriptionPlan: planId })
+            );
+          }
+        }}
       />
     </HostDashboardShell>
   );
