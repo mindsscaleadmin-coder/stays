@@ -13,7 +13,7 @@
   /* Airbnb-like centered shell: capped content width + responsive side gutters. */
   --page-gutter: 1.5rem;
   --page-max-width: 1280px;
-  --section-gap: 3rem;
+  --section-gap: 2rem;
   --hero-search-max-width: 850px;
   --hero-min-height: 480px;
   --site-chrome-height: 4.5rem;
@@ -57,24 +57,48 @@
     box-sizing: border-box;
   }
 
-  /* Home page: 80% centered column on tablet+. */
+  /* Home page + header: centered 90% column; full width on small screens. */
   .home-page-container {
-    width: 100%;
+    width: 90%;
+    max-width: 100%;
     margin-inline: auto;
     min-width: 0;
     padding-inline: var(--page-gutter);
     box-sizing: border-box;
   }
 
-  @media (min-width: 768px) {
+  @media (max-width: 639px) {
     .home-page-container {
-      width: 80%;
+      width: 100%;
+    }
+  }
+
+  /* Listing & search pages: centered 80% column at every breakpoint. */
+  .listing-page-container {
+    width: 80%;
+    max-width: 100%;
+    margin-inline: auto;
+    min-width: 0;
+    padding-inline: var(--page-gutter);
+    box-sizing: border-box;
+  }
+
+  @media (min-width: 640px) {
+    :root {
+      --page-gutter: 2rem;
+      --section-gap: 2.5rem;
     }
   }
 
   @media (min-width: 744px) {
     :root {
       --page-gutter: 2.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    :root {
+      --section-gap: 3rem;
     }
   }
 
@@ -109,55 +133,213 @@
     margin-top: var(--section-gap);
   }
 
-  .home-browse-scroll {
+  /* Homepage listing rows — responsive card counts with 12px gaps. */
+  .home-carousel-row {
     display: flex;
-    gap: 0.75rem;
+    gap: 12px;
     overflow-x: auto;
     scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    margin-inline: calc(-1 * var(--page-gutter));
+    padding-bottom: 2px;
+    margin-inline: calc(var(--page-gutter) * -1);
     padding-inline: var(--page-gutter);
-    padding-bottom: 0.25rem;
   }
 
-  .home-browse-scroll::-webkit-scrollbar {
+  .home-carousel-row::-webkit-scrollbar {
     display: none;
   }
 
-  @media (min-width: 744px) {
-    .home-browse-scroll {
-      gap: 1rem;
-    }
-  }
-
-  .home-browse-card {
-    flex: 0 0 auto;
-    width: clamp(148px, 42vw, 200px);
+  .home-carousel-item {
+    flex: 0 0 calc((100% - 12px) / 2);
+    min-width: 0;
     scroll-snap-align: start;
   }
 
-  @media (min-width: 744px) {
-    .home-browse-card {
-      width: 180px;
+  /* tablet */
+  @media (min-width: 640px) {
+    .home-carousel-item {
+      flex-basis: calc((100% - 24px) / 3);
+    }
+  }
+
+  @media (min-width: 768px) {
+    .home-carousel-item {
+      flex-basis: calc((100% - 36px) / 4);
+    }
+  }
+
+  /* laptop */
+  @media (min-width: 1024px) {
+    .home-carousel-item {
+      flex-basis: calc((100% - 48px) / 5);
+    }
+  }
+
+  /* desktop */
+  @media (min-width: 1280px) {
+    .home-carousel-item {
+      flex-basis: calc((100% - 60px) / 6);
+    }
+  }
+
+  @media (min-width: 1536px) {
+    .home-carousel-item {
+      flex-basis: calc((100% - 72px) / 7);
+    }
+  }
+
+  /* Listing detail page — centered 90% column; full width on small screens. */
+  .listing-detail-page {
+    width: 90%;
+    max-width: 100%;
+    margin-inline: auto;
+    min-width: 0;
+    padding-inline: var(--page-gutter);
+    box-sizing: border-box;
+  }
+
+  @media (max-width: 639px) {
+    .listing-detail-page {
+      width: 100%;
+    }
+  }
+
+  .listing-detail-hero {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding-top: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .listing-detail-hero {
+      padding-top: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .listing-detail-hero {
+      padding-top: 2rem;
+    }
+  }
+
+  .listing-detail-gallery {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+    height: auto;
+    min-height: 280px;
+    overflow: hidden;
+    border-radius: 1rem;
+    background: #fff;
+  }
+
+  @media (min-width: 768px) {
+    .listing-detail-gallery {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      height: min(56vh, 640px);
+      min-height: 420px;
+      border-radius: 1rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .listing-detail-gallery {
+      height: min(60vh, 720px);
+      min-height: 480px;
     }
   }
 
   @media (min-width: 1280px) {
-    .home-browse-card {
-      width: calc((100% - 6 * 1rem) / 7);
-      max-width: 220px;
-      min-width: 168px;
+    .listing-detail-gallery {
+      height: min(64vh, 800px);
+      min-height: 520px;
     }
   }
 
-  .home-browse-card-image {
-    position: relative;
-    aspect-ratio: 4 / 5;
-    border-radius: 0.75rem;
-    overflow: hidden;
-    background-color: #f3f4f6;
+  .listing-detail-gallery-side {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    min-height: 240px;
+    background: #fff;
   }
+
+  @media (min-width: 768px) {
+    .listing-detail-gallery-side {
+      min-height: 0;
+      height: 100%;
+    }
+  }
+
+  .listing-detail-gallery-main {
+    position: relative;
+    min-height: 280px;
+  }
+
+  @media (min-width: 768px) {
+    .listing-detail-gallery-main {
+      min-height: 0;
+      height: 100%;
+    }
+  }
+
+  /* Listing detail — mobile/tablet stack; laptop+ two columns with sticky booking. */
+  .listing-detail-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+
+  @media (min-width: 1024px) {
+    .listing-detail-grid {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 2rem;
+    }
+  }
+
+  .listing-detail-main {
+    min-width: 0;
+  }
+
+  @media (min-width: 1024px) {
+    .listing-detail-main {
+      grid-column: span 8 / span 8;
+    }
+  }
+
+  .listing-detail-sidebar {
+    min-width: 0;
+  }
+
+  @media (max-width: 1023px) {
+    .listing-detail-sidebar {
+      order: -1;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .listing-detail-sidebar {
+      grid-column: span 4 / span 4;
+    }
+  }
+
+  .listing-detail-sidebar-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  @media (min-width: 1024px) {
+    .listing-detail-sidebar-inner {
+      position: sticky;
+      top: 5rem;
+    }
+  }
+
 }
 
 @layer utilities {
@@ -185,6 +367,51 @@
     flex-shrink: 0;
     padding-inline: 2rem;
     white-space: nowrap;
+  }
+
+  /* Listing booking flow — calendar + CTA attention animations */
+  @keyframes booking-calendar-attention {
+    0% {
+      border-color: rgb(22 101 52);
+      box-shadow: 0 0 0 0 rgba(21, 128, 61, 0.45);
+    }
+    55% {
+      border-color: rgb(34 197 94);
+      box-shadow: 0 0 0 8px rgba(21, 128, 61, 0.12);
+    }
+    100% {
+      border-color: rgb(22 101 52);
+      box-shadow: 0 0 0 0 rgba(21, 128, 61, 0);
+    }
+  }
+
+  .booking-calendar-attention {
+    border-width: 2px !important;
+    border-color: rgb(22 101 52) !important;
+    animation: booking-calendar-attention 1s ease-in-out 3;
+  }
+
+  @keyframes booking-cta-attention {
+    0%,
+    100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgba(21, 128, 61, 0.45);
+    }
+    50% {
+      transform: scale(1.02);
+      box-shadow: 0 0 0 6px rgba(21, 128, 61, 0.18);
+    }
+  }
+
+  .booking-cta-attention {
+    animation: booking-cta-attention 0.65s ease-in-out 2;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .booking-calendar-attention,
+    .booking-cta-attention {
+      animation: none;
+    }
   }
 }
 

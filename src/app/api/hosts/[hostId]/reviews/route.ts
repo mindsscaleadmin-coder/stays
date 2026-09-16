@@ -15,12 +15,22 @@ import { getRequestId } from "@/lib/observability/logger";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ hostId: string }> }
 ) {
-  const { hostId } = await context.params;
-  const data = await getHostReviewsFromDb(hostId);
-  return NextResponse.json({ data });
+  const requestId = getRequestId(request);
+  try {
+    const { hostId } = await context.params;
+    await requireHostSelfOrAdmin(hostId);
+    const data = await getHostReviewsFromDb(hostId);
+    return NextResponse.json({ data }, { headers: { "x-request-id": requestId } });
+  } catch (error) {
+    if (error instanceof AuthError || error instanceof BookingAccessError) {
+      return hostDataErrorResponse(error, requestId);
+    }
+    console.error("Host reviews GET error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
 
 export async function PATCH(

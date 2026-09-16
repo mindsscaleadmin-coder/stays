@@ -28,7 +28,7 @@ import type {
   ListingPromotionDurationDays,
   ListingPromotionKind,
 } from "@/lib/host/host-promotions-types";
-import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { isEventsSubscriptionActive } from "@/lib/host/events-subscription";
 import { useEventsSubscriptionSettings } from "@/lib/host/use-events-subscription-settings";
 import { useHostPublicProfile } from "@/lib/host/use-host-public-profile";
@@ -119,7 +119,7 @@ export function HostPromoteContent() {
   }, [packages, duration]);
 
   const selectedListingRow = submissions.find((l) => l.id === listingId);
-  const selectedIsEvent = isEventListing({
+  const selectedIsDirectory = isDirectoryListing({
     parentCategory: selectedListingRow?.parentCategory,
     type: selectedListingRow?.type,
     category: selectedListingRow?.category,
@@ -127,8 +127,8 @@ export function HostPromoteContent() {
 
   async function handlePay() {
     if (!listingId || !hostId || !selectedPkg) return;
-    if (selectedIsEvent && !eventsSubActive) {
-      flash("Events listings need an active yearly subscription before you can buy Featured or Trending.");
+    if (selectedIsDirectory && !eventsSubActive) {
+      flash("Directory listings need an active yearly subscription before you can buy Featured or Trending.");
       return;
     }
     setPaying(true);
@@ -176,7 +176,7 @@ export function HostPromoteContent() {
           <p className="text-gray-500 text-sm mt-1">{promoSettings.pageSubtitle}</p>
         </div>
 
-        {selectedIsEvent && (
+        {selectedIsDirectory && (
           <div
             className={`text-sm rounded-xl px-4 py-3 border ${
               eventsSubActive

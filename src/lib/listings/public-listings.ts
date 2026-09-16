@@ -10,7 +10,7 @@ import { submittedListingMatches } from "./match-listing";
 import { loadTaxonomy } from "@/lib/admin/taxonomy-data";
 import type { TaxonomyData } from "@/lib/admin/taxonomy-types";
 import { applyGuestReviewRatings } from "@/lib/booking/stay-reviews-data";
-import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { isEventsSubscriptionActive } from "@/lib/host/events-subscription";
 import { eventsDirectoryIsFree } from "@/lib/admin/events-subscription";
 import { loadFinancialSettings } from "@/lib/admin/financial-data";
@@ -151,7 +151,7 @@ export function getPublicListings(): Stay[] {
     .map(submissionToStay)
     .map((stay) => applyPaidFeaturedBadge(stay))
     .filter((stay) => {
-      if (freeDirectory || !isEventListing(stay)) return true;
+      if (freeDirectory || !isDirectoryListing(stay)) return true;
       const hostId = stay.hostId?.trim();
       if (!hostId) return false;
       return isEventsSubscriptionActive(

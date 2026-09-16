@@ -22,7 +22,6 @@ import {
   filterPublicListings,
   isFeaturedStay,
   sortPublicListings,
-  stayMatchesCategory,
   stayMatchesParentCategory,
   type SortOption,
 } from "@/lib/listings/public-listings";
@@ -624,30 +623,6 @@ export function SearchResultsContent({
     });
   }, [taxonomy, listings, effectiveCountry, filterNameById]);
 
-  const taxonomyCategoryPills = useMemo(() => {
-    if (!parent || !tabEnabled(taxonomy, "category")) return [];
-    const parentRow = (taxonomy.parents ?? []).find(
-      (p) => p.name.trim().toLowerCase() === parent.trim().toLowerCase()
-    );
-    const cats = (taxonomy.categories ?? []).filter(
-      (c) => c.enabled !== false && (!parentRow || c.parentId === parentRow.id)
-    );
-    const inCountry = effectiveCountry
-      ? filterPublicListings(
-          listings,
-          "",
-          undefined,
-          { country: effectiveCountry, parentCategory: parent },
-          filterNameById
-        )
-      : listings;
-    return cats.map((c) => ({
-      id: c.id,
-      name: c.name,
-      count: inCountry.filter((s) => stayMatchesCategory(s, c.name)).length,
-    }));
-  }, [parent, listings, effectiveCountry, filterNameById, taxonomy]);
-
   function selectParent(name: string) {
     const params = buildParams({
       parent: name || undefined,
@@ -658,19 +633,6 @@ export function SearchResultsContent({
     if (!name) params.delete("parent");
     else params.set("parent", name);
     params.delete("category");
-    params.delete("subcategory");
-    params.delete("page");
-    navigateWithParams(params);
-  }
-
-  function selectCategory(name: string) {
-    const params = buildParams({
-      category: name || undefined,
-      subcategory: undefined,
-      page: 1,
-    });
-    if (!name) params.delete("category");
-    else params.set("category", name);
     params.delete("subcategory");
     params.delete("page");
     navigateWithParams(params);
@@ -721,7 +683,7 @@ export function SearchResultsContent({
       />
 
       <div className="bg-white min-h-[60vh]">
-        <div className="max-w-7xl mx-auto px-4 py-5 sm:py-6">
+        <div className="listing-page-container py-5 sm:py-6">
           <header className="mb-4">
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
               {filter === "deals"
@@ -739,70 +701,38 @@ export function SearchResultsContent({
             </h1>
           </header>
 
-          {(categoryPills.length > 0 || taxonomyCategoryPills.length > 0) && (
+          {categoryPills.length > 0 && (
             <div className="flex flex-nowrap items-center gap-2 mb-5 overflow-x-auto pb-1">
-              {categoryPills.length > 0 && (
-                <>
+              <button
+                type="button"
+                onClick={() => selectParent("")}
+                className={cn(
+                  "shrink-0 text-sm px-3.5 py-1.5 rounded-full border transition-colors",
+                  !parent
+                    ? "bg-green-700 border-green-700 text-white"
+                    : "bg-white border-gray-200 text-gray-700 hover:border-green-300"
+                )}
+              >
+                All
+              </button>
+              {categoryPills.map((pill) => {
+                const active = parent === pill.name;
+                return (
                   <button
+                    key={pill.id}
                     type="button"
-                    onClick={() => selectParent("")}
+                    onClick={() => selectParent(pill.name)}
                     className={cn(
                       "shrink-0 text-sm px-3.5 py-1.5 rounded-full border transition-colors",
-                      !parent
+                      active
                         ? "bg-green-700 border-green-700 text-white"
                         : "bg-white border-gray-200 text-gray-700 hover:border-green-300"
                     )}
                   >
-                    All
+                    {pill.name} ({pill.count})
                   </button>
-                  {categoryPills.map((pill) => {
-                    const active = parent === pill.name;
-                    return (
-                      <button
-                        key={pill.id}
-                        type="button"
-                        onClick={() => selectParent(pill.name)}
-                        className={cn(
-                          "shrink-0 text-sm px-3.5 py-1.5 rounded-full border transition-colors",
-                          active
-                            ? "bg-green-700 border-green-700 text-white"
-                            : "bg-white border-gray-200 text-gray-700 hover:border-green-300"
-                        )}
-                      >
-                        {pill.name} ({pill.count})
-                      </button>
-                    );
-                  })}
-                </>
-              )}
-              {taxonomyCategoryPills.length > 0 && (
-                <>
-                  <span
-                    className="shrink-0 w-px h-5 bg-gray-200 mx-0.5"
-                    aria-hidden
-                  />
-                  {taxonomyCategoryPills.map((pill) => {
-                    const active = category === pill.name;
-                    return (
-                      <button
-                        key={pill.id}
-                        type="button"
-                        onClick={() =>
-                          selectCategory(active ? "" : pill.name)
-                        }
-                        className={cn(
-                          "shrink-0 text-sm px-3.5 py-1.5 rounded-full border transition-colors",
-                          active
-                            ? "bg-green-50 border-green-600 text-green-800"
-                            : "bg-gray-50 border-gray-200 text-gray-600 hover:border-green-300"
-                        )}
-                      >
-                        {pill.name} ({pill.count})
-                      </button>
-                    );
-                  })}
-                </>
-              )}
+                );
+              })}
             </div>
           )}
 

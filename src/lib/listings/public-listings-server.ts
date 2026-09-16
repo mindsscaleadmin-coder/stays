@@ -12,7 +12,7 @@ import { submissionToStay } from "./submission-to-stay";
 import type { SubmittedListing } from "./submission-types";
 import type { ListingPricingSettings } from "@/lib/host/host-pricing-types";
 import type { ListingSearchFilters } from "./match-listing";
-import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { listEventSubscribedHostIds } from "@/lib/server/host-profile-repo";
 import { getFinancialSettingsFromDb } from "@/lib/server/platform-catalog-repo";
 import { eventsDirectoryIsFree } from "@/lib/admin/events-subscription";
@@ -32,7 +32,7 @@ export function listingVisibleOnPublicCatalog(
   subscribed: Set<string>,
   freeDirectory = false
 ): boolean {
-  if (!isEventListing(listing)) return true;
+  if (!isDirectoryListing(listing)) return true;
   if (freeDirectory) return true;
   const hostId = listing.hostId?.trim();
   return Boolean(hostId && subscribed.has(hostId));
@@ -142,7 +142,7 @@ export async function getApprovedListingDetail(id: string): Promise<{
     await seedListingsIfEmpty(getSeedListings());
     const listing = await getListing(id);
     if (!listing || listing.status !== "approved") return null;
-    if (isEventListing(listing)) {
+    if (isDirectoryListing(listing)) {
       const freeDirectory = await eventsDirectoryFreeForPublicCatalog();
       const subscribed = freeDirectory
         ? new Set<string>()

@@ -161,6 +161,28 @@ const VENUE_PRICING_OPTIONS: {
   },
 ];
 
+const DINING_PRICING_OPTIONS: {
+  id: ListingPricingMode;
+  title: string;
+  description: string;
+  icon: typeof Home;
+}[] = [
+  {
+    id: "whole_property",
+    title: "One dining venue",
+    description:
+      "Guests enquire for the whole restaurant or farm table at one starting price — private rooms are not priced separately.",
+    icon: Building2,
+  },
+  {
+    id: "multi_rate_rooms",
+    title: "Multiple spaces, Multiple rates",
+    description:
+      "Each private room, terrace, or dining space is listed separately with its own indicative rate.",
+    icon: Layers,
+  },
+];
+
 export function ListingPricingModePicker({
   mode,
   onModeChange,
@@ -168,14 +190,26 @@ export function ListingPricingModePicker({
 }: {
   mode: ListingPricingMode;
   onModeChange: (mode: ListingPricingMode) => void;
-  variant?: "stay" | "venue";
+  variant?: "stay" | "venue" | "dining";
 }) {
-  const options = variant === "venue" ? VENUE_PRICING_OPTIONS : STAY_PRICING_OPTIONS;
+  const options =
+    variant === "dining"
+      ? DINING_PRICING_OPTIONS
+      : variant === "venue"
+        ? VENUE_PRICING_OPTIONS
+        : STAY_PRICING_OPTIONS;
+
+  const ariaLabel =
+    variant === "dining"
+      ? "Dining venue pricing model"
+      : variant === "venue"
+        ? "Venue pricing model"
+        : "Property pricing model";
 
   return (
     <div
       role="radiogroup"
-      aria-label={variant === "venue" ? "Venue pricing model" : "Property pricing model"}
+      aria-label={ariaLabel}
       className="grid grid-cols-1 sm:grid-cols-2 gap-3"
     >
       {options.map((option) => {

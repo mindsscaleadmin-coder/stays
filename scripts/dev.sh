@@ -40,6 +40,12 @@ stop_port() {
     return
   fi
 
+  # Replacing a running dev server leaves a corrupted Turbopack cache that 500s with
+  # "module factory is not available" and follow-on useContext errors in ErrorBoundary.
+  if [ "$port" = "3000" ]; then
+    KILLED_DEV_PORT_3000=1
+  fi
+
   echo "Stopping process(es) on port $port: $pids"
   # shellcheck disable=SC2086
   kill $pids 2>/dev/null || true
@@ -119,11 +125,31 @@ ensure_local_postgres() {
   esac
 
   mkdir -p .data
+  if ! pg_listening && [ -f .data/postgres.pid ]; then
+    stale=$(cat .data/postgres.pid 2>/dev/null || true)
+    if [ -n "$stale" ] && ! kill -0 "$stale" 2>/dev/null; then
+      echo "Clearing stale Postgres pid ($stale); embedded server is not running."
+      rm -f .data/postgres.pid
+    fi
+  fi
+
   if ! pg_listening; then
     echo "Starting local Postgres (listing/booking saves need it)..."
     nohup npx tsx scripts/local-postgres.ts >> .data/postgres.log 2>&1 &
     echo $! > .data/postgres.pid
     for _ in $(seq 1 60); do
+      if pg_listening; then
+        break
+      fi
+      sleep 0.5
+    done
+  fi
+
+  if ! pg_listening; then
+    echo "Retrying local Postgres start..."
+    nohup npx tsx scripts/local-postgres.ts >> .data/postgres.log 2>&1 &
+    echo $! > .data/postgres.pid
+    for _ in $(seq 1 30); do
       if pg_listening; then
         break
       fi
@@ -142,11 +168,18 @@ ensure_local_postgres() {
 }
 
 # Always free the default Next.js port (and common fallback) so localhost:3000 works.
+KILLED_DEV_PORT_3000=0
 stop_port 3000
 stop_port 3001
 
 # Then reap any dev server that survived without holding the port.
 stop_stale_dev_servers
+
+if [ "${KILLED_DEV_PORT_3000:-0}" = "1" ] && [ -d ".next" ]; then
+  echo "Clearing .next cache (replaced running dev server on port 3000)..."
+  chmod -R u+w .next 2>/dev/null || true
+  rm -rf .next
+fi
 
 # Stray Vite watchers in this repo reload .next and corrupt the Next.js dev cache.
 if command -v pgrep >/dev/null 2>&1; then

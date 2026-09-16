@@ -19,7 +19,7 @@ import { useLocale } from "next-intl";
 import { computeExperienceQuote } from "@/lib/booking/compute-experience-quote";
 import { normalizeExperienceSessions } from "@/lib/booking/experience-session-types";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
-import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { isDataImageUrl } from "@/lib/utils";
 
 const EXPERIENCE_PRICES: Record<string, { title: string; amount: number }> = {
@@ -68,7 +68,7 @@ export function CheckoutContent({
     [listings, listingId]
   );
 
-  const asEvent = isEventListing({
+  const asDirectory = isDirectoryListing({
     parentCategory: stay?.parentCategory,
     type: stay?.type,
     category: stay?.category,
@@ -364,12 +364,12 @@ export function CheckoutContent({
     );
   }
 
-  if (asEvent) {
+  if (asDirectory) {
     return (
       <div className="max-w-lg mx-auto px-4 py-16 text-center space-y-3">
         <h1 className="text-xl font-bold text-gray-900">Enquire with the host</h1>
         <p className="text-sm text-gray-600">
-          Event listings are not booked or paid on this platform. Open the listing to
+          Directory listings are not booked or paid on this platform. Open the listing to
           contact the host directly.
         </p>
         <Link href={`/listing/${listingId}`} className="text-green-700 font-semibold text-sm">

@@ -228,7 +228,7 @@ export function Header() {
         dashboardChrome && "lg:border-b lg:border-gray-100"
       )}
     >
-      <div className="site-page-container py-3 flex items-center justify-between gap-3">
+      <div className="home-page-container py-4 flex items-center justify-between gap-3">
         <Link href="/" className="relative z-[80] flex items-center gap-2 shrink-0">
           <div className="w-9 h-9 bg-green-700 rounded-lg flex items-center justify-center">
             <Leaf className="w-5 h-5 text-white" />

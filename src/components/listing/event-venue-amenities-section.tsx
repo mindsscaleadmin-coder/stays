@@ -6,6 +6,7 @@ import {
   filterListingLevelVenueAmenities,
   groupVenueAmenities,
 } from "@/lib/listings/group-venue-amenities";
+import type { DirectoryListingVariant } from "@/lib/listings/directory-listing-copy";
 import type { VenueDetails } from "@/lib/listings/venue-details-types";
 
 function AmenitySection({
@@ -27,11 +28,13 @@ export function EventVenueAmenitiesSection({
   amenities,
   venueDetails,
   multiRate = false,
+  variant = "event",
 }: {
   amenities: string[];
   venueDetails?: VenueDetails;
   /** When true, hide per-space filters — show only common listing-level filters. */
   multiRate?: boolean;
+  variant?: DirectoryListingVariant;
 }) {
   const { data: taxonomy } = useAdminTaxonomy();
 
@@ -47,13 +50,31 @@ export function EventVenueAmenitiesSection({
 
   const specs = useMemo(() => {
     const rows: { label: string; value: string }[] = [];
-    if (venueDetails?.maxGuests != null && venueDetails.maxGuests > 0) {
+    if (variant === "dining") {
+      if (venueDetails?.seatedCapacity != null && venueDetails.seatedCapacity > 0) {
+        rows.push({
+          label: "Seating capacity",
+          value: venueDetails.seatedCapacity.toLocaleString(),
+        });
+      } else if (venueDetails?.maxGuests != null && venueDetails.maxGuests > 0) {
+        rows.push({
+          label: "Max guests",
+          value: venueDetails.maxGuests.toLocaleString(),
+        });
+      }
+      if (venueDetails?.spaceCount != null && venueDetails.spaceCount > 0) {
+        rows.push({
+          label: "Private areas",
+          value: String(venueDetails.spaceCount),
+        });
+      }
+    } else if (venueDetails?.maxGuests != null && venueDetails.maxGuests > 0) {
       rows.push({
         label: "Max guests",
         value: venueDetails.maxGuests.toLocaleString(),
       });
     }
-    if (venueDetails?.hallSizeSqFt != null && venueDetails.hallSizeSqFt > 0) {
+    if (variant !== "dining" && venueDetails?.hallSizeSqFt != null && venueDetails.hallSizeSqFt > 0) {
       rows.push({
         label: "Hall size",
         value: `${venueDetails.hallSizeSqFt.toLocaleString()} sq ft`,
@@ -65,23 +86,26 @@ export function EventVenueAmenitiesSection({
         value: venueDetails.parkingCapacity.trim(),
       });
     }
-    if (venueDetails?.ceilingHeightFt != null && venueDetails.ceilingHeightFt > 0) {
+    if (variant !== "dining" && venueDetails?.ceilingHeightFt != null && venueDetails.ceilingHeightFt > 0) {
       rows.push({
         label: "Ceiling height",
         value: `${venueDetails.ceilingHeightFt} ft`,
       });
     }
     return rows;
-  }, [venueDetails]);
+  }, [venueDetails, variant]);
 
   const totalCount = listingAmenities.length;
   const hasGroups = allGroups.length > 0;
   const showVenueSpecs = specs.length > 0 && !multiRate;
 
+  const amenitiesHeading =
+    variant === "dining" ? "Amenities & facilities" : "Venue amenities & services";
+
   if (totalCount === 0 && !showVenueSpecs) {
     return (
       <section id="event-amenities" className="mt-7 scroll-mt-28">
-        <h2 className="font-display text-lg font-extrabold text-gray-950">Venue amenities &amp; services</h2>
+        <h2 className="font-display text-lg font-extrabold text-gray-950">{amenitiesHeading}</h2>
         <p className="mt-2 text-sm text-gray-500">No amenities listed yet.</p>
       </section>
     );
@@ -90,7 +114,7 @@ export function EventVenueAmenitiesSection({
   return (
     <section id="event-amenities" className="mt-7 scroll-mt-28">
       <div className="flex flex-wrap items-center gap-2.5">
-        <h2 className="font-display text-lg font-extrabold text-gray-950">Venue amenities &amp; services</h2>
+        <h2 className="font-display text-lg font-extrabold text-gray-950">{amenitiesHeading}</h2>
         {totalCount > 0 ? (
           <span className="text-xs font-medium text-gray-500">{totalCount} included</span>
         ) : null}

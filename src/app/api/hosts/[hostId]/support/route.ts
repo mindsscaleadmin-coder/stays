@@ -14,12 +14,22 @@ import { getRequestId } from "@/lib/observability/logger";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ hostId: string }> }
 ) {
-  const { hostId } = await context.params;
-  const tickets = await listSupportTickets(hostId);
-  return NextResponse.json({ tickets });
+  const requestId = getRequestId(request);
+  try {
+    const { hostId } = await context.params;
+    await requireHostSelfOrAdmin(hostId);
+    const tickets = await listSupportTickets(hostId);
+    return NextResponse.json({ tickets }, { headers: { "x-request-id": requestId } });
+  } catch (error) {
+    if (error instanceof AuthError || error instanceof BookingAccessError) {
+      return hostDataErrorResponse(error, requestId);
+    }
+    console.error("Host support GET error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
 
 export async function POST(

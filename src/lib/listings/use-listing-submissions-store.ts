@@ -62,7 +62,7 @@ function sharedListingsFetchUrl(): string {
 }
 
 async function fetchSharedListings(force = false): Promise<SubmittedListing[]> {
-  if (sharedListingsInflight) return sharedListingsInflight;
+  if (!force && sharedListingsInflight) return sharedListingsInflight;
   if (
     !force &&
     sharedListingsCache &&
@@ -91,18 +91,43 @@ async function fetchSharedListings(force = false): Promise<SubmittedListing[]> {
   }
 }
 
+class ListingApiNetworkError extends Error {
+  constructor() {
+    super("Could not reach the server. Run npm run dev — shared DB saves need the local API.");
+    this.name = "ListingApiNetworkError";
+  }
+}
+
+function isNetworkFetchError(error: unknown): boolean {
+  return (
+    error instanceof ListingApiNetworkError ||
+    (error instanceof TypeError &&
+      (error.message === "Failed to fetch" ||
+        error.message.toLowerCase().includes("networkerror")))
+  );
+}
+
 async function postListingAction(body: unknown) {
-  const res = await fetch("/api/listings", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch("/api/listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    if (isNetworkFetchError(error)) {
+      throw new ListingApiNetworkError();
+    }
+    throw error;
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(
       (err as { error?: string }).error || `Listing request failed (${res.status})`
     );
   }
+  sharedListingsFetchedAt = 0;
   return res.json();
 }
 
@@ -113,10 +138,10 @@ export function useListingSubmissionsStore() {
   const [ready, setReady] = useState(false);
   const [loadActive, setLoadActive] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     if (shared) {
       try {
-        const listings = await fetchSharedListings();
+        const listings = await fetchSharedListings(force);
         setAll(listings);
         return;
       } catch (error) {
@@ -223,62 +248,71 @@ export function useListingSubmissionsStore() {
     shared,
     submit: async (input: SubmitListingInput) => {
       if (shared) {
-        const { listing } = await postListingAction(input);
-        await refresh();
-        return listing.id as string;
+        try {
+          const { listing } = await postListingAction(input);
+          await refresh(true);
+          return listing.id as string;
+        } catch (error) {
+          if (process.env.NODE_ENV === "development" && isNetworkFetchError(error)) {
+            const id = submitListing(input);
+            setAll(loadAllSubmissions());
+            return id;
+          }
+          throw error;
+        }
       }
       const id = submitListing(input);
-      await refresh();
+      await refresh(true);
       return id;
     },
     setStatus: async (id: string, status: ListingReviewStatus) => {
       if (shared) {
         await postListingAction({ action: "status", id, status });
-        await refresh();
+        await refresh(true);
         return true;
       }
       const ok = updateListingStatus(id, status);
-      await refresh();
+      await refresh(true);
       return ok;
     },
     update: async (id: string, input: UpdateListingInput) => {
       if (shared) {
         await postListingAction({ action: "update", id, input });
-        await refresh();
+        await refresh(true);
         return true;
       }
       const ok = updateListing(id, input);
-      await refresh();
+      await refresh(true);
       return ok;
     },
     approve: async (id: string) => {
       if (shared) {
         await postListingAction({ action: "status", id, status: "approved" });
-        await refresh();
+        await refresh(true);
         return true;
       }
       const ok = updateListingStatus(id, "approved");
-      await refresh();
+      await refresh(true);
       return ok;
     },
     reject: async (id: string) => {
       if (shared) {
         await postListingAction({ action: "status", id, status: "rejected" });
-        await refresh();
+        await refresh(true);
         return true;
       }
       const ok = updateListingStatus(id, "rejected");
-      await refresh();
+      await refresh(true);
       return ok;
     },
     deleteListing: async (id: string) => {
       if (shared) {
         await postListingAction({ action: "delete", id });
-        await refresh();
+        await refresh(true);
         return true;
       }
       const ok = removeListingFromStorage(id);
-      await refresh();
+      await refresh(true);
       return ok;
     },
     deactivate: async (id: string) => {
@@ -289,11 +323,11 @@ export function useListingSubmissionsStore() {
           status: "unpublished",
           extra: { unpublishReason: "Deactivated by admin" },
         });
-        await refresh();
+        await refresh(true);
         return true;
       }
       const ok = unpublishListing(id, "Deactivated by admin");
-      await refresh();
+      await refresh(true);
       return ok;
     },
     unpublish: async (id: string, reason?: string) => {
@@ -304,11 +338,11 @@ export function useListingSubmissionsStore() {
           status: "unpublished",
           extra: { unpublishReason: reason?.trim() || undefined },
         });
-        await refresh();
+        await refresh(true);
         return true;
       }
       const ok = unpublishListing(id, reason);
-      await refresh();
+      await refresh(true);
       return ok;
     },
     republish: async (id: string) => {
@@ -319,11 +353,11 @@ export function useListingSubmissionsStore() {
           status: "approved",
           extra: { unpublishReason: undefined },
         });
-        await refresh();
+        await refresh(true);
         return true;
       }
       const ok = republishListing(id);
-      await refresh();
+      await refresh(true);
       return ok;
     },
     adminUpdate: async (id: string, patch: AdminListingPatch) => {
@@ -333,7 +367,7 @@ export function useListingSubmissionsStore() {
           await refreshPromotedIdsFromApi(true);
           emitSyncEvent(HOST_PROMOTIONS_SYNC_EVENT);
         }
-        await refresh();
+        await refresh(true);
         return true;
       }
       const ok = adminUpdateListing(id, patch);
@@ -341,7 +375,7 @@ export function useListingSubmissionsStore() {
         await refreshPromotedIdsFromApi(true);
         emitSyncEvent(HOST_PROMOTIONS_SYNC_EVENT);
       }
-      await refresh();
+      await refresh(true);
       return ok;
     },
     bulkUpdate: async (ids: string[], patch: AdminListingPatch) => {
@@ -355,7 +389,7 @@ export function useListingSubmissionsStore() {
           await refreshPromotedIdsFromApi(true);
           emitSyncEvent(HOST_PROMOTIONS_SYNC_EVENT);
         }
-        await refresh();
+        await refresh(true);
         return count;
       }
       const count = bulkUpdateListings(ids, patch);
@@ -363,7 +397,7 @@ export function useListingSubmissionsStore() {
         await refreshPromotedIdsFromApi(true);
         emitSyncEvent(HOST_PROMOTIONS_SYNC_EVENT);
       }
-      await refresh();
+      await refresh(true);
       return count;
     },
     addRoom: async (listingId: string, input: AddListingRoomInput) => {
@@ -373,21 +407,21 @@ export function useListingSubmissionsStore() {
           listingId,
           input,
         });
-        await refresh();
+        await refresh(true);
         return (data.roomId as string | null) ?? null;
       }
       const roomId = addRoomToListing(listingId, input);
-      await refresh();
+      await refresh(true);
       return roomId;
     },
     deleteRoom: async (listingId: string, roomId: string) => {
       if (shared) {
         await postListingAction({ action: "deleteRoom", listingId, roomId });
-        await refresh();
+        await refresh(true);
         return true;
       }
       const ok = deleteRoomLocal(listingId, roomId);
-      await refresh();
+      await refresh(true);
       return ok;
     },
     updateRoomPrice: async (listingId: string, roomId: string, price: number) => {
@@ -398,11 +432,11 @@ export function useListingSubmissionsStore() {
           roomId,
           price,
         });
-        await refresh();
+        await refresh(true);
         return true;
       }
       const ok = updateRoomPriceOnListing(listingId, roomId, price);
-      await refresh();
+      await refresh(true);
       return ok;
     },
   };

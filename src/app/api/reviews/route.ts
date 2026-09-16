@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { AuthError, requireSessionUser } from "@/lib/auth/session";
-import { isDemoApiMode } from "@/lib/auth/booking-access";
+import { AuthError, getSessionUser, requireSessionUser } from "@/lib/auth/session";
+import {
+  assertGuestOwnsBooking,
+  BookingAccessError,
+  bookingAccessResponse,
+  isDemoApiMode,
+  loadBookingWithListing,
+} from "@/lib/auth/booking-access";
 import {
   createStayReview,
   getReviewByBookingId,
@@ -9,29 +15,52 @@ import {
   listPublishedReviews,
 } from "@/lib/booking/stay-reviews-repo";
 import { expirePendingBookings } from "@/lib/booking/lifecycle";
+import { getRequestId } from "@/lib/observability/logger";
 
 export async function GET(request: Request) {
+  const requestId = getRequestId(request);
   const { searchParams } = new URL(request.url);
   const listingId = searchParams.get("listingId");
   const bookingId = searchParams.get("bookingId");
 
-  if (bookingId) {
-    await expirePendingBookings();
-    const [review, eligibility] = await Promise.all([
-      getReviewByBookingId(bookingId),
-      getReviewEligibilityForBooking(bookingId),
-    ]);
-    if (!eligibility && !review) {
-      return NextResponse.json({ error: "Booking not found" }, { status: 404 });
-    }
-    return NextResponse.json({ review, eligibility });
-  }
+  try {
+    if (bookingId) {
+      await expirePendingBookings();
 
-  if (!listingId) {
-    return NextResponse.json({ error: "listingId or bookingId required" }, { status: 400 });
+      if (!isDemoApiMode()) {
+        const user = await getSessionUser();
+        if (!user) throw new AuthError("Sign in required");
+        const booking = await loadBookingWithListing(bookingId);
+        if (!booking) {
+          return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+        }
+        assertGuestOwnsBooking(booking, user.id);
+      }
+
+      const [review, eligibility] = await Promise.all([
+        getReviewByBookingId(bookingId),
+        getReviewEligibilityForBooking(bookingId),
+      ]);
+      if (!eligibility && !review) {
+        return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+      }
+      return NextResponse.json(
+        { review, eligibility },
+        { headers: { "x-request-id": requestId } }
+      );
+    }
+
+    if (!listingId) {
+      return NextResponse.json({ error: "listingId or bookingId required" }, { status: 400 });
+    }
+    const reviews = await listPublishedReviews(listingId);
+    return NextResponse.json({ reviews }, { headers: { "x-request-id": requestId } });
+  } catch (error) {
+    if (error instanceof AuthError || error instanceof BookingAccessError) {
+      return bookingAccessResponse(error, requestId);
+    }
+    throw error;
   }
-  const reviews = await listPublishedReviews(listingId);
-  return NextResponse.json({ reviews });
 }
 
 const postSchema = z.object({

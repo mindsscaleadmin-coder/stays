@@ -341,7 +341,7 @@ export function SearchFilterBar({
             : "bg-white border-b shadow-sm sticky top-[3.75rem] sm:top-[4.25rem] z-30 overflow-visible"
         )}
       >
-        <div className={cn(!isHero && "max-w-7xl mx-auto px-4 py-2.5")}>
+        <div className={cn(!isHero && "home-page-container py-2.5")}>
           {isHero && (
             <p className="text-sm font-semibold text-gray-700 mb-3">{t("label")}</p>
           )}

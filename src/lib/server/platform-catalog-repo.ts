@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { DINING_PARENT_ID } from "@/lib/admin/dining-taxonomy-data";
 import { normalizeTaxonomy, SEED_TAXONOMY } from "@/lib/admin/taxonomy-data";
 import type { TaxonomyData } from "@/lib/admin/taxonomy-types";
 import {
@@ -36,7 +37,6 @@ import type {
 } from "@/lib/admin/listing-quality-rules-types";
 import type { HostVerificationRequest } from "@/lib/host/verification-types";
 import type { GuestVerificationRequest } from "@/lib/guest/guest-verification-types";
-import type { EventAvailabilityRequest } from "@/lib/events/event-availability-types";
 import { normalizeEventsSubscription } from "@/lib/admin/events-subscription";
 
 export const CATALOG_KEYS = {
@@ -50,7 +50,7 @@ export const CATALOG_KEYS = {
   listingQualityRules: "listing-quality-rules",
   hostVerifications: "host-verifications",
   guestVerifications: "guest-verifications",
-  eventAvailabilityRequests: "event-availability-requests",
+  supportContact: "support-contact-settings",
 } as const;
 
 async function getPayload(key: string): Promise<string | null> {
@@ -67,6 +67,14 @@ async function savePayload(key: string, payload: unknown) {
   });
 }
 
+export async function getCatalogPayload(key: string): Promise<string | null> {
+  return getPayload(key);
+}
+
+export async function saveCatalogPayload(key: string, payload: unknown): Promise<void> {
+  await savePayload(key, payload);
+}
+
 export async function getTaxonomyFromDb(): Promise<TaxonomyData> {
   const raw = await getPayload(CATALOG_KEYS.taxonomy);
   if (!raw) {
@@ -81,7 +89,15 @@ export async function getTaxonomyFromDb(): Promise<TaxonomyData> {
       !(parsed.mainTabs ?? []).some((tab) => tab.id === "category");
     const mainTabsChanged =
       JSON.stringify(normalized.mainTabs) !== JSON.stringify(parsed.mainTabs ?? []);
-    if (missingCategoryLayer || mainTabsChanged) {
+    const diningParentDrift = (parsed.parents ?? []).some(
+      (p) => p.name.trim().toLowerCase() === "dining" && p.id !== DINING_PARENT_ID
+    );
+    const orphanDiningFilters = (parsed.extraFilters ?? []).some(
+      (ef) =>
+        ef.parentId === DINING_PARENT_ID &&
+        !(parsed.parents ?? []).some((p) => p.id === DINING_PARENT_ID)
+    );
+    if (missingCategoryLayer || mainTabsChanged || diningParentDrift || orphanDiningFilters) {
       await savePayload(CATALOG_KEYS.taxonomy, normalized);
     }
 
@@ -394,22 +410,3 @@ export async function saveGuestVerificationToDb(
   return request;
 }
 
-export async function getEventAvailabilityRequestsFromDb(): Promise<
-  EventAvailabilityRequest[]
-> {
-  const raw = await getPayload(CATALOG_KEYS.eventAvailabilityRequests);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as EventAvailabilityRequest[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-export async function saveEventAvailabilityRequestsToDb(
-  requests: EventAvailabilityRequest[]
-): Promise<EventAvailabilityRequest[]> {
-  await savePayload(CATALOG_KEYS.eventAvailabilityRequests, requests);
-  return requests;
-}

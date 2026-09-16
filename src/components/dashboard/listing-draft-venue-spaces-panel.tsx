@@ -19,6 +19,7 @@ import {
 import {
   createEmptyVenueDetails,
   type VenueDetails,
+  type VenueDetailsVariant,
 } from "@/lib/listings/venue-details-types";
 import type { ListingFilterValues } from "@/lib/listings/submission-types";
 
@@ -35,16 +36,18 @@ export type DraftVenueSpace = {
   venueDetails?: VenueDetails;
 };
 
-export function createEmptyDraftVenueSpace(): DraftVenueSpace {
+export function createEmptyDraftVenueSpace(
+  variant: VenueDetailsVariant = "event"
+): DraftVenueSpace {
   return {
     key: `venue-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name: "",
     description: "",
     price: "",
-    capacity: 50,
+    capacity: variant === "dining" ? 20 : 50,
     photos: [],
     advancedIds: [],
-    venueDetails: createEmptyVenueDetails(),
+    venueDetails: createEmptyVenueDetails(variant),
   };
 }
 
@@ -80,6 +83,7 @@ function SpaceBasicsFields({
   currency,
   currencySymbol,
   singleVenueMode,
+  variant = "event",
   onPatch,
   onRemove,
 }: {
@@ -89,10 +93,18 @@ function SpaceBasicsFields({
   currency: string;
   currencySymbol?: string;
   singleVenueMode?: boolean;
+  variant?: VenueDetailsVariant;
   onPatch: (partial: Partial<DraftVenueSpace>) => void;
   onRemove: () => void;
 }) {
-  const rateLabel = singleVenueMode ? "Starting rate" : "Indicative rate";
+  const rateLabel =
+    variant === "dining"
+      ? singleVenueMode
+        ? "Indicative spend (per person)"
+        : "Indicative spend"
+      : singleVenueMode
+        ? "Starting rate"
+        : "Indicative rate";
 
   return (
     <>
@@ -117,12 +129,20 @@ function SpaceBasicsFields({
       <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_11rem] gap-3">
         <label className="block">
           <span className="block text-xs font-medium text-gray-600 mb-1">
-            {singleVenueMode ? "Venue name" : "Space name"}
+            {singleVenueMode
+              ? variant === "dining"
+                ? "Restaurant name"
+                : "Venue name"
+              : variant === "dining"
+                ? "Dining space name"
+                : "Space name"}
           </span>
           <input
             value={space.name}
             onChange={(e) => onPatch({ name: e.target.value })}
-            placeholder="Main banquet hall"
+            placeholder={
+              variant === "dining" ? "Terrace dining, private majlis…" : "Main banquet hall"
+            }
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
           />
         </label>
@@ -152,7 +172,11 @@ function SpaceBasicsFields({
           value={space.description}
           onChange={(e) => onPatch({ description: e.target.value })}
           rows={3}
-          placeholder="Size, layout, best use cases, included furniture, etc."
+          placeholder={
+            variant === "dining"
+              ? "Menu style, seating, best for groups or couples…"
+              : "Size, layout, best use cases, included furniture, etc."
+          }
           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-y min-h-[72px]"
         />
       </label>
@@ -175,6 +199,7 @@ export function ListingDraftVenueSpacesEditor({
   overviewPhotos,
   filterValues,
   onFilterValuesChange,
+  variant = "event",
 }: {
   spaces: DraftVenueSpace[];
   onSpacesChange: (spaces: DraftVenueSpace[]) => void;
@@ -182,6 +207,7 @@ export function ListingDraftVenueSpacesEditor({
   onVenueDetailsChange: (next: VenueDetails) => void;
   currency: string;
   currencySymbol?: string;
+  variant?: VenueDetailsVariant;
   /** One rate for whole venue — title, description, photos, and venue fields in one card. */
   singleVenueMode?: boolean;
   title?: string;
@@ -226,18 +252,28 @@ export function ListingDraftVenueSpacesEditor({
     }
   }
 
+  if (variant === "dining" && !mergedSingleCard) {
+    return null;
+  }
+
   if (mergedSingleCard) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-5 space-y-5 shadow-sm">
         <div>
           <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
             <Building2 className="w-4 h-4 text-green-700" />
-            Venue Details
+            {variant === "dining" ? "Restaurant details" : "Venue details"}
           </p>
         </div>
 
         <div>
-          <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_11rem] gap-x-4 gap-y-1.5">
+          <div
+            className={
+              variant === "dining" || !firstSpace
+                ? undefined
+                : "grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_11rem] gap-x-4 gap-y-1.5"
+            }
+          >
             <div className="flex items-center justify-between gap-3">
               <label htmlFor="venue-title" className="block text-sm font-medium text-gray-700">
                 Title
@@ -246,7 +282,7 @@ export function ListingDraftVenueSpacesEditor({
                 {listingTitleWordCount(title)}/{LISTING_TITLE_MAX_WORDS} words
               </span>
             </div>
-            {firstSpace ? (
+            {firstSpace && variant !== "dining" ? (
               <span className="block text-sm font-medium text-gray-700">Starting rate</span>
             ) : null}
             <input
@@ -255,10 +291,14 @@ export function ListingDraftVenueSpacesEditor({
               value={title}
               onChange={(e) => handleTitleChange(e.target.value)}
               maxLength={LISTING_TITLE_MAX_CHARS}
-              placeholder="Grand Palace Estate & Event Venue"
+              placeholder={
+                variant === "dining"
+                  ? "Sunset Farm Table & Kitchen"
+                  : "Grand Palace Estate & Event Venue"
+              }
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
-            {firstSpace ? (
+            {firstSpace && variant !== "dining" ? (
               <div className="flex items-stretch">
                 <div className="inline-flex items-center gap-1 rounded-s-lg border border-gray-200 border-e-0 bg-gray-50 px-2.5 text-xs text-gray-700 shrink-0">
                   <span className="font-semibold">{currency}</span>
@@ -275,6 +315,11 @@ export function ListingDraftVenueSpacesEditor({
               </div>
             ) : null}
           </div>
+          {variant === "dining" ? (
+            <p className="text-xs text-gray-500 mt-1">
+              Indicative pricing is set in Dining details below (price level and average spend).
+            </p>
+          ) : null}
           <p className="text-xs text-gray-400 mt-1">
             Short titles stay on one line on the listing page.
           </p>
@@ -290,11 +335,15 @@ export function ListingDraftVenueSpacesEditor({
             rows={8}
             value={description ?? ""}
             onChange={(value) => onDescriptionChange?.(value)}
-            placeholder="Describe your property..."
+            placeholder={
+              variant === "dining"
+                ? "Describe your dining experience, menu style, and setting…"
+                : "Describe your property..."
+            }
           />
         </div>
 
-        {firstSpace ? (
+        {firstSpace && variant !== "dining" ? (
           <VenueDetailsFields
             value={venueDetails}
             onChange={onVenueDetailsChange}
@@ -302,12 +351,15 @@ export function ListingDraftVenueSpacesEditor({
             currencySymbol={currencySymbol}
             showStartingPrice={false}
             compact
+            variant={variant}
           />
         ) : null}
 
         <div>
           <p className="text-xs text-gray-500 mb-1.5">
-            Venue photos (exterior, entrance, halls, and setup).
+            {variant === "dining"
+              ? "Restaurant photos (exterior, dining room, dishes, terrace)."
+              : "Venue photos (exterior, entrance, halls, and setup)."}
           </p>
           {overviewPhotos}
         </div>
@@ -329,6 +381,7 @@ export function ListingDraftVenueSpacesEditor({
             currency={currency}
             currencySymbol={currencySymbol}
             singleVenueMode={singleVenueMode}
+            variant={variant}
             onPatch={(partial) => patchSpace(space.key, partial)}
             onRemove={() => removeSpace(space.key)}
           />
@@ -339,6 +392,7 @@ export function ListingDraftVenueSpacesEditor({
             currencySymbol={currencySymbol}
             showStartingPrice={false}
             compact
+            variant={variant}
           />
           {showPerSpaceFilters ? (
             <SpaceAdvancedFilters
@@ -361,12 +415,12 @@ export function ListingDraftVenueSpacesEditor({
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            onSpacesChange([...spaces, createEmptyDraftVenueSpace()]);
+            onSpacesChange([...spaces, createEmptyDraftVenueSpace(variant)]);
           }}
           className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-green-300 bg-green-50/50 px-3 py-2.5 text-sm font-semibold text-green-800 hover:bg-green-50 transition-colors"
         >
           <Plus className="w-4 h-4" />
-          Add another space
+          {variant === "dining" ? "Add another dining space" : "Add another space"}
         </button>
       ) : null}
     </>

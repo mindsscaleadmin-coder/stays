@@ -85,6 +85,7 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
       : null
   );
   const isExperience = mode === "experience";
+  const isStay = mode === "stay";
 
   useEffect(() => {
     if (!listing) {
@@ -397,7 +398,7 @@ export function HostListingManageContent({ listingId }: { listingId: string }) {
           </div>
         </section>
 
-        {!isExperience && (
+        {isStay && (
           <section className="bg-white rounded-2xl border p-5 space-y-4">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">

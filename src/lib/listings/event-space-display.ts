@@ -1,7 +1,8 @@
 import type { VenueSpaceFilterGroup } from "@/lib/listings/resolve-venue-space-filters";
 import {
-  VENUE_PRICE_UNIT_OPTIONS,
+  venuePriceUnitOptions,
   type VenueDetails,
+  type VenueDetailsVariant,
 } from "@/lib/listings/venue-details-types";
 
 export type VenueSpaceFeatureRow = {
@@ -15,10 +16,31 @@ export type VenueCapacityLayout = {
   value: number;
 };
 
-export function buildVenueCapacityLayouts(venueDetails?: VenueDetails): VenueCapacityLayout[] {
+export function buildVenueCapacityLayouts(
+  venueDetails?: VenueDetails,
+  variant: VenueDetailsVariant = "event"
+): VenueCapacityLayout[] {
   if (!venueDetails) return [];
 
   const layouts: VenueCapacityLayout[] = [];
+
+  if (variant === "dining") {
+    if (venueDetails.seatedCapacity != null && venueDetails.seatedCapacity > 0) {
+      layouts.push({
+        id: "dining",
+        label: "Seated covers",
+        value: venueDetails.seatedCapacity,
+      });
+    }
+    if (venueDetails.maxGuests != null && venueDetails.maxGuests > 0) {
+      layouts.push({
+        id: "standing",
+        label: "Max guests",
+        value: venueDetails.maxGuests,
+      });
+    }
+    return layouts;
+  }
 
   if (venueDetails.standingCapacity != null && venueDetails.standingCapacity > 0) {
     layouts.push({
@@ -73,19 +95,27 @@ export function buildVenueCapacityLayouts(venueDetails?: VenueDetails): VenueCap
 
 export function buildVenueSpaceFeatureRows(
   venueDetails?: VenueDetails,
-  money?: (amount: number) => string
+  money?: (amount: number) => string,
+  variant: VenueDetailsVariant = "event"
 ): VenueSpaceFeatureRow[] {
   if (!venueDetails) return [];
 
   const rows: VenueSpaceFeatureRow[] = [];
 
-  if (venueDetails.hallSizeSqFt != null && venueDetails.hallSizeSqFt > 0) {
+  if (variant === "dining" && venueDetails.spaceCount != null && venueDetails.spaceCount > 0) {
+    rows.push({
+      label: "Private areas",
+      value: String(venueDetails.spaceCount),
+    });
+  }
+
+  if (variant !== "dining" && venueDetails.hallSizeSqFt != null && venueDetails.hallSizeSqFt > 0) {
     rows.push({
       label: "Floor covering",
       value: `${venueDetails.hallSizeSqFt.toLocaleString()} sq ft`,
     });
   }
-  if (venueDetails.ceilingHeightFt != null && venueDetails.ceilingHeightFt > 0) {
+  if (variant !== "dining" && venueDetails.ceilingHeightFt != null && venueDetails.ceilingHeightFt > 0) {
     rows.push({
       label: "Ceiling height",
       value: `${venueDetails.ceilingHeightFt} ft`,
@@ -96,17 +126,24 @@ export function buildVenueSpaceFeatureRows(
   }
   if (venueDetails.minimumBookingDuration?.trim()) {
     rows.push({
-      label: "Minimum booking",
+      label: variant === "dining" ? "Service window" : "Minimum booking",
       value: venueDetails.minimumBookingDuration.trim(),
     });
   }
-  const priceUnit = VENUE_PRICE_UNIT_OPTIONS.find(
-    (option) => option.value === venueDetails.priceUnit
-  )?.label;
-  if (priceUnit) {
-    rows.push({ label: "Price unit", value: priceUnit });
+  if (variant !== "dining") {
+    const priceUnit = venuePriceUnitOptions(variant).find(
+      (option) => option.value === venueDetails.priceUnit
+    )?.label;
+    if (priceUnit) {
+      rows.push({ label: "Price unit", value: priceUnit });
+    }
   }
-  if (venueDetails.securityDeposit != null && venueDetails.securityDeposit > 0 && money) {
+  if (
+    variant !== "dining" &&
+    venueDetails.securityDeposit != null &&
+    venueDetails.securityDeposit > 0 &&
+    money
+  ) {
     rows.push({
       label: "Security deposit",
       value: money(venueDetails.securityDeposit),
@@ -145,10 +182,14 @@ export function resolveEventGuestCapacityRange(
   return { min, max };
 }
 
-export function formatEventGuestCapacityLabel(range: { min: number; max: number } | null): string {
+export function formatEventGuestCapacityLabel(
+  range: { min: number; max: number } | null,
+  variant: VenueDetailsVariant = "event"
+): string {
   if (!range) return "";
-  if (range.min === range.max) return `Up to ${range.max} guests`;
-  return `${range.min}–${range.max} guests`;
+  const noun = variant === "dining" ? "covers" : "guests";
+  if (range.min === range.max) return `Up to ${range.max} ${noun}`;
+  return `${range.min}–${range.max} ${noun}`;
 }
 
 export function formatEventGuestCapacityStat(range: { min: number; max: number } | null): string {

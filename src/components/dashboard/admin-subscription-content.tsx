@@ -78,11 +78,12 @@ export function AdminSubscriptionContent() {
         <section className="bg-white rounded-2xl border shadow-sm p-5 space-y-4">
           <div className="flex items-center gap-2">
             <CalendarDays className="w-4 h-4 text-green-700" />
-            <h3 className="font-semibold text-gray-900">Events directory pricing</h3>
+            <h3 className="font-semibold text-gray-900">Events &amp; dining directory pricing</h3>
           </div>
           <p className="text-sm text-gray-500">
-            Event venues are listed as a directory — guests contact them directly, so there is no
-            booking commission. Hosts pay by how many venues they list.
+            Event venues and restaurants are listed as a directory — guests enquire through the
+            platform, so there is no booking commission. Hosts pay by how many directory listings
+            they publish.
           </p>
 
           <div
@@ -99,8 +100,8 @@ export function AdminSubscriptionContent() {
                   updateEventsSubscription({ freeDuringLaunch: e.target.checked });
                   flash(
                     e.target.checked
-                      ? "Events listings are now free — approved venues go public immediately."
-                      : "Paid tiers enforced — venues need an active subscription to stay public."
+                      ? "Directory listings are now free — approved events and dining go public immediately."
+                      : "Paid tiers enforced — directory listings need an active subscription to stay public."
                   );
                 }}
                 className="mt-0.5 w-4 h-4 accent-green-700"
@@ -111,8 +112,8 @@ export function AdminSubscriptionContent() {
                 </span>
                 <span className="block text-xs text-gray-600 mt-0.5">
                   {freeDuringLaunch
-                    ? "Approved event venues appear publicly with no subscription. Turn this off when you start charging."
-                    : "Only venues with an active subscription appear publicly. Grant subscriptions below."}
+                    ? "Approved event and dining listings appear publicly with no subscription. Turn this off when you start charging."
+                    : "Only hosts with an active directory subscription appear publicly. Grant subscriptions below."}
                 </span>
               </span>
             </label>
@@ -225,7 +226,7 @@ export function AdminSubscriptionContent() {
             </div>
             <p className="text-[11px] text-gray-400">
               Leave “Max venues” empty for an unlimited tier. A host is charged the cheapest tier
-              that covers their number of event listings.
+              that covers their number of event and dining listings.
             </p>
           </div>
 
@@ -270,10 +271,10 @@ export function AdminSubscriptionContent() {
                     }
                   );
                   if (!res.ok) {
-                    flash("Could not grant Events subscription.");
+                    flash("Could not grant directory subscription.");
                     return;
                   }
-                  flash("Host Events subscription granted for 1 year.");
+                  flash("Host directory subscription granted for 1 year.");
                 }}
                 className="text-sm font-semibold bg-gray-900 hover:bg-black disabled:opacity-50 text-white px-4 py-2 rounded-lg"
               >

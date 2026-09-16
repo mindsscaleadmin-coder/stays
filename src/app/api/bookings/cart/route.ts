@@ -9,6 +9,8 @@ import { requireSessionUser, AuthError, authErrorResponse } from "@/lib/auth/ses
 import { enqueueBookingConfirmedJob } from "@/lib/queue/enqueue";
 import { prisma } from "@/lib/prisma";
 import { BASE_CURRENCY } from "@/lib/currency";
+import { getRequestId } from "@/lib/observability/logger";
+import { checkBookingRateLimit, tooManyRequestsResponse } from "@/lib/rate-limit";
 
 const listingSchema = z.object({
   id: z.string(),
@@ -42,7 +44,13 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const requestId = getRequestId(request);
   try {
+    const ipLimited = await checkBookingRateLimit(request);
+    if (!ipLimited.success) {
+      return tooManyRequestsResponse(ipLimited.remaining, requestId);
+    }
+
     const json = await request.json();
     const parsed = bodySchema.safeParse(json);
     if (!parsed.success) {
@@ -72,6 +80,11 @@ export async function POST(request: Request) {
 
     if (!guestId) {
       return NextResponse.json({ error: "Sign in required to book" }, { status: 401 });
+    }
+
+    const userLimited = await checkBookingRateLimit(request, guestId, "user");
+    if (!userLimited.success) {
+      return tooManyRequestsResponse(userLimited.remaining, requestId);
     }
 
     const created: { booking: Awaited<ReturnType<typeof createQuotedBooking>>["booking"]; quote: Awaited<ReturnType<typeof createQuotedBooking>>["quote"]; title: string; checkIn: string; checkOut: string; guests: number }[] = [];

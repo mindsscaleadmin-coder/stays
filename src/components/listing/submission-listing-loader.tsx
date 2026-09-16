@@ -145,6 +145,7 @@ export function SubmissionListingLoader({ id }: { id: string }) {
         amenities={[...(listing.amenities ?? []), ...(listing.advancedFilters ?? [])]}
         advancedFilters={listing.advancedFilters ?? []}
         venueDetails={listing.venueDetails}
+        diningDetails={listing.diningDetails}
         extraCharges={
           pricing.extraChargesEnabled ? pricing.extraCharges : []
         }

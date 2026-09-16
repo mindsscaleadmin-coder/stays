@@ -25,7 +25,7 @@ import type {
 import { useHostPublicProfile } from "@/lib/host/use-host-public-profile";
 import { isEventsSubscriptionActive, formatSubscriptionExpiry } from "@/lib/host/events-subscription";
 import { useEventsSubscriptionSettings } from "@/lib/host/use-events-subscription-settings";
-import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { getListingMode } from "@/lib/listings/listing-mode";
 import { cn } from "@/lib/utils";
 
@@ -73,15 +73,17 @@ export function HostListingsContent() {
     freeDuringLaunch: eventsFree,
     planForListingCount,
   } = useEventsSubscriptionSettings();
-  const eventListingCount = hostSubmissions.filter((l) =>
-    isEventListing({
+  const directoryListingCount = hostSubmissions.filter((l) =>
+    isDirectoryListing({
       parentCategory: l.parentCategory,
       type: l.type,
       category: l.category,
     })
   ).length;
-  const hasEventListings = eventListingCount > 0;
-  const eventPlan = hasEventListings ? planForListingCount(eventListingCount) : null;
+  const hasDirectoryListings = directoryListingCount > 0;
+  const directoryPlan = hasDirectoryListings
+    ? planForListingCount(directoryListingCount)
+    : null;
 
   const parentOrder = useMemo(() => {
     const names = taxonomy.parents.map((p) => p.name.trim()).filter(Boolean);
@@ -196,7 +198,7 @@ export function HostListingsContent() {
           </div>
         )}
 
-        {hasEventListings && (
+        {hasDirectoryListings && (
           <div
             className={`text-sm rounded-xl px-4 py-3 border ${
               eventsFree || eventsSubActive
@@ -206,32 +208,32 @@ export function HostListingsContent() {
           >
             {eventsFree ? (
               <>
-                Listing event venues is <strong>free during launch</strong> — approved venues go
-                live in the public Events section straight away. Guests send you availability
-                requests and you deal with them directly, with no booking fees.
-                {eventPlan ? (
+                Listing event and dining venues is <strong>free during launch</strong> —
+                approved listings go live in the public directory straight away. Guests send you
+                availability requests and you deal with them directly, with no booking fees.
+                {directoryPlan ? (
                   <>
                     {" "}
-                    When launch pricing starts, {eventListingCount}{" "}
-                    {eventListingCount === 1 ? "venue" : "venues"} falls under{" "}
-                    <strong>{eventPlan.name}</strong> at AED{" "}
-                    {eventPlan.yearlyFeeAed.toLocaleString()}/year.
+                    When launch pricing starts, {directoryListingCount}{" "}
+                    {directoryListingCount === 1 ? "listing" : "listings"} falls under{" "}
+                    <strong>{directoryPlan.name}</strong> at AED{" "}
+                    {directoryPlan.yearlyFeeAed.toLocaleString()}/year.
                   </>
                 ) : null}
               </>
             ) : eventsSubActive ? (
-              `Events subscription is active until ${formatSubscriptionExpiry(hostProfile?.eventsSubscriptionExpiresAt)}. Guests contact you directly — no booking fees.`
+              `Directory subscription is active until ${formatSubscriptionExpiry(hostProfile?.eventsSubscriptionExpiresAt)}. Guests contact you directly — no booking fees.`
             ) : (
               <>
-                Event listings stay off the public Events section until your yearly subscription
-                is recorded.
-                {eventPlan ? (
+                Event and dining listings stay off the public directory until your yearly
+                subscription is recorded.
+                {directoryPlan ? (
                   <>
                     {" "}
-                    Your {eventListingCount}{" "}
-                    {eventListingCount === 1 ? "venue" : "venues"} falls under{" "}
-                    <strong>{eventPlan.name}</strong> — AED{" "}
-                    {eventPlan.yearlyFeeAed.toLocaleString()}/year.
+                    Your {directoryListingCount}{" "}
+                    {directoryListingCount === 1 ? "listing" : "listings"} falls under{" "}
+                    <strong>{directoryPlan.name}</strong> — AED{" "}
+                    {directoryPlan.yearlyFeeAed.toLocaleString()}/year.
                   </>
                 ) : null}{" "}
                 Featured and Trending boosts are available after that.
@@ -375,13 +377,15 @@ function ListingCard({
   onDelete: (id: string, title: string) => void;
 }) {
   const nightly = submission ? nightlyFromListing(submission) : 0;
-  const isEvent = submission
+  const mode = submission
     ? getListingMode({
         parentCategory: submission.parentCategory,
         type: submission.type,
         category: submission.category,
-      }) === "event"
-    : false;
+      })
+    : "stay";
+  const isEvent = mode === "event";
+  const isStay = mode === "stay";
   const rateLabel =
     nightly > 0
       ? isEvent
@@ -420,7 +424,7 @@ function ListingCard({
             </div>
             <div className="text-sm text-gray-500 mt-1">
               {categoryBits.length > 0 ? `${categoryBits.join(" · ")} · ` : null}
-              {!isEvent && (
+              {isStay && (
                 <>
                   {roomCount} room{roomCount === 1 ? "" : "s"} · {listing.bookings} bookings ·{" "}
                 </>
@@ -443,14 +447,6 @@ function ListingCard({
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {!isEvent && (
-            <Link
-              href={`/host/listings/${listing.id}/rooms/new`}
-              className="inline-flex items-center gap-1.5 text-xs border border-gray-300 hover:border-green-400 text-gray-600 px-3 py-1.5 rounded-lg font-medium transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" /> Add room
-            </Link>
-          )}
           <Link
             href={`/listing/${listing.id}`}
             className="text-xs border border-gray-300 px-3 py-1.5 rounded-lg font-medium text-gray-600 hover:border-green-400"

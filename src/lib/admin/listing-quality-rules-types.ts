@@ -1,6 +1,6 @@
 export type ListingQualityForm = "details" | "manage";
 
-export type ListingQualityMode = "stay" | "experience" | "event";
+export type ListingQualityMode = "stay" | "experience" | "event" | "dining";
 
 export type ListingQualityFieldKind = "required" | "minLength" | "minCount";
 

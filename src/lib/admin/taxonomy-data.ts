@@ -12,6 +12,14 @@ import {
   type TaxonomyData,
 } from "./taxonomy-types";
 
+import {
+  DINING_CATEGORIES,
+  DINING_EXTRA_FILTERS,
+  DINING_EXTRA_TABS,
+  DINING_PARENT,
+  DINING_PARENT_ID,
+  DINING_SUBCATEGORIES,
+} from "./dining-taxonomy-data";
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
 const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
   countries: [
@@ -94,6 +102,7 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     { id: "p1", name: "Stays" },
     { id: "p2", name: "Experiences" },
     { id: "p3", name: "Events" },
+    DINING_PARENT,
   ],
   categories: [
     { id: "cat-farm", name: "Farm Stays", parentId: "p1" },
@@ -111,6 +120,7 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     { id: "cat-bbq", name: "BBQ Experience", parentId: "p2" },
     { id: "cat-tour", name: "Farm Tour", parentId: "p2" },
     { id: "cat-venue", name: "Venue", parentId: "p3" },
+    ...DINING_CATEGORIES,
   ],
   subcategories: [
     { id: "sc1", name: "Luxury Farm House", parentId: "p1", categoryId: "cat-farm" },
@@ -141,6 +151,7 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     { id: "sc17", name: "Farmhouse Gatherings", parentId: "p3", categoryId: "cat-venue" },
     { id: "sc18", name: "Outdoor Lawns", parentId: "p3", categoryId: "cat-venue" },
     { id: "sc19", name: "Desert Venues", parentId: "p3", categoryId: "cat-venue" },
+    ...DINING_SUBCATEGORIES,
   ],
   extraFilters: [
     { id: "ef1", name: "Swimming Pool", type: "amenity", parentId: "p1" },
@@ -188,6 +199,7 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     { id: "ev-ef30", name: "Alcohol allowed", type: "venueRule", parentId: "p3" },
     { id: "ev-ef31", name: "Smoking allowed", type: "venueRule", parentId: "p3" },
     { id: "ev-ef32", name: "Pets allowed", type: "venueRule", parentId: "p3" },
+    ...DINING_EXTRA_FILTERS,
   ],
   featureFilters: [
     { id: "ff1", name: "Private Pool", parentId: "p1" },
@@ -209,7 +221,7 @@ const EVENT_VENUE_EXTRA_TABS = [
 
 export const SEED_TAXONOMY: TaxonomyData = {
   mainTabs: [...DEFAULT_MAIN_TABS, ...DEFAULT_PROPERTY_TABS],
-  extraTabs: [...DEFAULT_EXTRA_TABS, ...EVENT_VENUE_EXTRA_TABS],
+  extraTabs: [...DEFAULT_EXTRA_TABS, ...EVENT_VENUE_EXTRA_TABS, ...DINING_EXTRA_TABS],
   customItems: Object.fromEntries(
     Object.entries(DEFAULT_CUSTOM_ITEMS).map(([key, items]) => [
       key,
@@ -218,6 +230,32 @@ export const SEED_TAXONOMY: TaxonomyData = {
   ),
   ...CORE,
 };
+
+const SEED_PARENT_IDS = new Set(SEED_TAXONOMY.parents.map((item) => item.id));
+const SEED_CATEGORY_IDS = new Set(SEED_TAXONOMY.categories.map((item) => item.id));
+const SEED_SUBCATEGORY_IDS = new Set(SEED_TAXONOMY.subcategories.map((item) => item.id));
+const SEED_EXTRA_FILTER_IDS = new Set(SEED_TAXONOMY.extraFilters.map((item) => item.id));
+
+const BUILT_IN_DELETE_LOCK_SUFFIX =
+  "is built in and cannot be deleted. Turn Active off to hide it from listing forms and search.";
+
+/** Built-in taxonomy rows are re-merged on save; block delete and explain why. */
+export function taxonomyItemDeleteLockReason(
+  collection: "parents" | "categories" | "subcategories" | "extraFilters",
+  id: string,
+  name: string
+): string | null {
+  const seedIds =
+    collection === "parents"
+      ? SEED_PARENT_IDS
+      : collection === "categories"
+        ? SEED_CATEGORY_IDS
+        : collection === "subcategories"
+          ? SEED_SUBCATEGORY_IDS
+          : SEED_EXTRA_FILTER_IDS;
+  if (!seedIds.has(id)) return null;
+  return `"${name}" ${BUILT_IN_DELETE_LOCK_SUFFIX}`;
+}
 
 /** Enrich stored countries with seed marketplace fields; keep user names and ids. */
 function normalizeCountries(stored: Country[] | undefined): Country[] {
@@ -397,6 +435,18 @@ function mergeEventVenueExtraTabs(
   return mergeMissingExtraFilters(tabs, EVENT_VENUE_EXTRA_TABS);
 }
 
+function mergeDiningExtraTabs(
+  tabs: { id: string; label: string; builtIn?: boolean; enabled?: boolean }[]
+) {
+  return mergeMissingExtraFilters(tabs, DINING_EXTRA_TABS);
+}
+
+function mergeMissingById<T extends { id: string }>(stored: T[], seed: T[]): T[] {
+  const ids = new Set(stored.map((item) => item.id));
+  const missing = seed.filter((item) => !ids.has(item.id));
+  return missing.length > 0 ? [...stored, ...missing] : stored;
+}
+
 function dedupeCustomItems(
   customItems: Record<string, { id: string; name: string; enabled?: boolean }[]>
 ): Record<string, { id: string; name: string; enabled?: boolean }[]> {
@@ -410,8 +460,8 @@ function dedupeCustomItems(
 function normalizeParents(
   stored: TaxonomyData["parents"] | undefined
 ): TaxonomyData["parents"] {
-  if (stored == null) return dedupeByName(SEED_TAXONOMY.parents);
-  return dedupeByName(stored);
+  const source = stored == null ? SEED_TAXONOMY.parents : mergeMissingById(stored, SEED_TAXONOMY.parents);
+  return dedupeByName(source);
 }
 
 function remapToKnownParentId(
@@ -433,7 +483,10 @@ function normalizeCategories(
   stored: TaxonomyData["categories"] | undefined,
   parents: TaxonomyData["parents"]
 ): TaxonomyData["categories"] {
-  const source = stored ?? SEED_TAXONOMY.categories;
+  const source =
+    stored == null
+      ? SEED_TAXONOMY.categories
+      : mergeMissingById(stored, SEED_TAXONOMY.categories);
   const fromStored = source.map((cat) => ({
     ...cat,
     parentId: remapToKnownParentId(cat.parentId, parents),
@@ -480,7 +533,10 @@ function normalizeSubcategories(
   parents: TaxonomyData["parents"],
   categories: TaxonomyData["categories"]
 ): TaxonomyData["subcategories"] {
-  const source = stored ?? SEED_TAXONOMY.subcategories;
+  const source =
+    stored == null
+      ? SEED_TAXONOMY.subcategories
+      : mergeMissingById(stored, SEED_TAXONOMY.subcategories);
   const fromStored = source.map((sc) => {
     const parentId = remapToKnownParentId(sc.parentId, parents);
     const categoryId = resolveCategoryId({ ...sc, parentId }, categories);
@@ -524,12 +580,16 @@ function remapLegacyParentId(id: string): string {
   return id;
 }
 
+function isLegacyVenuesParent(parent: TaxonomyData["parents"][number]): boolean {
+  return parent.id === "p4" && /^venues?$/i.test(parent.name.trim());
+}
+
 function shouldMigrateSequentialParents(
   parents: TaxonomyData["parents"] | undefined
 ): boolean {
   if (!parents?.length) return false;
   const ids = new Set(parents.map((p) => p.id));
-  if (ids.has("p4")) return true;
+  if (parents.some(isLegacyVenuesParent)) return true;
   if (ids.has("p3") && !ids.has("p2")) {
     const p3 = parents.find((p) => p.id === "p3");
     return Boolean(p3 && /experience/i.test(p3.name));
@@ -589,13 +649,77 @@ function collapseLegacyVenueCategories(
   return { categories: nextCategories, subcategories: nextSubcategories };
 }
 
+/**
+ * Admin may create a Dining parent with an auto-generated id while seed dining
+ * filters use `p-dining`. Canonicalize to one parent id and remap all children.
+ */
+function canonicalizeDiningParentTaxonomy(
+  parsed: Partial<TaxonomyData>
+): Partial<TaxonomyData> {
+  const parents = parsed.parents ?? [];
+  const legacyDiningIds = new Set(
+    parents
+      .filter(
+        (p) =>
+          normalizeFilterName(p.name) === "dining" && p.id !== DINING_PARENT_ID
+      )
+      .map((p) => p.id)
+  );
+  const orphanDiningFilters = (parsed.extraFilters ?? []).some(
+    (ef) =>
+      ef.parentId === DINING_PARENT_ID &&
+      !parents.some((p) => p.id === DINING_PARENT_ID)
+  );
+
+  if (legacyDiningIds.size === 0 && !orphanDiningFilters) return parsed;
+
+  const legacyParent = parents.find((p) => legacyDiningIds.has(p.id));
+  const canonicalParent = {
+    ...(parents.find((p) => p.id === DINING_PARENT_ID) ?? legacyParent ?? DINING_PARENT),
+    id: DINING_PARENT_ID,
+    name: "Dining",
+  };
+
+  const nextParents = [
+    ...parents.filter(
+      (p) => p.id !== DINING_PARENT_ID && !legacyDiningIds.has(p.id)
+    ),
+    canonicalParent,
+  ];
+
+  const remapParentId = (parentId?: string): string | undefined => {
+    if (!parentId) return parentId;
+    if (parentId === DINING_PARENT_ID || legacyDiningIds.has(parentId)) {
+      return DINING_PARENT_ID;
+    }
+    return parentId;
+  };
+
+  const remapItems = <T extends { parentId?: string }>(items?: T[]): T[] | undefined =>
+    items?.map((item) =>
+      item.parentId
+        ? { ...item, parentId: remapParentId(item.parentId) ?? item.parentId }
+        : item
+    );
+
+  return {
+    ...parsed,
+    parents: nextParents,
+    categories: remapItems(parsed.categories),
+    subcategories: remapItems(parsed.subcategories),
+    extraFilters: remapItems(parsed.extraFilters),
+    featureFilters: remapItems(parsed.featureFilters),
+  };
+}
+
 /** p3 Experiences → p2, p4 Venues → p3 Events; venue types become subcategories of Venue. */
 function migrateLegacyParentTaxonomy(parsed: Partial<TaxonomyData>): Partial<TaxonomyData> {
-  let parents = parsed.parents;
-  let categories = parsed.categories;
-  let subcategories = parsed.subcategories;
-  let extraFilters = parsed.extraFilters;
-  let featureFilters = parsed.featureFilters;
+  const diningCanonical = canonicalizeDiningParentTaxonomy(parsed);
+  let parents = diningCanonical.parents;
+  let categories = diningCanonical.categories;
+  let subcategories = diningCanonical.subcategories;
+  let extraFilters = diningCanonical.extraFilters;
+  let featureFilters = diningCanonical.featureFilters;
 
   if (shouldMigrateSequentialParents(parents)) {
     parents = parents!.map((p) => {
@@ -620,7 +744,7 @@ function migrateLegacyParentTaxonomy(parsed: Partial<TaxonomyData>): Partial<Tax
   }
 
   return {
-    ...parsed,
+    ...diningCanonical,
     ...(parents ? { parents } : {}),
     ...(categories ? { categories } : {}),
     ...(subcategories ? { subcategories } : {}),
@@ -680,16 +804,26 @@ export function normalizeTaxonomy(parsed: Partial<TaxonomyData>): TaxonomyData {
     ...SEED_TAXONOMY,
     ...migrated,
     mainTabs,
-    extraTabs: mergeEventVenueExtraTabs(mergeExtraTabs(migrated.extraTabs)),
+    extraTabs: mergeDiningExtraTabs(
+      mergeEventVenueExtraTabs(mergeExtraTabs(migrated.extraTabs))
+    ),
     customItems: cleanedCustom,
     extraFilters: dedupeExtraFilters(
       mergeMissingExtraFilters(
         migrated.extraFilters ?? [],
         SEED_TAXONOMY.extraFilters
+      ).map((ef) =>
+        ef.parentId
+          ? { ...ef, parentId: remapToKnownParentId(ef.parentId, parents) }
+          : ef
       )
     ),
     featureFilters: dedupeByNameAndParent(
-      incoming.featureFilters ?? SEED_TAXONOMY.featureFilters,
+      (incoming.featureFilters ?? SEED_TAXONOMY.featureFilters).map((ff) =>
+        ff.parentId
+          ? { ...ff, parentId: remapToKnownParentId(ff.parentId, parents) }
+          : ff
+      ),
       "parentId"
     ),
     countries: normalizeCountries(parsed.countries),

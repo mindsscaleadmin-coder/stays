@@ -9,7 +9,6 @@ import {
   Calendar,
   Users,
   Star,
-  Heart,
   ChevronRight,
   Shield,
   Tag,
@@ -51,7 +50,12 @@ import {
 } from "@/lib/admin/home-page-settings-data";
 import { useHomePageSettings } from "@/components/providers/home-page-settings-provider";
 import { isDataImageUrl } from "@/lib/utils";
-import { HomeBrowseCard, HomeBrowseScrollRow } from "@/components/home/home-browse-card";
+import {
+  HomeBrowseCard,
+  HomeBrowseScrollRow,
+  HomeBrowseSectionHeader,
+} from "@/components/home/home-browse-card";
+import { HomeTrendingCard } from "@/components/home/home-trending-card";
 import { HomeLiveActivityBar } from "@/components/home/home-live-activity-bar";
 import { LocationPermissionBanner } from "@/components/home/location-permission-banner";
 import { HOST_PRICING_SYNC_EVENT } from "@/lib/host/host-pricing-data";
@@ -79,7 +83,6 @@ export function HomePageContent() {
   const {
     location: guestLocation,
     loading: locationLoading,
-    usingFallback,
     requestLocation,
   } = useGuestLocation();
   const cms = useCmsSettings();
@@ -327,15 +330,15 @@ export function HomePageContent() {
         </div>
       </section>
 
-      <div className="bg-white border-b">
-        <div className="home-page-container py-4 flex flex-wrap items-center justify-between gap-4">
+      <div className="home-page-container">
+        <div className="bg-white border border-gray-200 rounded-2xl px-4 py-4 sm:px-6 grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-3">
           {[
             { icon: Home, val: "1,245+", label: t("stats.properties") },
             { icon: Calendar, val: "42,300+", label: t("stats.nightsBooked") },
             { icon: Users, val: "12,500+", label: t("stats.happyGuests") },
             { icon: Star, val: "4.9/5", label: t("stats.averageRating") },
           ].map(({ icon: Icon, val, label }) => (
-            <div key={label} className="flex items-center gap-3">
+            <div key={label} className="flex items-center gap-2 sm:gap-3 min-w-0">
               <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center">
                 <Icon className="w-5 h-5 text-green-700" />
               </div>
@@ -348,8 +351,8 @@ export function HomePageContent() {
         </div>
       </div>
 
-      <div className="home-page-container mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-5 flex flex-col gap-3">
+      <div className="home-page-container mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="bg-white border rounded-2xl p-5 flex flex-col gap-3">
           <span className="bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full self-start">
             {t("limitedOffer")}
           </span>
@@ -405,7 +408,7 @@ export function HomePageContent() {
       <HomeLiveActivityBar />
 
       <LocationPermissionBanner
-        visible={usingFallback || guestLocation?.source !== "geolocation"}
+        visible={guestLocation?.source !== "geolocation" && guestLocation?.source !== "country"}
         loading={locationLoading}
         areaName={areaName}
         usingGps={guestLocation?.source === "geolocation"}
@@ -414,109 +417,55 @@ export function HomePageContent() {
 
       {sectionEnabled("trending") && (
       <section className="home-page-container home-section">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 font-display flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-amber-500" /> {t("trendingTitle")}
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="flex items-center gap-2 text-lg font-bold text-gray-900 font-display sm:text-xl">
+              <TrendingUp className="h-5 w-5 shrink-0 text-amber-500" /> {t("trendingTitle")}
             </h2>
-            <p className="text-gray-500 text-sm mt-0.5">{trendingSubtitle}</p>
+            <p className="mt-0.5 text-sm text-gray-500">{trendingSubtitle}</p>
           </div>
-          <Link href="/listings?filter=trending&q=nearby" className="text-green-700 text-sm font-semibold flex items-center gap-1 shrink-0">
-            {tc("viewAll")} <ChevronRight className="w-4 h-4" />
+          <Link
+            href="/listings?filter=trending&q=nearby"
+            className="flex shrink-0 items-center gap-1 text-sm font-semibold text-green-700"
+          >
+            {tc("viewAll")} <ChevronRight className="h-4 w-4" />
           </Link>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 xl:gap-5 items-stretch">
-          {trendingStays.map((stay) => (
-            <div
-              key={stay.id}
-              className="relative bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow group h-full flex flex-col min-w-0"
-            >
-              <Link
+        <HomeBrowseScrollRow>
+          {trendingStays.map((stay) => {
+            const isDirectory =
+              stay.parentCategory === "Dining" || stay.parentCategory === "Events";
+            const displayPrice = formatStoredMoney(
+              stay.originalPrice != null && stay.originalPrice > stay.price
+                ? stay.originalPrice
+                : stay.price,
+              {
+                storedCurrency: stay.currency || stay.flashDealCurrency || BASE_CURRENCY,
+                currency: headerCountry.currency,
+                exchangeRateToAED: headerCountry.exchangeRateToAED,
+                locale,
+              }
+            );
+
+            return (
+              <HomeTrendingCard
+                key={stay.id}
                 href={`/listing/${stay.id}`}
-                className="absolute inset-0 z-10"
-                aria-label={`View ${stay.name}`}
+                name={stay.name}
+                location={stay.location}
+                img={stay.img}
+                badge={stay.badge}
+                badgeColor={stay.badgeColor}
+                price={isDirectory && stay.price <= 0 ? "Enquire" : displayPrice}
+                priceSuffix={isDirectory || stay.price <= 0 ? undefined : tc("perNight")}
+                rating={stay.rating}
+                reviewCount={stay.reviews}
+                wishlisted={wishlist.includes(stay.id)}
+                onToggleWishlist={() => toggleWishlist(stay.id)}
               />
-              <div className="relative h-40 xl:h-44 shrink-0 overflow-hidden">
-                <Image
-                  src={stay.img}
-                  alt={stay.name}
-                  fill
-                  className="object-cover group-hover:scale-105 transition-transform duration-500"
-                  sizes="(max-width: 640px) 100vw, (max-width: 1280px) 25vw, 16vw"
-                  unoptimized={isDataImageUrl(stay.img)}
-                />
-                <span
-                  className={`absolute top-3 start-3 ${stay.badgeColor} text-white text-[10px] font-bold px-2 py-0.5 rounded-full`}
-                >
-                  {stay.badge}
-                </span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    toggleWishlist(stay.id);
-                  }}
-                  className="absolute top-3 end-3 z-20 w-8 h-8 bg-white/90 rounded-full flex items-center justify-center"
-                  aria-label="Add to wishlist"
-                >
-                  <Heart
-                    className={`w-4 h-4 ${wishlist.includes(stay.id) ? "fill-red-500 text-red-500" : "text-gray-400"}`}
-                  />
-                </button>
-              </div>
-              <div className="p-3 xl:p-4">
-                <h3 className="font-semibold text-gray-800 text-sm leading-tight mb-1 truncate">
-                  {stay.name}
-                </h3>
-                <div className="flex items-center gap-1 text-gray-500 text-xs mb-2 min-w-0">
-                  <MapPin className="w-3 h-3 shrink-0" />
-                  <span className="truncate">{stay.location}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-[11px] xl:text-xs text-gray-500 mb-2.5 min-w-0 overflow-hidden">
-                  <span className="flex items-center gap-0.5 shrink-0">
-                    <Users className="w-3 h-3" />
-                    {stay.guests}
-                  </span>
-                  <span>·</span>
-                  <span className="truncate">
-                    {stay.beds} {tc("bedrooms")}
-                  </span>
-                  <span>·</span>
-                  <span className="truncate">
-                    {stay.baths} {tc("bathrooms")}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <span className="text-green-700 font-bold text-sm xl:text-base">
-                      {formatStoredMoney(
-                        stay.originalPrice != null && stay.originalPrice > stay.price
-                          ? stay.originalPrice
-                          : stay.price,
-                        {
-                          storedCurrency: stay.currency || stay.flashDealCurrency || BASE_CURRENCY,
-                          currency: headerCountry.currency,
-                          exchangeRateToAED: headerCountry.exchangeRateToAED,
-                          locale,
-                        }
-                      )}
-                    </span>
-                    <span className="text-gray-400 text-xs"> {tc("perNight")}</span>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                    <span className="text-xs font-semibold text-gray-700">{stay.rating}</span>
-                    <span className="text-xs text-gray-400">({stay.reviews})</span>
-                  </div>
-                </div>
-                <span className="mt-2.5 block w-full bg-green-700 group-hover:bg-green-800 text-white text-xs xl:text-sm font-semibold py-1.5 xl:py-2 rounded-xl transition-colors text-center">
-                  {tc("bookNow")}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
+            );
+          })}
+        </HomeBrowseScrollRow>
       </section>
       )}
 
@@ -587,15 +536,12 @@ export function HomePageContent() {
 
       {sectionEnabled("destinations") && destinationCards.length > 0 && (
       <section className="home-page-container home-section">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 font-display">{t("destinationsTitle")}</h2>
-            <p className="text-gray-500 text-sm mt-0.5">{t("destinationsSubtitle")}</p>
-          </div>
-          <Link href="/destinations" className="text-green-700 text-sm font-semibold flex items-center gap-1 shrink-0">
-            {tc("viewAll")} <ChevronRight className="w-4 h-4" />
-          </Link>
-        </div>
+        <HomeBrowseSectionHeader
+          title={t("destinationsTitle")}
+          subtitle={t("destinationsSubtitle")}
+          viewAllHref="/destinations"
+          viewAllLabel={tc("viewAll")}
+        />
         <HomeBrowseScrollRow>
           {destinationCards.map((dest) => (
             <HomeBrowseCard
@@ -612,15 +558,12 @@ export function HomePageContent() {
 
       {sectionEnabled("categories") && categoryCards.length > 0 && (
       <section className="home-page-container home-section">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 font-display">{t("categoriesTitle")}</h2>
-            <p className="text-gray-500 text-sm mt-0.5">{t("categoriesSubtitle")}</p>
-          </div>
-          <Link href="/listings" className="text-green-700 text-sm font-semibold flex items-center gap-1 shrink-0">
-            {tc("viewAll")} <ChevronRight className="w-4 h-4" />
-          </Link>
-        </div>
+        <HomeBrowseSectionHeader
+          title={t("categoriesTitle")}
+          subtitle={t("categoriesSubtitle")}
+          viewAllHref="/listings"
+          viewAllLabel={tc("viewAll")}
+        />
         <HomeBrowseScrollRow>
           {categoryCards.map((cat) => (
             <HomeBrowseCard
@@ -637,22 +580,16 @@ export function HomePageContent() {
 
       {sectionEnabled("experiences") && experienceCards.length > 0 && (
       <section className="home-page-container home-section">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 font-display">{t("experiencesTitle")}</h2>
-            <p className="text-gray-500 text-sm mt-0.5">{t("experiencesSubtitle")}</p>
-          </div>
-          <Link
-            href={
-              experienceParentName
-                ? `/listings?parent=${encodeURIComponent(experienceParentName)}`
-                : "/listings"
-            }
-            className="text-green-700 text-sm font-semibold flex items-center gap-1 shrink-0"
-          >
-            {tc("viewAll")} <ChevronRight className="w-4 h-4" />
-          </Link>
-        </div>
+        <HomeBrowseSectionHeader
+          title={t("experiencesTitle")}
+          subtitle={t("experiencesSubtitle")}
+          viewAllHref={
+            experienceParentName
+              ? `/listings?parent=${encodeURIComponent(experienceParentName)}`
+              : "/listings"
+          }
+          viewAllLabel={tc("viewAll")}
+        />
         <HomeBrowseScrollRow>
           {experienceCards.map((exp) => (
             <HomeBrowseCard
@@ -669,22 +606,16 @@ export function HomePageContent() {
 
       {sectionEnabled("venues") && venueCards.length > 0 && (
       <section className="home-page-container home-section">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 font-display">{t("venuesTitle")}</h2>
-            <p className="text-gray-500 text-sm mt-0.5">{t("venuesSubtitle")}</p>
-          </div>
-          <Link
-            href={
-              venueParentName
-                ? `/listings?parent=${encodeURIComponent(venueParentName)}`
-                : "/listings"
-            }
-            className="text-green-700 text-sm font-semibold flex items-center gap-1 shrink-0"
-          >
-            {tc("viewAll")} <ChevronRight className="w-4 h-4" />
-          </Link>
-        </div>
+        <HomeBrowseSectionHeader
+          title={t("venuesTitle")}
+          subtitle={t("venuesSubtitle")}
+          viewAllHref={
+            venueParentName
+              ? `/listings?parent=${encodeURIComponent(venueParentName)}`
+              : "/listings"
+          }
+          viewAllLabel={tc("viewAll")}
+        />
         <HomeBrowseScrollRow>
           {venueCards.map((venue) => (
             <HomeBrowseCard

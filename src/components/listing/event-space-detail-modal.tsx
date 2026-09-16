@@ -22,6 +22,11 @@ import type { EventSpace } from "@/lib/listings/event-space-types";
 import { resolveVenueSpaceFilterGroups } from "@/lib/listings/resolve-venue-space-filters";
 import { LISTING_PLACEHOLDER_IMG } from "@/lib/listings/submission-to-stay";
 import type { VenueDetails } from "@/lib/listings/venue-details-types";
+import {
+  DIRECTORY_LISTING_COPY,
+  resolveDirectoryPriceSuffix,
+  type DirectoryListingVariant,
+} from "@/lib/listings/directory-listing-copy";
 import { isDataImageUrl } from "@/lib/utils";
 import { VenueFilterGroupBlock } from "@/components/listing/venue-filter-group-display";
 import { ModalPortal } from "@/components/ui/modal-portal";
@@ -78,7 +83,7 @@ function SpaceImageGallery({
   }, [hasMultiple, images.length]);
 
   const shellClass = panel
-    ? "relative aspect-[16/9] w-full shrink-0 overflow-hidden bg-gray-100 lg:aspect-auto lg:h-full lg:min-h-[360px]"
+    ? "relative aspect-[3/2] w-full shrink-0 overflow-hidden bg-gray-100 sm:aspect-[16/9] lg:aspect-auto lg:h-full lg:min-h-0"
     : expanded
       ? "relative h-full min-h-0 w-full overflow-hidden bg-gray-100"
       : "relative aspect-[16/9] w-full shrink-0 overflow-hidden bg-gray-100";
@@ -145,6 +150,8 @@ function SpaceDetailBody({
   filterGroups,
   featureRows,
   showDetailsGrid,
+  variant = "event",
+  priceUnit,
 }: {
   space: EventSpace;
   money: (amount: number) => string;
@@ -154,6 +161,8 @@ function SpaceDetailBody({
   filterGroups: { label: string; names: string[] }[];
   featureRows: { label: string; value: string }[];
   showDetailsGrid: boolean;
+  variant?: DirectoryListingVariant;
+  priceUnit?: string;
 }) {
   return (
     <>
@@ -190,7 +199,9 @@ function SpaceDetailBody({
             {space.price > 0 ? money(space.price) : "On request"}
           </div>
           <p className="mt-0.5 text-xs font-medium text-gray-500">
-            {space.price > 0 ? "starting rate · per event" : "contact for quote"}
+            {space.price > 0
+              ? resolveDirectoryPriceSuffix(priceUnit, variant)
+              : "contact for quote"}
           </p>
         </div>
       </div>
@@ -256,6 +267,7 @@ export function EventSpaceDetailModal({
   money,
   venueDetails,
   showVenueSpaceDetails = false,
+  variant = "event",
   onClose,
   onRequest,
 }: {
@@ -265,6 +277,7 @@ export function EventSpaceDetailModal({
   venueDetails?: VenueDetails;
   /** Show per-space venue filters (multi-rate listings only). */
   showVenueSpaceDetails?: boolean;
+  variant?: DirectoryListingVariant;
   onClose: () => void;
   onRequest: () => void;
 }) {
@@ -310,14 +323,16 @@ export function EventSpaceDetailModal({
 
   const resolvedVenueDetails = space?.venueDetails ?? venueDetails;
 
+  const copy = DIRECTORY_LISTING_COPY[variant];
+
   const featureRows = useMemo(
-    () => buildVenueSpaceFeatureRows(resolvedVenueDetails, money),
-    [resolvedVenueDetails, money]
+    () => buildVenueSpaceFeatureRows(resolvedVenueDetails, money, variant),
+    [resolvedVenueDetails, money, variant]
   );
 
   const capacityLayouts = useMemo(
-    () => buildVenueCapacityLayouts(resolvedVenueDetails),
-    [resolvedVenueDetails]
+    () => buildVenueCapacityLayouts(resolvedVenueDetails, variant),
+    [resolvedVenueDetails, variant]
   );
 
   const spaceTypeLabel = useMemo(
@@ -344,17 +359,19 @@ export function EventSpaceDetailModal({
     filterGroups,
     featureRows,
     showDetailsGrid,
+    variant,
+    priceUnit: resolvedVenueDetails?.priceUnit,
   };
 
   const dialogClass = expandedGallery
     ? "relative flex h-[100dvh] w-full flex-col overflow-hidden bg-white lg:flex-row"
-    : "relative flex max-h-[min(92vh,860px)] w-full max-w-5xl flex-col overflow-hidden rounded-t-2xl border border-gray-200/80 bg-white shadow-2xl sm:rounded-2xl lg:max-h-[min(92vh,860px)] lg:flex-row";
+    : "relative flex h-[min(88vh,640px)] w-full max-w-6xl flex-col overflow-hidden rounded-lg border border-gray-200/80 bg-white shadow-2xl lg:flex-row";
 
   return (
     <ModalPortal>
       <div
         className={`fixed inset-0 z-[100] flex justify-center bg-gray-950/60 backdrop-blur-[3px] ${
-          expandedGallery ? "items-stretch p-0" : "items-end sm:items-center sm:p-6"
+          expandedGallery ? "items-stretch p-0" : "items-center p-4 sm:p-6"
         }`}
         role="presentation"
         onMouseDown={(event) => {
@@ -405,7 +422,7 @@ export function EventSpaceDetailModal({
                 }}
                 className="inline-flex flex-[1.4] items-center justify-center gap-1.5 rounded-xl bg-green-800 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-green-900"
               >
-                Request this space
+                {copy.requestSpaceCta}
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
@@ -415,7 +432,7 @@ export function EventSpaceDetailModal({
             className={`relative shrink-0 ${
               expandedGallery
                 ? "order-2 h-full w-full lg:w-1/2"
-                : "order-1 lg:order-2 lg:w-[48%] lg:min-h-[360px] lg:self-stretch"
+                : "order-1 lg:order-2 lg:w-[48%] lg:h-full lg:self-stretch"
             }`}
           >
             {!expandedGallery ? (

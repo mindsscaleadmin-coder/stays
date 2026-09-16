@@ -13,6 +13,7 @@ import {
   resolveBuiltInMainTabId,
 } from "@/lib/admin/taxonomy-types";
 import { parseBulkNames } from "@/lib/admin/parse-bulk-names";
+import { taxonomyItemDeleteLockReason } from "@/lib/admin/taxonomy-data";
 import { cn } from "@/lib/utils";
 
 interface AdminFilterPanelProps {
@@ -697,6 +698,7 @@ function MainTabContent({
             onAdd={(name) => taxonomy.addParent(name)}
             onEdit={(id, name) => taxonomy.editParent(id, name)}
             onDelete={taxonomy.deleteParent}
+            deleteLockReason={(item) => taxonomyItemDeleteLockReason("parents", item.id, item.name)}
             onToggleEnabled={taxonomy.setParentEnabled}
             placeholder="e.g. Stays"
           />
@@ -721,6 +723,7 @@ function MainTabContent({
             onAdd={(name, pid) => taxonomy.addCategory(name, pid!)}
             onEdit={(id, name, pid) => taxonomy.editCategory(id, name, pid!)}
             onDelete={taxonomy.deleteCategory}
+            deleteLockReason={(item) => taxonomyItemDeleteLockReason("categories", item.id, item.name)}
             onToggleEnabled={taxonomy.setCategoryEnabled}
             placeholder="e.g. Farm Stays"
             addButtonLabel="Add category"
@@ -761,6 +764,9 @@ function MainTabContent({
             onAdd={(name, pid) => taxonomy.addSubcategory(name, pid!)}
             onEdit={(id, name, pid) => taxonomy.editSubcategory(id, name, pid!)}
             onDelete={taxonomy.deleteSubcategory}
+            deleteLockReason={(item) =>
+              taxonomyItemDeleteLockReason("subcategories", item.id, item.name)
+            }
             onToggleEnabled={taxonomy.setSubcategoryEnabled}
             placeholder="e.g. Luxury Farm House"
             addButtonLabel="Add sub category"
@@ -875,6 +881,7 @@ function ExtraTabContent({
       onAdd={(name, pid, catId, subId) => addExtraFilter(name, tabId, pid, catId, subId)}
       onEdit={(id, name, pid, catId, subId) => editExtraFilter(id, name, pid, catId, subId)}
       onDelete={deleteExtraFilter}
+      deleteLockReason={(item) => taxonomyItemDeleteLockReason("extraFilters", item.id, item.name)}
       onToggleEnabled={setExtraFilterEnabled}
       placeholder="e.g. WiFi, Pet Friendly, Pool"
     />
@@ -915,6 +922,7 @@ function ItemCrud({
   onAdd,
   onEdit,
   onDelete,
+  deleteLockReason,
   onToggleEnabled,
   hideAdd = false,
   addButtonLabel = "Add",
@@ -950,6 +958,7 @@ function ItemCrud({
     subcategoryId?: string
   ) => void;
   onDelete: (id: string) => void;
+  deleteLockReason?: (item: CrudItem) => string | null;
   onToggleEnabled?: (id: string, enabled: boolean) => void;
   hideAdd?: boolean;
   addButtonLabel?: string;
@@ -979,6 +988,7 @@ function ItemCrud({
   const [editTagId, setEditTagId] = useState("");
   const [addError, setAddError] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [deleteNotice, setDeleteNotice] = useState("");
   const [query, setQuery] = useState("");
   const soleGroupId = groupOptions?.length === 1 ? groupOptions[0].value : "";
   const soleMidId = midOptions?.length === 1 ? midOptions[0].value : "";
@@ -1096,8 +1106,25 @@ function ItemCrud({
     }
   }, [filteredEditCategories, editCategoryId]);
 
+  function requestDelete(item: CrudItem) {
+    setDeleteNotice("");
+    const lock = deleteLockReason?.(item);
+    if (lock) {
+      setPendingDeleteId(null);
+      setDeleteNotice(lock);
+      return;
+    }
+    setPendingDeleteId(item.id);
+  }
+
+  function confirmDelete(item: CrudItem) {
+    onDelete(item.id);
+    setPendingDeleteId(null);
+  }
+
   function startEdit(item: CrudItem) {
     setPendingDeleteId(null);
+    setDeleteNotice("");
     setEditingId(item.id);
     setEditName(item.name);
     if (parentOptions?.length) {
@@ -1217,6 +1244,14 @@ function ItemCrud({
 
   return (
     <div className="space-y-4">
+      {deleteNotice ? (
+        <p
+          role="status"
+          className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2"
+        >
+          {deleteNotice}
+        </p>
+      ) : null}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <h4 className="font-display font-semibold text-gray-900">{title}</h4>
         {(groupOptions?.length || midOptions?.length || parentOptions?.length || items.length > 8) && (
@@ -1504,10 +1539,7 @@ function ItemCrud({
                           <>
                             <button
                               type="button"
-                              onClick={() => {
-                                onDelete(item.id);
-                                setPendingDeleteId(null);
-                              }}
+                              onClick={() => confirmDelete(item)}
                               className="px-2 py-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg"
                             >
                               Confirm
@@ -1524,7 +1556,7 @@ function ItemCrud({
                         ) : (
                           <button
                             type="button"
-                            onClick={() => setPendingDeleteId(item.id)}
+                            onClick={() => requestDelete(item)}
                             className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"
                             aria-label="Delete"
                           >

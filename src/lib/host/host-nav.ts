@@ -1,5 +1,4 @@
 import {
-  BadgeDollarSign,
   Bell,
   CalendarCheck,
   CalendarDays,
@@ -10,10 +9,8 @@ import {
   List,
   MessageSquare,
   Megaphone,
-  PlusCircle,
   ReceiptText,
   Sprout,
-  User,
   Users,
   Wallet,
 } from "lucide-react";
@@ -27,11 +24,8 @@ import { HostNotificationsBadge } from "@/lib/host/host-notifications-badge";
 export const HOST_NAV: DashboardNavItem[] = [
   { label: "Overview", href: "/host", icon: LayoutDashboard },
   { label: "Notifications", href: "/host/notifications", icon: Bell, Trailing: HostNotificationsBadge },
-  { label: "Profile", href: "/host/profile", icon: User },
   { label: "User / Staff", href: "/host/staff", icon: Users },
   { label: "My Listings", href: "/host/listings", icon: List },
-  { label: "New listing", href: "/host/new-listing", icon: PlusCircle },
-  { label: "Pricing", href: "/host/pricing", icon: BadgeDollarSign },
   { label: "Bookings", href: "/host/bookings", icon: CalendarDays },
   { label: "Event requests", href: "/host/event-requests", icon: CalendarCheck },
   { label: "Calendar & Availability", href: "/host/calendar", icon: CalendarRange },

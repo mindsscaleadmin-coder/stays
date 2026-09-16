@@ -8,6 +8,7 @@ import {
   KeyRound,
   List,
   MessageSquare,
+  Phone,
   ReceiptText,
   type LucideIcon,
 } from "lucide-react";
@@ -51,6 +52,12 @@ export const ADMIN_SETTINGS_NAV: AdminSettingsNavItem[] = [
     href: "/admin/settings/reviews",
     description: "Rating categories and guest review prompts",
     icon: MessageSquare,
+  },
+  {
+    label: "Support contact",
+    href: "/admin/settings/contact",
+    description: "Country-wise help phone numbers",
+    icon: Phone,
   },
   {
     label: "Filter",

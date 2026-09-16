@@ -1,3 +1,4 @@
+import { isDiningListing } from "@/lib/booking/is-dining-listing";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
 import { isEventListing } from "@/lib/booking/is-event-listing";
 import type { ListingQualityMode } from "@/lib/admin/listing-quality-rules-types";
@@ -5,9 +6,9 @@ import type { ListingQualityMode } from "@/lib/admin/listing-quality-rules-types
 /**
  * Stay = overnight booking + commission.
  * Experience = session booking + commission.
- * Event = yearly directory listing, no guest checkout.
+ * Event / Dining = yearly directory listing, no guest checkout.
  */
-export type ListingMode = "experience" | "stay" | "event";
+export type ListingMode = "experience" | "stay" | "event" | "dining";
 
 export interface ListingModeInput {
   parentCategory?: string | null;
@@ -24,6 +25,7 @@ export function getListingMode(input: ListingModeInput | null | undefined): List
     if (!input) return "stay";
     if (isExperienceListing(input)) return "experience";
     if (isEventListing(input)) return "event";
+    if (isDiningListing(input)) return "dining";
     return "stay";
   } catch {
     return "stay";
@@ -36,6 +38,19 @@ export function isExperienceMode(input: ListingModeInput | null | undefined): bo
 
 export function isEventMode(input: ListingModeInput | null | undefined): boolean {
   return getListingMode(input) === "event";
+}
+
+export function isDiningMode(input: ListingModeInput | null | undefined): boolean {
+  return getListingMode(input) === "dining";
+}
+
+/** Events and dining share the venue / space listing form. */
+export function isVenueDirectoryMode(
+  input: ListingModeInput | ListingMode | null | undefined
+): boolean {
+  const mode =
+    typeof input === "string" ? input : getListingMode(input);
+  return mode === "event" || mode === "dining";
 }
 
 /**

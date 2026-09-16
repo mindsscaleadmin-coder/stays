@@ -17,9 +17,12 @@ import {
 } from "@/components/listing/event-enquiry-modal";
 import type { EventAvailabilityRequestForGuest } from "@/lib/events/event-availability-types";
 import type { EventSpace } from "@/lib/listings/event-space-types";
+import type { DirectoryListingVariant } from "@/lib/listings/directory-listing-copy";
 import { fetchAvailabilityState } from "@/lib/host/host-availability-api";
 import { isDateUnavailable } from "@/lib/host/host-availability-utils";
 import type { ListingAvailabilitySettings } from "@/lib/host/host-availability-types";
+import type { DiningDetails } from "@/lib/listings/dining-details-types";
+import { cn } from "@/lib/utils";
 
 function formatDate(iso: string | undefined, locale: string) {
   if (!iso) return "Flexible date";
@@ -62,27 +65,47 @@ export function EventAvailabilityRequestCard({
   listingId,
   listingTitle,
   spaces,
+  selectedSpaceIds = [],
+  calendarFocusTick = 0,
   rating,
   reviewCount,
   locale,
+  variant = "event",
+  diningDetails,
 }: {
   listingId: string;
   listingTitle: string;
   spaces: EventSpace[];
+  selectedSpaceIds?: string[];
+  calendarFocusTick?: number;
   rating: number;
   reviewCount: number;
   locale: string;
+  variant?: DirectoryListingVariant;
+  diningDetails?: DiningDetails;
 }) {
   const { user, loading: authLoading } = useAuth();
   const [requests, setRequests] = useState<EventAvailabilityRequestForGuest[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const defaultSpaceId = spaces[0]?.id ?? spaces[0]?.name ?? "";
+  const selectedSpaces = useMemo(
+    () =>
+      spaces.filter((space) => selectedSpaceIds.includes(space.id ?? space.name)),
+    [spaces, selectedSpaceIds]
+  );
+  const defaultSpaceId =
+    selectedSpaces[0]?.id ??
+    selectedSpaces[0]?.name ??
+    spaces[0]?.id ??
+    spaces[0]?.name ??
+    "";
   const [enquiryOpen, setEnquiryOpen] = useState(false);
   const [availability, setAvailability] = useState<ListingAvailabilitySettings | null>(null);
   const [availabilityLoaded, setAvailabilityLoaded] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [calendarAttention, setCalendarAttention] = useState(false);
+  const [ctaAttention, setCtaAttention] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -112,6 +135,23 @@ export function EventAvailabilityRequestCard({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (calendarFocusTick < 1) return;
+    setCalendarAttention(true);
+    const timer = window.setTimeout(() => setCalendarAttention(false), 3200);
+    return () => window.clearTimeout(timer);
+  }, [calendarFocusTick]);
+
+  useEffect(() => {
+    if (!selectedDate) {
+      setCtaAttention(false);
+      return;
+    }
+    setCtaAttention(true);
+    const timer = window.setTimeout(() => setCtaAttention(false), 1400);
+    return () => window.clearTimeout(timer);
+  }, [selectedDate]);
 
   useEffect(() => {
     let active = true;
@@ -202,26 +242,57 @@ export function EventAvailabilityRequestCard({
   return (
     <div
       id="booking-calculator"
-      className="scroll-mt-24 rounded-2xl border border-gray-200 bg-white p-4 shadow-lg"
+      className="scroll-mt-24 rounded-2xl border border-gray-200 bg-white p-5 shadow-lg"
     >
-      <div className="flex gap-2.5">
-        <div className="flex-1 rounded-xl border border-gray-200 p-2 text-center text-xs">
-          <b className="block text-sm text-gray-900">
-            {reviewCount > 0 ? `${rating.toFixed(1)} ★` : "New"}
-          </b>
-          rating
+      {reviewCount > 0 && (
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <div className="bg-green-50 border border-green-100 rounded-lg p-2.5 text-center">
+            <div className="text-lg font-bold text-gray-900">{rating.toFixed(1)}</div>
+            <div className="text-[10px] text-gray-500 font-medium">
+              {rating >= 4.5 ? "Excellent" : rating >= 3.5 ? "Good" : "Rating"}
+            </div>
+          </div>
+          <div className="bg-gray-50 border border-gray-100 rounded-lg p-2.5 text-center">
+            <div className="text-lg font-bold text-gray-900">{reviewCount}</div>
+            <div className="text-[10px] text-gray-500 font-medium">Reviews</div>
+          </div>
         </div>
-        <div className="flex-1 rounded-xl border border-gray-200 p-2 text-center text-xs">
-          <b className="block text-sm text-gray-900">{reviewCount}</b>
-          reviews
-        </div>
-      </div>
+      )}
 
-      <section className="mt-4 overflow-hidden rounded-xl border border-gray-200 bg-white">
+      {selectedSpaces.length > 0 ? (
+        <div className="mt-4 flex flex-wrap gap-1.5">
+          {selectedSpaces.map((space) => (
+            <span
+              key={space.id ?? space.name}
+              className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-1 text-2xs font-semibold text-green-900 ring-1 ring-inset ring-green-200/80"
+            >
+              <CheckCircle className="h-3 w-3 shrink-0 text-green-700" />
+              {space.name}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <section
+        className={cn(
+          "mt-4 overflow-hidden rounded-xl border bg-white transition-colors",
+          calendarAttention ? "booking-calendar-attention" : "border-gray-200"
+        )}
+      >
         <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2.5">
           <div>
-            <p className="text-body-sm font-bold text-gray-950">Availability calendar</p>
-            <p className="text-2xs text-gray-500">Tap an open date to enquire</p>
+            <p className="text-body-sm font-bold text-gray-950">
+              {variant === "dining" ? "Reserve a table" : "Availability calendar"}
+            </p>
+            <p className="text-2xs text-gray-500">
+              {selectedSpaces.length === 1
+                ? `${selectedSpaces[0].name} · tap an open date`
+                : selectedSpaces.length > 1
+                  ? `${selectedSpaces.map((space) => space.name).join(", ")} · tap an open date`
+                  : variant === "dining"
+                    ? "Pick a date, then send a free reservation request"
+                    : "Select one or more spaces, then tap an open date"}
+            </p>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -260,9 +331,9 @@ export function EventAvailabilityRequestCard({
               <span key={day}>{day}</span>
             ))}
           </div>
-          <div className="mt-1 grid grid-cols-7 gap-y-1 text-center">
+          <div className="mt-1 grid grid-cols-7 gap-1 text-center">
             {calendarDays.map((cell, index) => {
-              if (!cell) return <span key={`empty-${index}`} className="h-8" />;
+              if (!cell) return <span key={`empty-${index}`} className="aspect-square w-full" />;
               const requestStatus = requestByDate.get(cell.iso);
               const isPast = cell.iso < todayIso;
               const isBlocked =
@@ -274,7 +345,7 @@ export function EventAvailabilityRequestCard({
               const selectable = !unavailable && !pending && !available;
 
               const dayClass = [
-                "mx-auto flex h-8 w-8 items-center justify-center rounded-full text-3xs font-medium transition-colors",
+                "flex aspect-square w-full items-center justify-center rounded-md text-3xs font-medium transition-colors",
                 selected
                   ? "bg-green-800 font-bold text-white ring-2 ring-green-800 ring-offset-1"
                   : available
@@ -349,7 +420,8 @@ export function EventAvailabilityRequestCard({
       {confirmed && (
         <div className="mt-4 rounded-xl border border-green-200 bg-green-50 p-3.5">
           <p className="flex items-center gap-2 text-body-sm font-bold text-green-900">
-            <CheckCircle className="h-4 w-4" /> Date confirmed available
+            <CheckCircle className="h-4 w-4" />
+            {variant === "dining" ? "Table confirmed available" : "Date confirmed available"}
           </p>
           <p className="mt-1 text-xs text-green-900">
             {confirmed.spaceName ? `${confirmed.spaceName} · ` : ""}
@@ -417,21 +489,30 @@ export function EventAvailabilityRequestCard({
                 setEnquiryOpen(true);
               }}
               disabled={submitting}
-              className="mt-3.5 flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 py-3.5 text-sm font-bold text-gray-900 transition-colors hover:bg-amber-400 disabled:opacity-60"
+              className={cn(
+                "mt-3.5 flex w-full items-center justify-center gap-2 rounded-xl bg-green-700 py-3.5 text-sm font-bold text-white transition-colors hover:bg-green-800 disabled:opacity-60",
+                ctaAttention && selectedDate && "booking-cta-attention"
+              )}
             >
               <CalendarCheck className="h-4 w-4" />
               {selectedDate
-                ? `Request ${formatDate(selectedDate, locale)}`
+                ? variant === "dining"
+                  ? `Reserve ${formatDate(selectedDate, locale)}`
+                  : `Request ${formatDate(selectedDate, locale)}`
                 : latest?.status === "pending"
-                  ? "Send another enquiry"
-                  : "Request availability"}
+                  ? variant === "dining"
+                    ? "Send another reservation request"
+                    : "Send another enquiry"
+                  : variant === "dining"
+                    ? "Request reservation"
+                    : "Request availability"}
             </button>
           ) : (
             <Link
               href="/login"
-              className="mt-3.5 flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 py-3.5 text-sm font-bold text-gray-900 hover:bg-amber-400"
+              className="mt-3.5 flex w-full items-center justify-center gap-2 rounded-xl bg-green-700 py-3.5 text-sm font-bold text-white hover:bg-green-800"
             >
-              Sign in to request availability
+              {variant === "dining" ? "Sign in to reserve" : "Sign in to request availability"}
             </Link>
           )}
 
@@ -444,21 +525,30 @@ export function EventAvailabilityRequestCard({
             listingTitle={listingTitle}
             spaces={spaces}
             defaultSpaceId={defaultSpaceId}
+            preselectedSpaceIds={selectedSpaceIds}
             defaultDate={selectedDate ?? undefined}
             submitting={submitting}
             error={error}
             onClose={() => setEnquiryOpen(false)}
             onSubmit={submit}
+            variant={variant}
+            diningDetails={diningDetails}
           />
         </>
       )}
 
       <ul className="mt-3.5 space-y-1 text-xs text-gray-700">
-        {[
-          "The host confirms your date first",
-          "Contact details are shared after confirmation",
-          "You then deal with the venue directly",
-        ].map((item) => (
+        {(variant === "dining"
+          ? [
+              "All availability checks go through our platform first",
+              "Venue contact details are not shown until they confirm",
+              "After confirmation, connect directly to finalise your table",
+            ]
+          : [
+              "The host confirms your date first",
+              "Contact details are shared after confirmation",
+              "You then deal with the venue directly",
+            ]).map((item) => (
           <li key={item} className="flex gap-2">
             <span className="font-bold text-green-700">✓</span>
             {item}

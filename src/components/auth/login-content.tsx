@@ -162,6 +162,16 @@ export function LoginContent() {
             placeholder="••••••••"
             autoComplete="current-password"
           />
+
+          <div className="flex justify-end">
+            <Link
+              href="/forgot-password"
+              className="text-sm text-green-700 hover:text-green-800 hover:underline"
+            >
+              {t("forgotPassword")}
+            </Link>
+          </div>
+
           <button
             type="submit"
             disabled={submitting}

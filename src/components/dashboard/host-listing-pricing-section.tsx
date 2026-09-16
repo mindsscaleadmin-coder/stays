@@ -196,12 +196,12 @@ export function HostListingPricingSection({
       parentCategory: selectedSubmission?.parentCategory,
       type: selectedSubmission?.type,
     }) === "experience";
-  const isEvent =
-    getListingMode({
-      parentCategory: selectedSubmission?.parentCategory,
-      type: selectedSubmission?.type,
-      category: selectedSubmission?.category,
-    }) === "event";
+  const listingMode = getListingMode({
+    parentCategory: selectedSubmission?.parentCategory,
+    type: selectedSubmission?.type,
+    category: selectedSubmission?.category,
+  });
+  const isDirectory = listingMode === "event" || listingMode === "dining";
 
   const rooms = useMemo(
     () => selectedListing?.rooms ?? [],
@@ -552,7 +552,7 @@ export function HostListingPricingSection({
 
   return (
       <div id="listing-pricing" className="space-y-5 sm:space-y-6">
-        {!isEvent && embedded && (
+        {!isDirectory && embedded && (
           <div className="pt-2 border-t border-gray-200">
             <h3 className="text-lg font-bold text-gray-900 font-display">
               {isExperience ? "Session pricing" : "Pricing"}
@@ -564,7 +564,7 @@ export function HostListingPricingSection({
             </p>
           </div>
         )}
-        {!isEvent && !embedded && (
+        {!isDirectory && !embedded && (
           <div className="relative overflow-hidden rounded-2xl border border-green-100/80 bg-gradient-to-br from-green-50 via-white to-emerald-50/40 px-5 py-5 sm:px-6 sm:py-6">
             <div
               className="pointer-events-none absolute -end-8 -top-10 h-36 w-36 rounded-full bg-green-200/30 blur-2xl"
@@ -597,15 +597,16 @@ export function HostListingPricingSection({
           </div>
         )}
 
-        {isEvent && (
+        {isDirectory && (
           <div className="bg-amber-50 border border-amber-200 text-amber-950 text-sm rounded-xl px-4 py-3">
-            Events listings are a yearly-subscription directory. Guests contact you
-            directly — these rates are not charged on this platform.
+            {listingMode === "dining"
+              ? "Dining listings are a yearly-subscription directory. Guests enquire directly — indicative rates are not charged on this platform."
+              : "Events listings are a yearly-subscription directory. Guests contact you directly — these rates are not charged on this platform."}
           </div>
         )}
 
         {/* Property + base pricing (whole-property rate or experience sessions) */}
-        {!isEvent && (isExperience || rooms.length === 0) && (
+        {!isDirectory && (isExperience || rooms.length === 0) && (
         <section className={sectionClass}>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -996,7 +997,7 @@ export function HostListingPricingSection({
         )}
 
         {/* Tax — checkout only; Events are enquire-only */}
-        {!isEvent && (
+        {!isDirectory && (
         <section className="bg-white rounded-2xl border p-5 space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">

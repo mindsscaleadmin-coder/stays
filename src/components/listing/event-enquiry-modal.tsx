@@ -8,15 +8,29 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Coffee,
   Gem,
   Gift,
+  Moon,
   PartyPopper,
   ShieldCheck,
+  Sun,
   Trophy,
+  UtensilsCrossed,
+  Wine,
   X,
   type LucideIcon,
 } from "lucide-react";
 import type { EventSpace } from "@/lib/listings/event-space-types";
+import type { DirectoryListingVariant } from "@/lib/listings/directory-listing-copy";
+import {
+  buildDiningReservationTimeGroups,
+  MEAL_PERIODS,
+  occasionToMealPeriod,
+  resolveHoursForDate,
+  type DiningDetails,
+  type MealPeriod,
+} from "@/lib/listings/dining-details-types";
 
 export interface EventEnquiryDraft {
   occasion: string;
@@ -30,7 +44,7 @@ export interface EventEnquiryDraft {
   message?: string;
 }
 
-const OCCASIONS: { label: string; icon: LucideIcon }[] = [
+const EVENT_OCCASIONS: { label: string; icon: LucideIcon }[] = [
   { label: "Wedding", icon: Gem },
   { label: "Birthday", icon: CakeSlice },
   { label: "Milestone", icon: Trophy },
@@ -39,7 +53,23 @@ const OCCASIONS: { label: string; icon: LucideIcon }[] = [
   { label: "Business event", icon: BriefcaseBusiness },
 ];
 
-const PARTY_TYPES = [
+const DINING_MEAL_ICONS: Record<MealPeriod, LucideIcon> = {
+  breakfast: Coffee,
+  lunch: UtensilsCrossed,
+  brunch: Sun,
+  dinner: Moon,
+};
+
+const DINING_OCCASIONS: { label: string; icon: LucideIcon }[] = [
+  { label: "Birthday dinner", icon: CakeSlice },
+  { label: "Anniversary", icon: Gem },
+  { label: "Business lunch", icon: BriefcaseBusiness },
+  { label: "Family gathering", icon: PartyPopper },
+  { label: "Date night", icon: Wine },
+  { label: "Group booking", icon: UtensilsCrossed },
+];
+
+const EVENT_PARTY_TYPES = [
   "Wedding ceremony",
   "Wedding reception",
   "Birthday party",
@@ -54,7 +84,34 @@ const PARTY_TYPES = [
   "Other",
 ];
 
+const DINING_PARTY_TYPES = [
+  "Table reservation",
+  "Private dining room",
+  "Chef's table",
+  "Group lunch",
+  "Group dinner",
+  "Celebration dinner",
+  "Corporate dining",
+  "Other",
+];
+
 const GUEST_PRESETS = [20, 30, 40, 50, 75, 100, 150, 200];
+const DINING_GUEST_PRESETS = [2, 4, 6, 8, 10, 12, 20, 30];
+const DINING_TIME_PRESETS = [
+  "6:00 PM",
+  "6:30 PM",
+  "7:00 PM",
+  "7:30 PM",
+  "8:00 PM",
+  "8:30 PM",
+];
+const DINING_SEATING_OPTIONS = [
+  "Indoor",
+  "Outdoor",
+  "Rooftop",
+  "Private dining",
+  "Bar",
+];
 
 const STEPS = [
   { title: "Occasion", hint: "What you're planning" },
@@ -77,23 +134,33 @@ export function EventEnquiryModal({
   listingTitle,
   spaces,
   defaultSpaceId,
+  preselectedSpaceIds = [],
   defaultDate,
   submitting,
   error,
   onClose,
   onSubmit,
+  variant = "event",
+  diningDetails,
 }: {
   open: boolean;
   listingTitle: string;
   spaces: EventSpace[];
   defaultSpaceId: string;
+  /** Spaces chosen on the listing page before opening the enquiry. */
+  preselectedSpaceIds?: string[];
   /** Pre-selected from the availability calendar on the listing page. */
   defaultDate?: string;
   submitting: boolean;
   error: string | null;
   onClose: () => void;
   onSubmit: (draft: EventEnquiryDraft) => Promise<boolean>;
+  variant?: DirectoryListingVariant;
+  diningDetails?: DiningDetails;
 }) {
+  const occasions = variant === "dining" ? DINING_OCCASIONS : EVENT_OCCASIONS;
+  const partyTypes = variant === "dining" ? DINING_PARTY_TYPES : EVENT_PARTY_TYPES;
+  const guestPresets = variant === "dining" ? DINING_GUEST_PRESETS : GUEST_PRESETS;
   const [step, setStep] = useState(1);
   const [occasion, setOccasion] = useState("");
   const [guestPreset, setGuestPreset] = useState<number | "other" | null>(null);
@@ -103,6 +170,9 @@ export function EventEnquiryModal({
   const [partyType, setPartyType] = useState("");
   const [spaceId, setSpaceId] = useState(defaultSpaceId);
   const [guestPhone, setGuestPhone] = useState("");
+  const [preferredTime, setPreferredTime] = useState("");
+  const [selectedMealPeriod, setSelectedMealPeriod] = useState<MealPeriod | "">("");
+  const [seatingPreference, setSeatingPreference] = useState("");
   const [message, setMessage] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -112,9 +182,72 @@ export function EventEnquiryModal({
   );
   const guestCount =
     guestPreset === "other" ? Number(customGuests) : typeof guestPreset === "number" ? guestPreset : 0;
+  const preselectedSpaces = useMemo(
+    () => spaces.filter((space) => preselectedSpaceIds.includes(space.id ?? space.name)),
+    [spaces, preselectedSpaceIds]
+  );
   const selectedSpace =
     spaces.find((space) => (space.id ?? space.name) === spaceId) ?? spaces[0] ?? null;
+  const enquirySpaces =
+    preselectedSpaces.length > 0
+      ? preselectedSpaces
+      : selectedSpace
+        ? [selectedSpace]
+        : [];
   const dateFromCalendar = Boolean(defaultDate) && eventDate === defaultDate;
+  const diningTimeGroups = useMemo(
+    () =>
+      variant === "dining"
+        ? buildDiningReservationTimeGroups(diningDetails, {
+            isoDate: dateFlexible ? undefined : eventDate,
+            flexibleDate: dateFlexible,
+          })
+        : [],
+    [variant, diningDetails, eventDate, dateFlexible]
+  );
+  const activeMealGroup = useMemo(
+    () => diningTimeGroups.find((group) => group.meal === selectedMealPeriod) ?? null,
+    [diningTimeGroups, selectedMealPeriod]
+  );
+  const diningTimePresets = useMemo(
+    () => activeMealGroup?.times ?? diningTimeGroups.flatMap((group) => group.times),
+    [activeMealGroup, diningTimeGroups]
+  );
+  const selectedDayHours =
+    variant === "dining" && eventDate && !dateFlexible
+      ? resolveHoursForDate(diningDetails, eventDate)
+      : undefined;
+  const closedOnSelectedDate = Boolean(selectedDayHours?.closed);
+
+  useEffect(() => {
+    if (variant !== "dining" || diningTimeGroups.length === 0) {
+      setSelectedMealPeriod("");
+      return;
+    }
+
+    const fromOccasion = occasionToMealPeriod(occasion);
+    const occasionGroup = fromOccasion
+      ? diningTimeGroups.find((group) => group.meal === fromOccasion)
+      : undefined;
+    const currentGroup = selectedMealPeriod
+      ? diningTimeGroups.find((group) => group.meal === selectedMealPeriod)
+      : undefined;
+
+    if (occasionGroup) {
+      setSelectedMealPeriod(occasionGroup.meal);
+      return;
+    }
+    if (currentGroup) return;
+    if (diningTimeGroups.length === 1) {
+      setSelectedMealPeriod(diningTimeGroups[0].meal);
+    }
+  }, [variant, diningTimeGroups, occasion, selectedMealPeriod]);
+
+  useEffect(() => {
+    if (preferredTime && !diningTimePresets.includes(preferredTime)) {
+      setPreferredTime("");
+    }
+  }, [diningTimePresets, preferredTime]);
 
   useEffect(() => {
     if (!open) return;
@@ -157,7 +290,7 @@ export function EventEnquiryModal({
         setLocalError("Choose a preferred date or mark it as flexible.");
         return;
       }
-      if (!partyType) {
+      if (variant === "dining" && !partyType) {
         setLocalError("Choose the party type.");
         return;
       }
@@ -167,16 +300,35 @@ export function EventEnquiryModal({
 
   async function finish() {
     setLocalError(null);
+    const mealLabel =
+      activeMealGroup?.label ??
+      MEAL_PERIODS.find((period) => period.key === selectedMealPeriod)?.label;
+    const diningNotes = [
+      preferredTime
+        ? mealLabel
+          ? `Preferred time: ${mealLabel} at ${preferredTime}`
+          : `Preferred time: ${preferredTime}`
+        : mealLabel
+          ? `Meal service: ${mealLabel}`
+          : "",
+      seatingPreference ? `Seating: ${seatingPreference}` : "",
+      message.trim(),
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const spaceNames = enquirySpaces.map((space) => space.name).join(", ");
+    const resolvedPartyType = variant === "dining" ? partyType : occasion;
     const sent = await onSubmit({
       occasion,
       guestCount,
       eventDate: dateFlexible ? undefined : eventDate,
       dateFlexible,
-      partyType,
-      spaceId: selectedSpace?.id,
-      spaceName: selectedSpace?.name,
+      partyType: resolvedPartyType,
+      spaceId: enquirySpaces[0]?.id,
+      spaceName: spaceNames.slice(0, 200),
       guestPhone: guestPhone.trim() || undefined,
-      message: message.trim() || undefined,
+      message: diningNotes || undefined,
     });
     if (sent) {
       setStep(1);
@@ -187,6 +339,9 @@ export function EventEnquiryModal({
       setDateFlexible(false);
       setPartyType("");
       setGuestPhone("");
+      setPreferredTime("");
+      setSelectedMealPeriod("");
+      setSeatingPreference("");
       setMessage("");
       onClose();
     }
@@ -210,7 +365,7 @@ export function EventEnquiryModal({
         <aside className="hidden w-[268px] shrink-0 flex-col justify-between bg-green-900 p-7 lg:flex">
           <div>
             <p className="text-2xs font-bold uppercase tracking-[0.18em] text-amber-300">
-              Venue enquiry
+              {variant === "dining" ? "Table reservation" : "Venue enquiry"}
             </p>
             <p className="mt-2 font-display text-xl font-bold leading-snug text-white">
               {listingTitle}
@@ -256,11 +411,17 @@ export function EventEnquiryModal({
           </div>
 
           <ul className="space-y-2 border-t border-white/10 pt-5 text-3xs leading-4 text-white/70">
-            {[
-              "The host confirms your date first",
-              "Contact details shared after confirmation",
-              "Free to send — no platform fees",
-            ].map((item) => (
+            {(variant === "dining"
+              ? [
+                  "Availability is checked through our platform",
+                  "Venue contact shared only after confirmation",
+                  "Free to send — no meal charges on our platform",
+                ]
+              : [
+                  "The host confirms your date first",
+                  "Contact details shared after confirmation",
+                  "Free to send — no platform fees",
+                ]).map((item) => (
               <li key={item} className="flex gap-2">
                 <ShieldCheck className="mt-px h-3.5 w-3.5 shrink-0 text-amber-300" />
                 {item}
@@ -319,7 +480,7 @@ export function EventEnquiryModal({
                 </p>
 
                 <div className="mt-5 grid gap-2.5 sm:grid-cols-2">
-                  {OCCASIONS.map(({ label, icon: Icon }) => {
+                  {occasions.map(({ label, icon: Icon }) => {
                     const selected = occasion === label;
                     return (
                       <button
@@ -360,7 +521,11 @@ export function EventEnquiryModal({
                   Tell us the details
                 </h2>
                 <p className="mt-1.5 text-body-sm text-gray-500">
-                  Enough for the host to check the right space on your date.
+                  {variant === "dining"
+                    ? "Enough for the host to check the right space on your date."
+                    : occasion
+                      ? `${occasion} — share guest count and your preferred date.`
+                      : "Share guest count and your preferred date."}
                 </p>
 
                 <div className="mt-5 space-y-5">
@@ -374,7 +539,7 @@ export function EventEnquiryModal({
                       )}
                     </div>
                     <div className="mt-2.5 flex flex-wrap gap-2">
-                      {GUEST_PRESETS.filter((count) => !maxCapacity || count <= maxCapacity).map(
+                      {guestPresets.filter((count) => !maxCapacity || count <= maxCapacity).map(
                         (count) => (
                           <button
                             key={count}
@@ -452,26 +617,195 @@ export function EventEnquiryModal({
                     )}
                   </fieldset>
 
-                  <label className="block">
-                    <span className="text-body-sm font-bold text-gray-900">Party type</span>
-                    <select
-                      value={partyType}
-                      onChange={(event) => {
-                        setPartyType(event.target.value);
-                        setLocalError(null);
-                      }}
-                      className={`mt-2.5 ${FIELD}`}
-                    >
-                      <option value="">Choose one</option>
-                      {PARTY_TYPES.map((type) => (
-                        <option key={type} value={type}>
-                          {type}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {variant === "dining" ? (
+                    <label className="block">
+                      <span className="text-body-sm font-bold text-gray-900">Party type</span>
+                      <select
+                        value={partyType}
+                        onChange={(event) => {
+                          setPartyType(event.target.value);
+                          setLocalError(null);
+                        }}
+                        className={`mt-2.5 ${FIELD}`}
+                      >
+                        <option value="">Choose one</option>
+                        {partyTypes.map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
 
-                  {spaces.length > 1 && (
+                  {variant === "dining" ? (
+                    <>
+                      <fieldset>
+                        <legend className="text-body-sm font-bold text-gray-900">
+                          Meal service &amp; time
+                        </legend>
+                        {closedOnSelectedDate ? (
+                          <p className="mt-2.5 text-body-sm text-amber-800">
+                            Closed on this date — choose another date or mark it as flexible.
+                          </p>
+                        ) : diningTimeGroups.length > 0 ? (
+                          <div className="mt-2.5 space-y-4">
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              {MEAL_PERIODS.map(({ key, label }) => {
+                                const group = diningTimeGroups.find((item) => item.meal === key);
+                                const available = Boolean(group);
+                                const selected = selectedMealPeriod === key;
+                                const Icon = DINING_MEAL_ICONS[key];
+                                return (
+                                  <button
+                                    key={key}
+                                    type="button"
+                                    disabled={!available}
+                                    onClick={() => {
+                                      if (!group) return;
+                                      setSelectedMealPeriod(key);
+                                      setPreferredTime("");
+                                      setLocalError(null);
+                                    }}
+                                    className={`flex items-start gap-3 rounded-xl border p-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-45 ${
+                                      selected
+                                        ? "border-green-800 bg-green-50/70 ring-1 ring-green-800"
+                                        : available
+                                          ? "border-gray-200 bg-white hover:border-green-700 hover:bg-gray-50"
+                                          : "border-gray-100 bg-gray-50"
+                                    }`}
+                                  >
+                                    <span
+                                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+                                        selected
+                                          ? "bg-green-800 text-white"
+                                          : available
+                                            ? "bg-gray-100 text-green-800"
+                                            : "bg-gray-100 text-gray-400"
+                                      }`}
+                                    >
+                                      <Icon className="h-5 w-5 stroke-[1.6]" />
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block text-sm font-semibold text-gray-900">
+                                        {label}
+                                      </span>
+                                      <span className="mt-0.5 block text-3xs text-gray-500">
+                                        {group?.hoursLabel ??
+                                          (available ? "Select for times" : "Not served")}
+                                      </span>
+                                    </span>
+                                    {selected && <Check className="h-4 w-4 shrink-0 text-green-800" />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {activeMealGroup ? (
+                              <div>
+                                <p className="text-3xs font-bold uppercase tracking-wide text-gray-500">
+                                  {activeMealGroup.label}
+                                  {activeMealGroup.hoursLabel
+                                    ? ` · ${activeMealGroup.hoursLabel}`
+                                    : ""}
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {activeMealGroup.times.map((time) => (
+                                    <button
+                                      key={`${activeMealGroup.meal}-${time}`}
+                                      type="button"
+                                      onClick={() => {
+                                        setPreferredTime(time);
+                                        setLocalError(null);
+                                      }}
+                                      className={`rounded-lg border px-3 py-2 text-body-sm font-semibold transition-colors ${choiceClass(
+                                        preferredTime === time
+                                      )}`}
+                                    >
+                                      {time}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-body-sm text-gray-600">
+                                Choose a meal service to see available times.
+                              </p>
+                            )}
+                          </div>
+                        ) : diningDetails?.openingHours?.length ? (
+                          <p className="mt-2.5 text-body-sm text-gray-600">
+                            No reservation times for this date. Choose another date or mark it as
+                            flexible.
+                          </p>
+                        ) : (
+                          <div className="mt-2.5 flex flex-wrap gap-2">
+                            {DINING_TIME_PRESETS.map((time) => (
+                              <button
+                                key={time}
+                                type="button"
+                                onClick={() => {
+                                  setPreferredTime(time);
+                                  setLocalError(null);
+                                }}
+                                className={`rounded-lg border px-3 py-2 text-body-sm font-semibold transition-colors ${choiceClass(
+                                  preferredTime === time
+                                )}`}
+                              >
+                                {time}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </fieldset>
+                      <fieldset>
+                        <legend className="text-body-sm font-bold text-gray-900">Seating</legend>
+                        <div className="mt-2.5 flex flex-wrap gap-2">
+                          {DINING_SEATING_OPTIONS.map((option) => (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() => {
+                                setSeatingPreference(option);
+                                setLocalError(null);
+                              }}
+                              className={`rounded-lg border px-3 py-2 text-body-sm font-semibold transition-colors ${choiceClass(
+                                seatingPreference === option
+                              )}`}
+                            >
+                              {option}
+                            </button>
+                          ))}
+                        </div>
+                      </fieldset>
+                    </>
+                  ) : null}
+
+                  {preselectedSpaces.length > 1 ? (
+                    <div>
+                      <p className="text-body-sm font-bold text-gray-900">Selected spaces</p>
+                      <div className="mt-2.5 flex flex-wrap gap-2">
+                        {preselectedSpaces.map((space) => (
+                          <span
+                            key={space.id ?? space.name}
+                            className="inline-flex items-center rounded-full bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-900 ring-1 ring-inset ring-green-200/80"
+                          >
+                            {space.name}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-2xs text-gray-500">
+                        Your enquiry will cover all selected spaces.
+                      </p>
+                    </div>
+                  ) : preselectedSpaces.length === 1 ? (
+                    <div>
+                      <p className="text-body-sm font-bold text-gray-900">Selected space</p>
+                      <p className="mt-2 text-body-sm font-semibold text-green-900">
+                        {preselectedSpaces[0].name}
+                      </p>
+                    </div>
+                  ) : spaces.length > 1 ? (
                     <label className="block">
                       <span className="text-body-sm font-bold text-gray-900">Preferred space</span>
                       <select
@@ -486,7 +820,7 @@ export function EventEnquiryModal({
                         ))}
                       </select>
                     </label>
-                  )}
+                  ) : null}
                 </div>
               </>
             )}
@@ -508,7 +842,28 @@ export function EventEnquiryModal({
                     { label: "Occasion", value: occasion },
                     { label: "Guests", value: String(guestCount) },
                     { label: "Date", value: dateFlexible ? "Flexible" : eventDate },
-                    { label: "Party type", value: partyType },
+                    ...(variant === "dining"
+                      ? [{ label: "Party type", value: partyType }]
+                      : []),
+                    ...(variant === "dining" && (activeMealGroup || preferredTime)
+                      ? [
+                          {
+                            label: "Meal service",
+                            value: activeMealGroup
+                              ? `${activeMealGroup.label}${
+                                  activeMealGroup.hoursLabel ? ` (${activeMealGroup.hoursLabel})` : ""
+                                }`
+                              : MEAL_PERIODS.find((period) => period.key === selectedMealPeriod)
+                                  ?.label ?? "",
+                          },
+                        ]
+                      : []),
+                    ...(variant === "dining" && preferredTime
+                      ? [{ label: "Time", value: preferredTime }]
+                      : []),
+                    ...(variant === "dining" && seatingPreference
+                      ? [{ label: "Seating", value: seatingPreference }]
+                      : []),
                     ...(selectedSpace ? [{ label: "Space", value: selectedSpace.name }] : []),
                   ].map((row) => (
                     <div key={row.label}>

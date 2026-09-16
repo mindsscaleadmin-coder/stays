@@ -1,8 +1,17 @@
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
-let ipLimiter: Ratelimit | null = null;
-let userLimiter: Ratelimit | null = null;
+export type RateLimitScope = "auth" | "booking" | "enquiry" | "search";
+
+const SCOPE_LIMITS: Record<RateLimitScope, { ipPerMinute: number; userPerMinute: number }> = {
+  auth: { ipPerMinute: 10, userPerMinute: 5 },
+  booking: { ipPerMinute: 10, userPerMinute: 5 },
+  enquiry: { ipPerMinute: 10, userPerMinute: 5 },
+  search: { ipPerMinute: 10, userPerMinute: 5 },
+};
+
+const ipLimiters = new Map<RateLimitScope, Ratelimit>();
+const userLimiters = new Map<RateLimitScope, Ratelimit>();
 
 function getRedis() {
   if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
@@ -14,40 +23,44 @@ function getRedis() {
   });
 }
 
-function getIpLimiter() {
-  if (!ipLimiter) {
+function getIpLimiter(scope: RateLimitScope) {
+  let limiter = ipLimiters.get(scope);
+  if (!limiter) {
     const redis = getRedis();
     if (!redis) return null;
-    ipLimiter = new Ratelimit({
+    limiter = new Ratelimit({
       redis,
-      limiter: Ratelimit.slidingWindow(10, "1 m"),
-      prefix: "farm-stays:auth:ip",
+      limiter: Ratelimit.slidingWindow(SCOPE_LIMITS[scope].ipPerMinute, "1 m"),
+      prefix: `farm-stays:${scope}:ip`,
     });
+    ipLimiters.set(scope, limiter);
   }
-  return ipLimiter;
+  return limiter;
 }
 
-function getUserLimiter() {
-  if (!userLimiter) {
+function getUserLimiter(scope: RateLimitScope) {
+  let limiter = userLimiters.get(scope);
+  if (!limiter) {
     const redis = getRedis();
     if (!redis) return null;
-    userLimiter = new Ratelimit({
+    limiter = new Ratelimit({
       redis,
-      limiter: Ratelimit.slidingWindow(5, "1 m"),
-      prefix: "farm-stays:auth:user",
+      limiter: Ratelimit.slidingWindow(SCOPE_LIMITS[scope].userPerMinute, "1 m"),
+      prefix: `farm-stays:${scope}:user`,
     });
+    userLimiters.set(scope, limiter);
   }
-  return userLimiter;
+  return limiter;
 }
 
-/** @deprecated use checkAuthRateLimit */
+/** @deprecated use checkScopedRateLimit */
 export function getAuthRateLimiter() {
-  return getIpLimiter();
+  return getIpLimiter("auth");
 }
 
-/** @deprecated use checkAuthRateLimit */
+/** @deprecated use checkScopedRateLimit */
 export async function checkRateLimit(identifier: string) {
-  const limiter = getIpLimiter();
+  const limiter = getIpLimiter("auth");
   if (!limiter) return { success: true, remaining: -1 };
   const result = await limiter.limit(identifier);
   return { success: result.success, remaining: result.remaining };
@@ -55,29 +68,45 @@ export async function checkRateLimit(identifier: string) {
 
 const memoryHits = new Map<string, { count: number; resetAt: number }>();
 
-function memoryAuthLimit(ip: string, userKey?: string) {
+function memoryScopedLimit(
+  scope: RateLimitScope,
+  ip: string,
+  userKey?: string,
+  part: RateLimitPart = "all"
+): RateLimitResult {
   const now = Date.now();
   const windowMs = 60_000;
-  const keys = [`ip:${ip}`, userKey ? `user:${userKey.trim().toLowerCase()}` : null].filter(
-    (key): key is string => Boolean(key)
-  );
-  for (const key of keys) {
+  const limits = SCOPE_LIMITS[scope];
+
+  const bump = (key: string, max: number): RateLimitResult | null => {
     const row = memoryHits.get(key);
     if (!row || row.resetAt < now) {
       memoryHits.set(key, { count: 1, resetAt: now + windowMs });
-      continue;
+      return null;
     }
     row.count += 1;
-    const max = key.startsWith("user:") ? 5 : 10;
     if (row.count > max) {
       return {
         success: false,
         remaining: 0,
-        limitedBy: (key.startsWith("user:") ? "user" : "ip") as "ip" | "user",
+        limitedBy: key.includes(":user:") ? "user" : "ip",
       };
     }
+    return null;
+  };
+
+  if (part !== "user") {
+    const limited = bump(`${scope}:ip:${ip}`, limits.ipPerMinute);
+    if (limited) return limited;
   }
-  return { success: true, remaining: -1, limitedBy: null as "ip" | "user" | null };
+  if (part !== "ip" && userKey) {
+    const limited = bump(
+      `${scope}:user:${userKey.trim().toLowerCase()}`,
+      limits.userPerMinute
+    );
+    if (limited) return limited;
+  }
+  return { success: true, remaining: -1, limitedBy: null };
 }
 
 export function getClientIp(request: Request): string {
@@ -86,34 +115,88 @@ export function getClientIp(request: Request): string {
   return request.headers.get("x-real-ip") ?? "anonymous";
 }
 
+export type RateLimitResult = {
+  success: boolean;
+  remaining: number;
+  limitedBy: "ip" | "user" | null;
+};
+
+type RateLimitPart = "ip" | "user" | "all";
+
 /**
- * Login/signup rate limit: per IP and optionally per email/user identifier.
+ * Per-scope rate limit: per IP and optionally per user identifier.
  * Stored in Redis so all app instances share the same counters.
  */
-export async function checkAuthRateLimit(request: Request, userKey?: string) {
+export async function checkScopedRateLimit(
+  request: Request,
+  scope: RateLimitScope,
+  userKey?: string,
+  part: RateLimitPart = "all"
+): Promise<RateLimitResult> {
   const ip = getClientIp(request);
-  const ipLimiterInstance = getIpLimiter();
-  const userLimiterInstance = userKey ? getUserLimiter() : null;
+  const ipLimiterInstance = part !== "user" ? getIpLimiter(scope) : null;
+  const userLimiterInstance =
+    part !== "ip" && userKey ? getUserLimiter(scope) : null;
 
-  if (!ipLimiterInstance) {
+  if (!ipLimiterInstance && !userLimiterInstance) {
     if (process.env.NODE_ENV === "production") {
-      return memoryAuthLimit(ip, userKey);
+      return memoryScopedLimit(scope, ip, userKey, part);
     }
-    return { success: true, remaining: -1, limitedBy: null as "ip" | "user" | null };
+    return { success: true, remaining: -1, limitedBy: null };
   }
 
-  const ipResult = await ipLimiterInstance.limit(`ip:${ip}`);
-  if (!ipResult.success) {
-    return { success: false, remaining: ipResult.remaining, limitedBy: "ip" as const };
+  if (ipLimiterInstance) {
+    const ipResult = await ipLimiterInstance.limit(`ip:${ip}`);
+    if (!ipResult.success) {
+      return { success: false, remaining: ipResult.remaining, limitedBy: "ip" };
+    }
   }
 
   if (userLimiterInstance && userKey) {
     const normalized = userKey.trim().toLowerCase();
     const userResult = await userLimiterInstance.limit(`user:${normalized}`);
     if (!userResult.success) {
-      return { success: false, remaining: userResult.remaining, limitedBy: "user" as const };
+      return { success: false, remaining: userResult.remaining, limitedBy: "user" };
     }
   }
 
-  return { success: true, remaining: ipResult.remaining, limitedBy: null };
+  return { success: true, remaining: -1, limitedBy: null };
+}
+
+/** Login/signup rate limit: per IP and optionally per email/user identifier. */
+export async function checkAuthRateLimit(request: Request, userKey?: string) {
+  return checkScopedRateLimit(request, "auth", userKey);
+}
+
+export async function checkBookingRateLimit(
+  request: Request,
+  userKey?: string,
+  part: RateLimitPart = userKey ? "all" : "ip"
+) {
+  return checkScopedRateLimit(request, "booking", userKey, part);
+}
+
+export async function checkEnquiryRateLimit(
+  request: Request,
+  userKey?: string,
+  part: RateLimitPart = userKey ? "all" : "ip"
+) {
+  return checkScopedRateLimit(request, "enquiry", userKey, part);
+}
+
+export async function checkSearchRateLimit(request: Request) {
+  return checkScopedRateLimit(request, "search", undefined, "ip");
+}
+
+export function tooManyRequestsResponse(remaining: number, requestId?: string) {
+  return Response.json(
+    { error: "Too many requests. Please try again later." },
+    {
+      status: 429,
+      headers: {
+        "X-RateLimit-Remaining": String(remaining),
+        ...(requestId ? { "x-request-id": requestId } : {}),
+      },
+    }
+  );
 }

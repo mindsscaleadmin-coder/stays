@@ -8,11 +8,12 @@ import {
   Award,
   Building2,
   CheckCircle,
+  Flag,
+  UtensilsCrossed,
   Heart,
   MapPin,
   ChevronRight,
   MessageCircle,
-  Phone,
   Share2,
   Shield,
   Sparkles,
@@ -20,13 +21,36 @@ import {
   Users,
   Zap,
 } from "lucide-react";
+import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
+import {
+  DiningPlatformReservationSection,
+  DiningCuisineSection,
+  DiningExperienceSection,
+  DiningHostSection,
+  DiningLocationNotes,
+  DiningMenuSection,
+  DiningOpeningHoursSection,
+  DiningQuickInfoBar,
+  DiningSameHostSection,
+  DiningStructuredPolicies,
+  getDiningStructuredPolicies,
+} from "@/components/listing/dining-listing-sections";
+import { groupDiningFilters } from "@/lib/listings/dining-filter-display";
+import {
+  formatAveragePriceRange,
+  formatPriceLevel,
+  hasDiningMenu,
+  type DiningDetails,
+} from "@/lib/listings/dining-details-types";
 import type { Stay } from "@/lib/mock/data";
 import { LISTING_PLACEHOLDER_IMG } from "@/lib/listings/submission-to-stay";
 import { isDataImageUrl } from "@/lib/utils";
 import type { StayReview } from "@/lib/booking/stay-reviews-types";
 import type { HostPublicProfile } from "@/lib/host/host-profile-types";
 import { EventAvailabilityRequestCard } from "@/components/listing/event-availability-request-card";
+import { ListingSupportHelpCard } from "@/components/listing/listing-support-help-card";
 import { ListingAvailabilityCalendar } from "@/components/listing/listing-availability-calendar";
+import { ListingMapEmbed } from "@/components/listing/listing-map-embed";
 import { EventVenueAmenitiesSection } from "@/components/listing/event-venue-amenities-section";
 import {
   EventSpaceDetailModal,
@@ -41,6 +65,16 @@ import {
   resolveEventGuestCapacityRange,
 } from "@/lib/listings/event-space-display";
 import type { VenueDetails } from "@/lib/listings/venue-details-types";
+import {
+  DIRECTORY_LISTING_COPY,
+  resolveDirectoryPriceSuffix,
+  type DirectoryListingVariant,
+} from "@/lib/listings/directory-listing-copy";
+import { cn } from "@/lib/utils";
+
+function spaceKey(space: EventSpace) {
+  return space.id ?? space.name;
+}
 
 export type { EventSpace };
 
@@ -51,14 +85,30 @@ interface EventHostOffer {
   detail: string;
 }
 
-const TABS = [
-  ["overview", "Overview"],
-  ["spaces", "Spaces & pricing"],
-  ["amenities", "Amenities"],
-  ["location", "Location"],
-  ["reviews", "Reviews"],
-  ["policies", "Policies"],
-] as const;
+function directoryTabs(
+  variant: DirectoryListingVariant,
+  options?: { hasMenu?: boolean; hasPolicies?: boolean }
+) {
+  const copy = DIRECTORY_LISTING_COPY[variant];
+  if (variant === "dining") {
+    return [
+      ["overview", "Overview"],
+      ...(options?.hasMenu ? [["menu", "Menu"] as const] : []),
+      ["amenities", "Amenities"],
+      ["location", "Location"],
+      ["reviews", "Reviews"],
+      ...(options?.hasPolicies ? [["policies", "Policies"] as const] : []),
+    ] as const;
+  }
+  return [
+    ["overview", "Overview"],
+    ["spaces", copy.spacesTab],
+    ["amenities", "Amenities"],
+    ["location", "Location"],
+    ["reviews", "Reviews"],
+    ["policies", "Policies"],
+  ] as const;
+}
 
 function useHostProfile(hostId?: string) {
   const [profile, setProfile] = useState<HostPublicProfile | null>(null);
@@ -90,6 +140,9 @@ export function EventListingDetailContent({
   features,
   spaces,
   venueDetails,
+  diningDetails,
+  advancedFilterIds = [],
+  sameHostListings = [],
   reviews,
   reviewsReady,
   rating,
@@ -102,6 +155,7 @@ export function EventListingDetailContent({
   money,
   onToggleWishlist,
   onShare,
+  variant = "event",
 }: {
   stay: Stay;
   description?: string;
@@ -110,6 +164,9 @@ export function EventListingDetailContent({
   features: { icon: LucideIcon; label: string }[];
   spaces: EventSpace[];
   venueDetails?: VenueDetails;
+  diningDetails?: DiningDetails;
+  advancedFilterIds?: string[];
+  sameHostListings?: Pick<Stay, "id" | "name" | "category" | "subcategory" | "img">[];
   reviews: StayReview[];
   reviewsReady: boolean;
   rating: number;
@@ -122,19 +179,51 @@ export function EventListingDetailContent({
   money: (amount: number) => string;
   onToggleWishlist: () => void;
   onShare: () => void;
+  variant?: DirectoryListingVariant;
 }) {
   const locale = useLocale();
+  const { data: taxonomy } = useAdminTaxonomy();
   const profile = useHostProfile(stay.hostId);
   const [activeTab, setActiveTab] = useState<string>("overview");
   const [readMore, setReadMore] = useState(false);
   const [detailSpace, setDetailSpace] = useState<EventSpace | null>(null);
+  const [selectedSpaceIds, setSelectedSpaceIds] = useState<string[]>([]);
+  const [bookingFocusTick, setBookingFocusTick] = useState(0);
+  const copy = DIRECTORY_LISTING_COPY[variant];
+  const diningFilterGroups = useMemo(
+    () => (variant === "dining" ? groupDiningFilters(taxonomy, advancedFilterIds) : {}),
+    [variant, taxonomy, advancedFilterIds]
+  );
+  const diningPolicies = useMemo(
+    () => (variant === "dining" ? getDiningStructuredPolicies(diningDetails) : []),
+    [variant, diningDetails]
+  );
+  const tabs = directoryTabs(variant, {
+    hasMenu: hasDiningMenu(diningDetails),
+    hasPolicies: variant !== "dining" || diningPolicies.length > 0,
+  });
 
-  const category = stay.subcategory?.trim() || stay.category?.trim() || "Event venue";
-  const hostName = profile?.displayName?.trim() || "this venue";
+  const category =
+    stay.category?.trim() || (variant === "dining" ? "Restaurant" : "Event venue");
+  const subcategory =
+    stay.subcategory?.trim() && stay.subcategory.trim() !== stay.category?.trim()
+      ? stay.subcategory.trim()
+      : "";
+  const priceLevelLabel =
+    variant === "dining" ? formatPriceLevel(diningDetails?.priceLevel) : "";
+  const averagePriceLabel =
+    variant === "dining" ? formatAveragePriceRange(diningDetails, money) : "";
+  const hostName = profile?.displayName?.trim() || copy.hostLabel;
   const startingPrice = useMemo(() => {
     const prices = spaces.map((s) => s.price).filter((p) => p > 0);
     return prices.length > 0 ? Math.min(...prices) : stay.price;
   }, [spaces, stay.price]);
+  const headerPriceLabel =
+    variant === "dining"
+      ? averagePriceLabel || priceLevelLabel
+      : startingPrice > 0
+        ? money(startingPrice)
+        : "";
 
   const distribution = useMemo(() => {
     const counts = [0, 0, 0, 0, 0];
@@ -153,7 +242,7 @@ export function EventListingDetailContent({
       }),
     [spaces, stay.guests, venueDetails?.maxGuests]
   );
-  const guestCapacityLabel = formatEventGuestCapacityLabel(guestCapacityRange);
+  const guestCapacityLabel = formatEventGuestCapacityLabel(guestCapacityRange, variant);
 
   /** Category is already the header chip, so the strip carries capacity + features. */
   const facts = [
@@ -177,20 +266,36 @@ export function EventListingDetailContent({
   const additionalRules = venueDetails?.additionalRules?.trim() ?? "";
 
   const stats = [
-    { num: formatEventGuestCapacityStat(guestCapacityRange), lbl: "Guest capacity" },
+    { num: formatEventGuestCapacityStat(guestCapacityRange), lbl: copy.guestCapacityStat },
     {
       num: reviewCount > 0 ? rating.toFixed(1) : "New",
-      lbl: reviewCount > 0 ? "Average rating" : "Venue profile",
+      lbl: reviewCount > 0 ? "Average rating" : copy.entityLabel,
       accent: reviewCount === 0,
     },
-    { num: String(spaces.length), lbl: spaces.length === 1 ? "Bookable space" : "Bookable spaces" },
+    variant === "dining"
+      ? {
+          num: priceLevelLabel || "—",
+          lbl: priceLevelLabel ? "Price level" : "Indicative pricing",
+        }
+      : {
+          num: String(spaces.length),
+          lbl: spaces.length === 1 ? copy.bookableSpaceLabel : copy.bookableSpacesLabel,
+        },
     { num: String(reviewCount), lbl: reviewCount === 1 ? "Verified review" : "Verified reviews" },
   ];
 
-  function selectSpace(_space: EventSpace) {
-    document
-      .getElementById("booking-calculator")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  function toggleSpace(space: EventSpace) {
+    const key = spaceKey(space);
+    const isAdding = !selectedSpaceIds.includes(key);
+    setSelectedSpaceIds((current) =>
+      current.includes(key) ? current.filter((id) => id !== key) : [...current, key]
+    );
+    if (isAdding) {
+      setBookingFocusTick((tick) => tick + 1);
+      document
+        .getElementById("booking-calculator")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }
 
   function goToSection(key: string) {
@@ -201,16 +306,45 @@ export function EventListingDetailContent({
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 pt-4 pb-12">
+    <div className="w-full min-w-0 pt-4 pb-10 sm:pt-5 sm:pb-12">
+      <div className="listing-detail-grid">
+        <div className="listing-detail-main">
       {/* Venue header */}
       <header className="overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-sm shadow-gray-100/70">
         <div className="flex flex-col gap-5 p-5 sm:p-6 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
+            <h1
+              className="font-display text-display-sm font-bold tracking-tight text-gray-950 sm:text-display-lg"
+              title={stay.name}
+            >
+              {stay.name}
+            </h1>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-1 text-3xs font-bold uppercase tracking-wide text-green-900 ring-1 ring-inset ring-green-200/70">
-                <Building2 className="h-3.5 w-3.5" />
+                {variant === "dining" ? (
+                  <UtensilsCrossed className="h-3.5 w-3.5" />
+                ) : (
+                  <Building2 className="h-3.5 w-3.5" />
+                )}
                 {category}
               </span>
+              {subcategory ? (
+                <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-3xs font-bold uppercase tracking-wide text-gray-700 ring-1 ring-inset ring-gray-200/80">
+                  {subcategory}
+                </span>
+              ) : null}
+              {variant === "dining" ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-3xs font-bold uppercase tracking-wide text-blue-900 ring-1 ring-inset ring-blue-200/80">
+                  <CheckCircle className="h-3.5 w-3.5" />
+                  Verified
+                </span>
+              ) : null}
+              {priceLevelLabel ? (
+                <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-3xs font-bold uppercase tracking-wide text-amber-900 ring-1 ring-inset ring-amber-200/80 tabular-nums">
+                  {priceLevelLabel}
+                </span>
+              ) : null}
               {featured && (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-3xs font-bold uppercase tracking-wide text-amber-900 ring-1 ring-inset ring-amber-200/80">
                   <Sparkles className="h-3.5 w-3.5" />
@@ -224,13 +358,6 @@ export function EventListingDetailContent({
                 </span>
               )}
             </div>
-
-            <h1
-              className="mt-3 font-display text-display-sm font-bold tracking-tight text-gray-950 sm:text-display-lg"
-              title={stay.name}
-            >
-              {stay.name}
-            </h1>
 
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
               <span className="inline-flex min-w-0 items-center gap-1.5 text-gray-600">
@@ -276,7 +403,7 @@ export function EventListingDetailContent({
               ) : (
                 <span className="inline-flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-1.5 text-sm text-gray-600 ring-1 ring-inset ring-gray-200/80">
                   <Sparkles className="h-3.5 w-3.5 text-green-700" />
-                  New venue — no reviews yet
+                  {copy.newProfileLabel}
                 </span>
               )}
 
@@ -306,6 +433,14 @@ export function EventListingDetailContent({
               >
                 <Share2 className="h-4 w-4" /> Share
               </button>
+              {variant === "dining" ? (
+                <a
+                  href={`mailto:support@greenfieldstays.com?subject=${encodeURIComponent(`Report listing: ${stay.name}`)}`}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3.5 text-sm font-semibold text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50"
+                >
+                  <Flag className="h-4 w-4" /> Report
+                </a>
+              ) : null}
               <button
                 type="button"
                 onClick={onToggleWishlist}
@@ -321,10 +456,25 @@ export function EventListingDetailContent({
               </button>
             </div>
             <div className="sm:text-end">
-              <div className="font-display text-display-sm font-bold tracking-tight text-gray-950 sm:text-display-lg">
-                {startingPrice > 0 ? money(startingPrice) : "On request"}
-              </div>
-              <p className="mt-0.5 text-xs text-gray-500">starting price / event</p>
+              {headerPriceLabel ? (
+                <>
+                  <div className="font-display text-display-sm font-bold tracking-tight text-gray-950 sm:text-display-lg">
+                    {headerPriceLabel}
+                  </div>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    {variant === "dining"
+                      ? averagePriceLabel
+                        ? "indicative average spend"
+                        : copy.startingPriceSuffix
+                      : copy.startingPriceSuffix}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm font-semibold text-gray-600">Contact for pricing</p>
+              )}
+              {variant === "dining" ? (
+                <p className="mt-1 text-3xs text-gray-500">Listing only — no booking fees</p>
+              ) : null}
             </div>
           </div>
         </div>
@@ -365,31 +515,37 @@ export function EventListingDetailContent({
         </div>
       </div>
 
-      {/* Main grid */}
-      <div className="mt-6 grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <main className="min-w-0">
-          {/* Tabs — aligned to main column width */}
-          <div className="site-sticky-below-chrome mb-5 overflow-x-auto rounded-xl border border-gray-200 bg-white/95 shadow-sm backdrop-blur-sm">
-            <div className="flex min-w-max">
-              {TABS.map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => goToSection(key)}
-                  className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors md:px-5 ${
-                    activeTab === key
-                      ? "border-green-600 text-green-700"
-                      : "border-transparent text-gray-500 hover:text-gray-800"
-                  }`}
-                >
-                  {key === "reviews" ? `${label} (${reviewCount})` : label}
-                </button>
-              ))}
-            </div>
-          </div>
+      {variant === "dining" ? (
+        <DiningQuickInfoBar
+          filterGroups={diningFilterGroups}
+          diningDetails={diningDetails}
+          venueDetails={venueDetails}
+          money={money}
+        />
+      ) : null}
+
+      {/* Section nav — full width, directly above detail sections */}
+      <div className="site-sticky-below-chrome mt-5 mb-4 sm:mt-6 sm:mb-5 w-full max-w-full overflow-x-auto rounded-xl border border-gray-200 bg-white/95 shadow-sm backdrop-blur-sm [-webkit-overflow-scrolling:touch]">
+        <div className="flex w-max max-w-none">
+          {tabs.map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => goToSection(key)}
+              className={`whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors md:px-5 ${
+                activeTab === key
+                  ? "border-green-600 text-green-700"
+                  : "border-transparent text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              {key === "reviews" ? `${label} (${reviewCount})` : label}
+            </button>
+          ))}
+        </div>
+      </div>
 
           <section id="event-overview" className="scroll-mt-28">
-            <h2 className="mb-3 font-display text-lg font-extrabold text-gray-950">About this venue</h2>
+            <h2 className="mb-3 font-display text-lg font-extrabold text-gray-950">{copy.aboutHeading}</h2>
             <div
               className={`text-base leading-8 text-gray-600 ${
                 !readMore && (description?.trim().length ?? 0) > 400
@@ -401,8 +557,8 @@ export function EventListingDetailContent({
                 <RichTextView value={description} className="text-base leading-8" />
               ) : (
                 <p>
-                  {stay.name} is an event venue in {stay.location}. Contact the host directly
-                  to discuss your date, guest count, setup, and pricing.
+                  {stay.name} is a {copy.entityLabelLower} in {stay.location}. Contact the host
+                  directly to discuss your date, party size, and indicative pricing.
                 </p>
               )}
             </div>
@@ -418,15 +574,34 @@ export function EventListingDetailContent({
 
           </section>
 
-          {/* Spaces & pricing */}
+          {variant === "dining" ? (
+            <>
+              <DiningCuisineSection
+                filterGroups={diningFilterGroups}
+                diningDetails={diningDetails}
+              />
+              <DiningOpeningHoursSection diningDetails={diningDetails} />
+              <DiningMenuSection diningDetails={diningDetails} money={money} />
+              <DiningExperienceSection
+                filterGroups={diningFilterGroups}
+                subcategory={subcategory}
+                suitableFor={diningDetails?.suitableFor}
+              />
+            </>
+          ) : null}
+
+          {variant !== "dining" ? (
           <section id="event-spaces" className="mt-7 scroll-mt-28">
             <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h2 className="font-display text-heading-sm font-extrabold text-gray-950">Spaces &amp; pricing</h2>
+                <h2 className="font-display text-heading-sm font-extrabold text-gray-950">
+                  {copy.spacesHeading}
+                </h2>
                 <p className="mt-1 text-sm text-gray-500">
                   {spaces.length === 1
-                    ? "One bookable space for your event"
-                    : `${spaces.length} spaces — pick the setup that fits your guest list`}
+                    ? copy.spacesSubheadingSingle
+                    : `${spaces.length} ${copy.bookableSpacesLabel.toLowerCase()} — ${copy.spacesSubheadingMulti}`}
+                  {spaces.length > 1 ? " Select one or more, then pick a date." : ""}
                 </p>
               </div>
             </div>
@@ -434,27 +609,39 @@ export function EventListingDetailContent({
             <div className="space-y-4">
               {spaces.map((space, index) => {
                 const spaceImg = space.img || LISTING_PLACEHOLDER_IMG;
+                const isSelected = selectedSpaceIds.includes(spaceKey(space));
                 return (
                   <article
-                    key={space.id ?? space.name}
-                    className="group overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-sm shadow-gray-100/80 transition-shadow hover:shadow-md"
+                    key={spaceKey(space)}
+                    aria-pressed={isSelected}
+                    className={cn(
+                      "group overflow-hidden rounded-2xl border bg-white shadow-sm transition-all duration-300",
+                      isSelected
+                        ? "border-green-600 ring-2 ring-green-600/20 shadow-md shadow-green-100/70"
+                        : "border-gray-200/80 shadow-gray-100/80 hover:shadow-md"
+                    )}
                   >
                     <div className="flex flex-col md:flex-row">
-                      <div className="relative aspect-[16/10] w-full shrink-0 overflow-hidden bg-gray-100 md:aspect-auto md:w-[220px] md:min-h-[200px] md:self-stretch lg:w-[260px]">
+                      <div className="relative aspect-[16/9] w-full shrink-0 overflow-hidden bg-gray-100 md:w-[320px] md:aspect-[3/2] lg:w-[400px]">
                         <Image
                           src={spaceImg}
                           alt={space.name}
                           fill
                           className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                          sizes="(max-width: 768px) 100vw, 260px"
+                          sizes="(max-width: 768px) 100vw, 400px"
                           unoptimized={isDataImageUrl(spaceImg)}
                         />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent md:bg-gradient-to-r md:from-black/20 md:via-transparent" />
-                        {spaces.length > 1 && (
+                        {isSelected ? (
+                          <span className="absolute start-3 top-3 inline-flex items-center gap-1 rounded-full bg-green-800 px-2.5 py-1 text-2xs font-bold uppercase tracking-wide text-white shadow-sm">
+                            <CheckCircle className="h-3 w-3" />
+                            {copy.spaceSelectedBadge}
+                          </span>
+                        ) : spaces.length > 1 ? (
                           <span className="absolute start-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-2xs font-bold uppercase tracking-wide text-gray-800 shadow-sm backdrop-blur-sm">
                             Space {index + 1}
                           </span>
-                        )}
+                        ) : null}
                       </div>
 
                       <div className="flex min-w-0 flex-1 flex-col justify-between gap-4 p-5 sm:p-6">
@@ -483,7 +670,12 @@ export function EventListingDetailContent({
                                 {space.price > 0 ? money(space.price) : "On request"}
                               </div>
                               <p className="mt-0.5 text-xs font-medium text-gray-500">
-                                {space.price > 0 ? "starting rate · per event" : "contact for quote"}
+                                {space.price > 0
+                                  ? resolveDirectoryPriceSuffix(
+                                      space.venueDetails?.priceUnit ?? venueDetails?.priceUnit,
+                                      variant
+                                    )
+                                  : "contact for quote"}
                               </p>
                             </div>
                           </div>
@@ -512,11 +704,26 @@ export function EventListingDetailContent({
                           </p>
                           <button
                             type="button"
-                            onClick={() => selectSpace(space)}
-                            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-green-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-green-900"
+                            onClick={() => toggleSpace(space)}
+                            aria-pressed={isSelected}
+                            className={cn(
+                              "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl px-5 py-2.5 text-sm font-semibold shadow-sm transition-colors",
+                              isSelected
+                                ? "border-2 border-green-700 bg-green-50 text-green-900 hover:bg-green-100"
+                                : "bg-green-800 text-white hover:bg-green-900"
+                            )}
                           >
-                            Request this space
-                            <ChevronRight className="h-4 w-4" />
+                            {isSelected ? (
+                              <>
+                                <CheckCircle className="h-4 w-4" />
+                                {copy.spaceSelectedCta}
+                              </>
+                            ) : (
+                              <>
+                                {copy.requestSpaceCta}
+                                <ChevronRight className="h-4 w-4" />
+                              </>
+                            )}
                           </button>
                         </div>
                       </div>
@@ -526,65 +733,70 @@ export function EventListingDetailContent({
               })}
             </div>
           </section>
+          ) : null}
 
           <EventVenueAmenitiesSection
             amenities={amenities}
             venueDetails={venueDetails}
-            multiRate={spaces.length > 1}
+            multiRate={variant !== "dining" && spaces.length > 1}
+            variant={variant}
           />
 
-          {/* Review summary */}
-          <section className="mt-8">
-            <h2 className="mb-3 font-display text-heading-sm font-extrabold text-gray-950">
-              What event planners love about this venue
-            </h2>
-            {reviewCount > 0 ? (
-              <div className="grid items-center gap-6 sm:grid-cols-[140px_minmax(0,1fr)]">
-                <div className="text-center">
-                  <div className="font-display text-display-md font-extrabold leading-none text-gray-950">
-                    {rating.toFixed(1)}
+          {variant !== "dining" ? (
+            <section className="mt-8">
+              <h2 className="mb-3 font-display text-heading-sm font-extrabold text-gray-950">
+                {copy.reviewsHeading}
+              </h2>
+              {reviewCount > 0 ? (
+                <div className="grid items-center gap-6 sm:grid-cols-[140px_minmax(0,1fr)]">
+                  <div className="text-center">
+                    <div className="font-display text-display-md font-extrabold leading-none text-gray-950">
+                      {rating.toFixed(1)}
+                    </div>
+                    <div className="mt-1 flex items-center justify-center gap-0.5">
+                      {[0, 1, 2, 3, 4].map((i) => (
+                        <Star
+                          key={i}
+                          className={`h-3.5 w-3.5 ${
+                            i < Math.round(rating)
+                              ? "fill-amber-400 text-amber-400"
+                              : "text-gray-300"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <div className="mt-1 text-3xs text-gray-500">
+                      Based on {reviewCount} review{reviewCount === 1 ? "" : "s"}
+                    </div>
                   </div>
-                  <div className="mt-1 flex items-center justify-center gap-0.5">
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <Star
-                        key={i}
-                        className={`h-3.5 w-3.5 ${
-                          i < Math.round(rating)
-                            ? "fill-amber-400 text-amber-400"
-                            : "text-gray-300"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <div className="mt-1 text-3xs text-gray-500">
-                    Based on {reviewCount} review{reviewCount === 1 ? "" : "s"}
+                  <div>
+                    {[5, 4, 3, 2, 1].map((star) => {
+                      const count = distribution[star - 1];
+                      const pct = reviewCount > 0 ? Math.round((count / reviewCount) * 100) : 0;
+                      return (
+                        <div key={star} className="mb-1.5 flex items-center gap-2.5 text-xs">
+                          <span className="w-16 text-gray-700">{star} star{star === 1 ? "" : "s"}</span>
+                          <span className="h-1.5 flex-1 overflow-hidden rounded bg-gray-100">
+                            <span
+                              className="block h-full rounded bg-green-700"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </span>
+                          <span className="w-6 text-end tabular-nums text-gray-600">{count}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-                <div>
-                  {[5, 4, 3, 2, 1].map((star) => {
-                    const count = distribution[star - 1];
-                    const pct = reviewCount > 0 ? Math.round((count / reviewCount) * 100) : 0;
-                    return (
-                      <div key={star} className="mb-1.5 flex items-center gap-2.5 text-xs">
-                        <span className="w-16 text-gray-700">{star} star{star === 1 ? "" : "s"}</span>
-                        <span className="h-1.5 flex-1 overflow-hidden rounded bg-gray-100">
-                          <span
-                            className="block h-full rounded bg-green-700"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </span>
-                        <span className="w-6 text-end tabular-nums text-gray-600">{count}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500">
-                No reviews yet — be the first to host your event here.
-              </p>
-            )}
-          </section>
+              ) : (
+                <p className="text-sm text-gray-500">{copy.reviewsEmpty}</p>
+              )}
+            </section>
+          ) : null}
+
+          {variant === "dining" ? (
+            <DiningSameHostSection listings={sameHostListings} currentId={stay.id} />
+          ) : null}
 
           <ListingAvailabilityCalendar
             listingId={stay.id}
@@ -598,23 +810,16 @@ export function EventListingDetailContent({
             <p className="mb-3 flex items-center gap-2 text-sm text-gray-600">
               <MapPin className="h-4 w-4 text-green-700" /> {stay.location}
             </p>
-            <div className="relative h-60 overflow-hidden rounded-2xl border border-gray-200 bg-gray-100">
-              {mapEmbedUrl ? (
-                <iframe
-                  title={`Map — ${stay.location}`}
-                  src={mapEmbedUrl}
-                  className="absolute inset-0 h-full w-full border-0"
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  allowFullScreen
-                />
-              ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-green-800">
-                  <MapPin className="h-10 w-10 opacity-30" />
-                  <span className="text-sm font-semibold opacity-70">{stay.location}</span>
-                </div>
-              )}
-            </div>
+            {mapEmbedUrl ? (
+              <ListingMapEmbed
+                src={mapEmbedUrl}
+                title={`Map preview — ${stay.location}`}
+                className="h-60 overflow-hidden rounded-2xl border border-gray-200 bg-gray-100"
+              />
+            ) : null}
+            {variant === "dining" ? (
+              <DiningLocationNotes diningDetails={diningDetails} />
+            ) : null}
           </section>
 
           <div id="event-reviews" className="mt-8 scroll-mt-28">
@@ -627,95 +832,115 @@ export function EventListingDetailContent({
           </div>
 
           {/* Policies */}
-          <section id="event-policies" className="scroll-mt-28">
-            <h2 className="mb-3 font-display text-heading-sm font-extrabold text-gray-950">Venue policies</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {policies.map((policy) => (
-                <div
-                  key={policy.title}
-                  className="rounded-xl border border-gray-100 bg-gray-50 p-4"
-                >
-                  <h3 className="font-display text-sm font-bold text-gray-900">{policy.title}</h3>
-                  <p className="mt-1 text-xs leading-5 text-gray-500">{policy.desc}</p>
+          {(variant !== "dining" || diningPolicies.length > 0) && (
+            <section id="event-policies" className="scroll-mt-28">
+              <h2 className="mb-3 font-display text-heading-sm font-extrabold text-gray-950">
+                {copy.policiesHeading}
+              </h2>
+              {variant === "dining" ? (
+                <DiningStructuredPolicies diningDetails={diningDetails} />
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {policies.map((policy) => (
+                    <div
+                      key={policy.title}
+                      className="rounded-xl border border-gray-100 bg-gray-50 p-4"
+                    >
+                      <h3 className="font-display text-sm font-bold text-gray-900">{policy.title}</h3>
+                      <p className="mt-1 text-xs leading-5 text-gray-500">{policy.desc}</p>
+                    </div>
+                  ))}
+                  {additionalRules ? (
+                    <div className="rounded-xl border border-rose-100 bg-rose-50/30 p-4 sm:col-span-2">
+                      <h3 className="flex items-center gap-2 font-display text-sm font-bold text-gray-900">
+                        <Shield className="h-4 w-4 text-rose-600" />
+                        Additional rules
+                      </h3>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
+                        {additionalRules}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
-              ))}
-              {additionalRules ? (
-                <div className="rounded-xl border border-rose-100 bg-rose-50/30 p-4 sm:col-span-2">
-                  <h3 className="flex items-center gap-2 font-display text-sm font-bold text-gray-900">
-                    <Shield className="h-4 w-4 text-rose-600" />
-                    Additional rules
-                  </h3>
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
-                    {additionalRules}
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          </section>
-        </main>
+              )}
+            </section>
+          )}
 
-        {/* Sidebar */}
-        <aside className="flex flex-col gap-4 lg:sticky lg:top-20">
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3.5">
-            <div className="flex items-center gap-2 font-display text-body-sm font-extrabold text-amber-900">
-              <Zap className="h-4 w-4" /> Weekend dates book out fast
-            </div>
-            <p className="mt-0.5 text-xs text-amber-900">
-              Send your date early to confirm availability.
-            </p>
-          </div>
+          {variant === "dining" ? (
+            <DiningHostSection profile={profile} hostLabel={copy.hostLabel} />
+          ) : null}
 
+          {variant === "dining" ? (
+            <DiningPlatformReservationSection
+              onRequestReservation={() => {
+                const first = spaces[0];
+                if (first) toggleSpace(first);
+              }}
+            />
+          ) : null}
+
+      {/* Bottom trust */}
+      <div className="mt-8 grid gap-3.5 rounded-2xl bg-amber-50 p-4 text-xs font-semibold text-amber-900 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="flex items-center gap-2">
+          <Zap className="h-4 w-4 shrink-0" /> {copy.trustReply}
+        </div>
+        <div className="flex items-center gap-2">
+          <Shield className="h-4 w-4 shrink-0" /> {copy.trustVerified}
+        </div>
+        <div className="flex items-center gap-2">
+          <MessageCircle className="h-4 w-4 shrink-0" />
+          {variant === "dining"
+            ? "Availability checks go through our platform"
+            : "Direct contact, no middleman"}
+        </div>
+        <div className="flex items-center gap-2">
+          <CheckCircle className="h-4 w-4 shrink-0" />
+          {variant === "dining" ? "Contact shared after confirmation" : "No platform commission"}
+        </div>
+      </div>
+        </div>
+
+        <div className="listing-detail-sidebar">
+          <div className="listing-detail-sidebar-inner">
           <EventAvailabilityRequestCard
             listingId={stay.id}
             listingTitle={stay.name}
             spaces={spaces}
+            selectedSpaceIds={selectedSpaceIds}
+            calendarFocusTick={bookingFocusTick}
             rating={rating}
             reviewCount={reviewCount}
             locale={locale}
+            variant={variant}
+            diningDetails={diningDetails}
           />
 
-          <div className="flex items-center justify-between rounded-2xl border border-gray-200 bg-white p-4">
-            <div>
-              <div className="font-display text-body-sm font-bold text-gray-900">Need help?</div>
-              <div className="mt-0.5 text-xs font-bold text-green-800">+971 4 123 4567</div>
-            </div>
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-green-100 text-green-700">
-              <Phone className="h-4 w-4" />
-            </span>
-          </div>
+          {variant !== "dining" ? <ListingSupportHelpCard /> : null}
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
-            <div className="relative h-32 overflow-hidden rounded-xl bg-gray-100">
-              {mapEmbedUrl ? (
-                <iframe
-                  title={`Map preview — ${stay.location}`}
-                  src={mapEmbedUrl}
-                  className="absolute inset-0 h-full w-full border-0"
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                />
-              ) : (
-                <span className="absolute inset-0 flex items-center justify-center text-green-800">
-                  <MapPin className="h-6 w-6" />
-                </span>
-              )}
+          {mapEmbedUrl ? (
+            <div className="rounded-2xl border border-gray-200 bg-white p-4">
+              <ListingMapEmbed
+                src={mapEmbedUrl}
+                title={`Map preview — ${stay.location}`}
+                className="h-32 overflow-hidden rounded-xl bg-gray-100"
+              />
+              <div className="mt-2.5 text-xs font-semibold text-gray-800">{stay.location}</div>
+              <button
+                type="button"
+                onClick={() => goToSection("location")}
+                className="mt-0.5 text-3xs font-semibold text-green-800 underline underline-offset-2"
+              >
+                Show on map
+              </button>
             </div>
-            <div className="mt-2.5 text-xs font-semibold text-gray-800">{stay.location}</div>
-            <button
-              type="button"
-              onClick={() => goToSection("location")}
-              className="mt-0.5 text-3xs font-semibold text-green-800 underline underline-offset-2"
-            >
-              Show on map
-            </button>
-          </div>
+          ) : null}
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
-            <h3 className="mb-3 flex items-center gap-2 font-display text-body-sm font-bold text-gray-900">
+          <div className="bg-white rounded-2xl border p-4">
+            <h3 className="mb-3 flex items-center gap-2 font-semibold text-gray-800 text-sm">
               <Shield className="h-4 w-4 text-green-700" /> Enquire with confidence
             </h3>
             <div className="grid grid-cols-2 gap-2.5 text-xs text-gray-700">
-              {["Verified venue", "Fast response", "Direct contact", "No hidden fees"].map(
+              {copy.confidenceItems.map(
                 (item) => (
                   <div key={item} className="flex items-start gap-1.5">
                     <span className="font-bold text-green-700">✓</span>
@@ -727,34 +952,30 @@ export function EventListingDetailContent({
           </div>
 
           {offers.length > 0 && (
-            <div className="rounded-2xl border border-green-200 bg-green-50 p-3.5">
-              <div className="font-display text-body-sm font-bold text-gray-900">Offer from this venue</div>
-              {offers.slice(0, 2).map((offer) => (
-                <div key={offer.id} className="mt-1">
-                  <p className="text-xs text-gray-600">{offer.title}</p>
-                  <span className="mt-1 inline-block rounded-md border border-dashed border-green-700 bg-white px-2 py-0.5 text-3xs font-bold text-green-800">
-                    Ask when you enquire
-                  </span>
-                </div>
-              ))}
+            <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4">
+              <h3 className="font-semibold text-gray-800 text-sm mb-3 flex items-center gap-2">
+                <Zap className="w-4 h-4 text-orange-500" /> Offer from this venue
+              </h3>
+              <div className="flex flex-col gap-2">
+                {offers.slice(0, 2).map((offer) => (
+                  <div key={offer.id} className="bg-white rounded-lg p-3 border border-amber-200">
+                    <div className="flex items-center justify-between gap-2 mb-0.5">
+                      <p className="text-sm font-semibold text-gray-900">{offer.title}</p>
+                      <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded shrink-0">
+                        {offer.badge}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1">{offer.detail}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-        </aside>
-      </div>
 
-      {/* Bottom trust */}
-      <div className="mt-8 grid gap-3.5 rounded-2xl bg-amber-50 p-4 text-xs font-semibold text-amber-900 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="flex items-center gap-2">
-          <Zap className="h-4 w-4 shrink-0" /> Hosts typically reply within hours
-        </div>
-        <div className="flex items-center gap-2">
-          <Shield className="h-4 w-4 shrink-0" /> Every venue document-verified
-        </div>
-        <div className="flex items-center gap-2">
-          <MessageCircle className="h-4 w-4 shrink-0" /> Direct contact, no middleman
-        </div>
-        <div className="flex items-center gap-2">
-          <CheckCircle className="h-4 w-4 shrink-0" /> No platform commission
+          <p className="text-[11px] text-orange-600 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2">
+            {copy.sidebarUrgencyBody}
+          </p>
+          </div>
         </div>
       </div>
       <EventSpaceDetailModal
@@ -763,9 +984,10 @@ export function EventListingDetailContent({
         money={money}
         venueDetails={venueDetails}
         showVenueSpaceDetails={spaces.length > 1}
+        variant={variant}
         onClose={() => setDetailSpace(null)}
         onRequest={() => {
-          if (detailSpace) selectSpace(detailSpace);
+          if (detailSpace) toggleSpace(detailSpace);
         }}
       />
     </div>

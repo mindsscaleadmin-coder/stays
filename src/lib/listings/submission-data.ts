@@ -50,6 +50,7 @@ export function normalizeSubmittedListing(
     houseRules: listing.houseRules ?? [],
     rooms: listing.rooms ?? [],
     venueDetails: listing.venueDetails,
+    diningDetails: listing.diningDetails,
   });
 }
 

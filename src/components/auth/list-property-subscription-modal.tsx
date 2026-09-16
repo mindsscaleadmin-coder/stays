@@ -129,18 +129,18 @@ export function ListPropertySubscriptionModal({
           <div className="relative flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-900">
-                {directoryLabel} directory
+                Events &amp; dining directory
               </p>
               <h2
                 id="list-property-subscription-title"
                 className="font-display text-xl sm:text-2xl font-semibold text-gray-900 leading-tight mt-1"
               >
-                Choose your plan
+                Choose your directory plan
               </h2>
               <p className="text-sm text-gray-600 mt-2 max-w-xl">
                 {isDining
-                  ? "Dining listings appear in the public directory. Guests enquire directly — no booking fees."
-                  : "Event venues appear in the public Events section. Guests enquire directly — no booking fees."}
+                  ? "List your restaurant in the public dining directory. Guests reserve through our platform — no meal charges or booking fees on our site."
+                  : "List your venue in the public events directory. Guests enquire through our platform — no booking fees on our site."}
               </p>
             </div>
             <button

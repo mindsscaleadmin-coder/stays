@@ -24,13 +24,15 @@ export function PendingListingReviewPanel({
   onReject,
 }: {
   listings: SubmittedListing[];
-  onApprove: (id: string) => void;
-  onReject: (id: string) => void;
+  onApprove: (id: string) => void | Promise<void>;
+  onReject: (id: string) => void | Promise<void>;
 }) {
   const { rulesForParent } = useListingQualityRules();
   const { data: taxonomy } = useAdminTaxonomy();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [acting, setActing] = useState(false);
 
   useEffect(() => {
     if (listings.length === 0) {
@@ -60,17 +62,37 @@ export function PendingListingReviewPanel({
       )
     : [];
 
-  function handleApprove(id: string) {
-    onApprove(id);
-    setActionMessage("Listing approved.");
-    setTimeout(() => setActionMessage(""), 3000);
+  async function handleApprove(id: string) {
+    if (acting) return;
+    setActionError("");
+    setActionMessage("");
+    setActing(true);
+    try {
+      await onApprove(id);
+      setActionMessage("Listing approved.");
+      setTimeout(() => setActionMessage(""), 3000);
+    } catch {
+      setActionError("Could not approve listing. Try again.");
+    } finally {
+      setActing(false);
+    }
   }
 
-  function handleReject(id: string) {
+  async function handleReject(id: string) {
+    if (acting) return;
     if (!confirm("Reject this listing submission?")) return;
-    onReject(id);
-    setActionMessage("Listing rejected.");
-    setTimeout(() => setActionMessage(""), 3000);
+    setActionError("");
+    setActionMessage("");
+    setActing(true);
+    try {
+      await onReject(id);
+      setActionMessage("Listing rejected.");
+      setTimeout(() => setActionMessage(""), 3000);
+    } catch {
+      setActionError("Could not reject listing. Try again.");
+    } finally {
+      setActing(false);
+    }
   }
 
   if (listings.length === 0) {
@@ -117,6 +139,11 @@ export function PendingListingReviewPanel({
               {actionMessage}
             </p>
           )}
+          {actionError && (
+            <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+              {actionError}
+            </p>
+          )}
 
           <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
             <div>
@@ -141,14 +168,16 @@ export function PendingListingReviewPanel({
               <button
                 type="button"
                 onClick={() => handleApprove(selected.id)}
-                className="flex items-center gap-1 text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg font-medium"
+                disabled={acting}
+                className="flex items-center gap-1 text-xs bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-lg font-medium"
               >
-                <CheckCircle className="w-3.5 h-3.5" /> Approve
+                <CheckCircle className="w-3.5 h-3.5" /> {acting ? "Saving…" : "Approve"}
               </button>
               <button
                 type="button"
                 onClick={() => handleReject(selected.id)}
-                className="flex items-center gap-1 text-xs border border-red-200 hover:bg-red-50 text-red-600 px-3 py-1.5 rounded-lg font-medium"
+                disabled={acting}
+                className="flex items-center gap-1 text-xs border border-red-200 hover:bg-red-50 disabled:opacity-60 text-red-600 px-3 py-1.5 rounded-lg font-medium"
               >
                 <XCircle className="w-3.5 h-3.5" /> Reject
               </button>

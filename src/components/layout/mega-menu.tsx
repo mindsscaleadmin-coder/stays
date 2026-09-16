@@ -135,7 +135,7 @@ export function MegaMenu() {
           style={{ top: panelTop }}
         >
           <div className="border-t border-gray-100 bg-white shadow-[0_28px_60px_-24px_rgba(27,67,50,0.28)]">
-            <div className="site-page-container">
+            <div className="home-page-container">
               <div className="grid grid-cols-12 h-[min(380px,calc(100vh-5.5rem))]">
                 <div className="col-span-4 xl:col-span-3 border-e border-gray-100 bg-[#f6f4ef] -ms-[var(--page-gutter)] ps-[var(--page-gutter)] pe-0 xl:ms-0 xl:ps-0 flex flex-col min-h-0">
                   <div className="px-4 xl:px-5 pt-5 pb-3 shrink-0">

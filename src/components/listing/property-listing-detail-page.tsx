@@ -63,6 +63,7 @@ import { RichTextView } from "@/components/listing/rich-text-view";
 import { BASE_CURRENCY, formatStoredMoney  } from "@/lib/currency";
 import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
+import { useCountrySupportContact } from "@/lib/admin/use-country-support-contact";
 import { photoTagLabel } from "@/lib/listings/photo-tags";
 import { ListingGalleryOverlay } from "@/components/listing/listing-gallery-overlay";
 import {
@@ -113,10 +114,14 @@ import { addToBookingCart, loadBookingCart } from "@/lib/guest/booking-cart";
 import { readStayDatesFromSearch, readStayPartyFromSearch } from "@/lib/guest/stay-search-dates";
 import { ExperienceBookingCard } from "@/components/listing/experience-booking-card";
 import { EventListingDetailContent } from "@/components/listing/event-listing-detail-content";
+import { ListingMapEmbed } from "@/components/listing/listing-map-embed";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
-import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
+import { isDiningListing } from "@/lib/booking/is-dining-listing";
 import { eventSpaceImages } from "@/lib/listings/event-space-images";
 import { buildEventSpaceFilterGroups } from "@/lib/listings/resolve-venue-space-filters";
+import type { DiningDetails } from "@/lib/listings/dining-details-types";
+import { DINING_GALLERY_FILTERS, filterDiningGalleryPhotos } from "@/lib/listings/dining-photo-tags";
 import type { VenueDetails } from "@/lib/listings/venue-details-types";
 import {
   guestPartyFromRoom,
@@ -329,6 +334,7 @@ interface PropertyListingDetailPageProps {
   amenities?: string[];
   advancedFilters?: string[];
   venueDetails?: VenueDetails;
+  diningDetails?: DiningDetails;
   /** Experience listing content */
   itinerary?: { step: number; title: string; description?: string }[];
   meetingPoint?: string;
@@ -357,6 +363,7 @@ export function PropertyListingDetailPage({
   amenities: amenitiesProp,
   advancedFilters: advancedFiltersProp,
   venueDetails: venueDetailsProp,
+  diningDetails: diningDetailsProp,
   itinerary,
   meetingPoint,
   requirements,
@@ -367,15 +374,23 @@ export function PropertyListingDetailPage({
   const tc = useTranslations("common");
   const locale = useLocale();
   const { data: taxonomy } = useAdminTaxonomy();
+  const { phone: supportPhone, telHref: supportTelHref } = useCountrySupportContact();
   const isExperience = isExperienceListing({
     parentCategory: stay.parentCategory,
     type: stay.type,
   });
-  const isEvent = isEventListing({
+  const isDirectory = isDirectoryListing({
     parentCategory: stay.parentCategory,
     type: stay.type,
     category: stay.category,
   });
+  const isDining = isDiningListing({
+    parentCategory: stay.parentCategory,
+    type: stay.type,
+    category: stay.category,
+  });
+  const isEvent = isDirectory && !isDining;
+  const directoryVariant = isDining ? "dining" : "event";
   const breadcrumbParent = stay.parentCategory?.trim() ?? "";
   const breadcrumbCategory = breadcrumbParent ? (stay.category?.trim() ?? "") : "";
   const { listings: catalogListings } = usePublicListings();
@@ -468,6 +483,7 @@ export function PropertyListingDetailPage({
   const [wishlist, setWishlist] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
+  const [diningGalleryFilter, setDiningGalleryFilter] = useState("all");
   const [galleryStartIndex, setGalleryStartIndex] = useState(0);
   const [galleryStartVideo, setGalleryStartVideo] = useState(false);
   const [shareFlash, setShareFlash] = useState(false);
@@ -967,18 +983,32 @@ export function PropertyListingDetailPage({
     selectedExtraIds,
   ]);
 
+  const sameHostDiningListings = useMemo(() => {
+    if (!isDining || !stay.hostId) return [];
+    return catalogListings
+      .filter((item) => item.id !== stay.id && item.hostId === stay.hostId)
+      .filter((item) =>
+        isDiningListing({
+          parentCategory: item.parentCategory,
+          type: item.type,
+          category: item.category,
+        })
+      )
+      .slice(0, 6);
+  }, [catalogListings, isDining, stay.hostId, stay.id]);
+
   const similar = useMemo(
     () => {
       const base = catalogListings
         .filter((s) => s.id !== stay.id)
         .filter((s) =>
-          isEvent
-            ? isEventListing({
+          isDirectory
+            ? isDirectoryListing({
                 parentCategory: s.parentCategory,
                 type: s.type,
                 category: s.category,
               })
-            : !isEventListing({
+            : !isDirectoryListing({
                 parentCategory: s.parentCategory,
                 type: s.type,
                 category: s.category,
@@ -988,7 +1018,7 @@ export function PropertyListingDetailPage({
       if (!reviewsReady) return base;
       return base.map((s) => applyGuestReviewRatings(s));
     },
-    [stay.id, reviewsReady, catalogListings, isEvent]
+    [stay.id, reviewsReady, catalogListings, isDirectory]
   );
   const priceCurrency =
     pricingSettings?.currency ?? extrasCurrency ?? countryPricing.currency;
@@ -1065,7 +1095,13 @@ export function PropertyListingDetailPage({
         ? galleryImages.map((src) => ({ src }))
         : GALLERY.map((src) => ({ src }));
 
-  const galleryHero = [...photos.slice(0, 5)];
+  const filteredDiningPhotos = useMemo(() => {
+    if (!isDining) return photos;
+    const filtered = filterDiningGalleryPhotos(photos, diningGalleryFilter);
+    return filtered.length > 0 ? filtered : photos;
+  }, [isDining, photos, diningGalleryFilter]);
+
+  const galleryHero = [...(isDining ? filteredDiningPhotos : photos).slice(0, 5)];
   while (galleryHero.length < 5) {
     galleryHero.push(galleryHero[0] ?? { src: stay.img });
   }
@@ -1271,15 +1307,33 @@ export function PropertyListingDetailPage({
   }, [shareOpen]);
 
   return (
-    <div className="bg-gray-50 min-h-screen pb-24 lg:pb-0">
-      {/* Photo grid — directly under site header */}
-      <div className="max-w-7xl mx-auto px-4 pt-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 h-auto md:h-[480px] rounded-2xl overflow-hidden bg-white">
-          <div className="relative min-h-[240px] md:min-h-0 md:h-full">
+    <div className="listing-detail-page bg-gray-50 min-h-screen pb-24 lg:pb-0">
+      {/* Photo grid — full viewport width under site header */}
+      <div className="listing-detail-hero">
+        {isDining ? (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {DINING_GALLERY_FILTERS.map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => setDiningGalleryFilter(filter.id)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  diningGalleryFilter === filter.id
+                    ? "bg-green-800 text-white"
+                    : "bg-white text-gray-700 border border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <div className="listing-detail-gallery">
+          <div className="listing-detail-gallery-main">
             <button
               type="button"
               onClick={() => openGallery(0)}
-              className="relative block h-full w-full min-h-[240px] md:min-h-0 overflow-hidden group cursor-pointer border-0 bg-transparent p-0 text-left"
+              className="relative block h-full w-full min-h-[280px] md:min-h-0 overflow-hidden group cursor-pointer border-0 bg-transparent p-0 text-left"
               aria-label={`View photos of ${stayName}`}
             >
               <Image
@@ -1288,12 +1342,14 @@ export function PropertyListingDetailPage({
                 fill
                 priority
                 className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                sizes="(max-width: 768px) 100vw, 50vw"
+                sizes="(max-width: 768px) 100vw, 55vw"
                 unoptimized={isDataImageUrl(galleryHero[0].src)}
               />
-              <span className="pointer-events-none absolute top-3 start-3 bg-green-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-full z-10">
-                {t("mostBooked")}
-              </span>
+              {!isDining ? (
+                <span className="pointer-events-none absolute top-3 start-3 bg-green-700 text-white text-[10px] font-bold px-2.5 py-1 rounded-full z-10">
+                  {t("mostBooked")}
+                </span>
+              ) : null}
               {galleryHero[0].tag ? (
                 <span className="pointer-events-none absolute top-3 end-3 z-10 inline-flex items-center gap-1 max-w-[70%] truncate bg-black/65 text-white text-[11px] font-medium px-2.5 py-1 rounded-md">
                   <Tag className="w-3 h-3 shrink-0" />
@@ -1312,13 +1368,13 @@ export function PropertyListingDetailPage({
             ) : null}
           </div>
 
-          <div className="grid grid-cols-2 grid-rows-2 gap-2 min-h-[240px] md:min-h-0 md:h-full bg-white">
+          <div className="listing-detail-gallery-side">
             {galleryHero.slice(1, 5).map((photo, i) => (
               <button
                 key={`${photo.src}-${i}`}
                 type="button"
                 onClick={() => openGallery(i + 1)}
-                className="relative block h-full min-h-[120px] md:min-h-0 overflow-hidden group cursor-pointer border-0 bg-transparent p-0 text-left"
+                className="relative block h-full min-h-[140px] md:min-h-0 overflow-hidden group cursor-pointer border-0 bg-transparent p-0 text-left"
                 aria-label={`View photo ${i + 2} of ${stayName}`}
               >
                 <Image
@@ -1330,7 +1386,7 @@ export function PropertyListingDetailPage({
                   }
                   fill
                   className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                  sizes="25vw"
+                  sizes="(max-width: 768px) 50vw, 25vw"
                   unoptimized={isDataImageUrl(photo.src)}
                 />
                 {photo.tag ? (
@@ -1357,8 +1413,7 @@ export function PropertyListingDetailPage({
       </div>
 
       {/* Breadcrumbs */}
-      <div className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center gap-2 text-xs text-gray-500 flex-wrap">
+      <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-xs text-gray-500">
           <Link href="/" className="hover:text-green-700 transition-colors">
             {t("breadcrumbHome")}
           </Link>
@@ -1388,11 +1443,11 @@ export function PropertyListingDetailPage({
           <span className="text-gray-400">{stayLocation.split(",")[0]}</span>
           <ChevronRight className="w-3 h-3" />
           <span className="text-gray-800 font-medium">{stayName}</span>
-        </div>
       </div>
 
-      {isEvent ? (
+      {isDirectory ? (
         <EventListingDetailContent
+          variant={directoryVariant}
           stay={ratedStay}
           description={aboutText}
           highlights={highlights}
@@ -1404,6 +1459,9 @@ export function PropertyListingDetailPage({
           reviewCount={ratedStay.reviews}
           spaces={eventSpaces}
           venueDetails={venueDetailsProp}
+          diningDetails={diningDetailsProp}
+          advancedFilterIds={advancedFiltersProp ?? []}
+          sameHostListings={sameHostDiningListings}
           mapEmbedUrl={mapEmbedUrl}
           policies={displayPolicies}
           offers={hostOffers}
@@ -1414,10 +1472,10 @@ export function PropertyListingDetailPage({
           onShare={() => void copyShareLink()}
         />
       ) : (
-      <div className="max-w-7xl mx-auto px-4 pt-5 pb-12">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="pt-4 pb-10 sm:pt-5 sm:pb-12">
+        <div className="listing-detail-grid">
           {/* Main column — 8 cols */}
-          <div className="lg:col-span-8 min-w-0">
+          <div className="listing-detail-main">
             {/* Title badges */}
             <div className="flex flex-wrap gap-2 mb-3">
               {showFeatured && (
@@ -2192,19 +2250,16 @@ export function PropertyListingDetailPage({
               </div>
               <div className="relative w-full h-56 rounded-xl overflow-hidden bg-green-50 border border-green-100">
                 {mapEmbedUrl ? (
-                  <iframe
-                    title={`Map — ${stayLocation}`}
+                  <ListingMapEmbed
                     src={mapEmbedUrl}
-                    className="absolute inset-0 w-full h-full border-0"
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                    allowFullScreen
+                    title={`Map preview — ${stayLocation}`}
+                    className="h-full w-full"
                   />
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-green-700">
                     <MapPin className="w-10 h-10 opacity-30" />
                     <span className="text-sm font-medium opacity-60">
-                      Interactive map — {stayLocation}
+                      Map preview — {stayLocation}
                     </span>
                   </div>
                 )}
@@ -2248,8 +2303,8 @@ export function PropertyListingDetailPage({
           </div>
 
           {/* Sidebar — 4 cols */}
-          <div className="lg:col-span-4">
-            <div className="sticky top-20 flex flex-col gap-4">
+          <div className="listing-detail-sidebar">
+            <div className="listing-detail-sidebar-inner">
               {isExperience ? (
                 <ExperienceBookingCard
                   listingId={stay.id}
@@ -3019,7 +3074,12 @@ export function PropertyListingDetailPage({
                 <h3 className="font-semibold text-gray-800 text-sm mb-2 flex items-center gap-2">
                   <Headphones className="w-4 h-4 text-green-600" /> {t("needHelp")}
                 </h3>
-                <p className="text-xs text-gray-500 mb-3">+971 4 123 4567</p>
+                <a
+                  href={supportTelHref}
+                  className="text-xs text-gray-500 mb-3 block hover:text-green-700 hover:underline"
+                >
+                  {supportPhone}
+                </a>
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -3027,12 +3087,12 @@ export function PropertyListingDetailPage({
                   >
                     <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                   </button>
-                  <button
-                    type="button"
+                  <a
+                    href={supportTelHref}
                     className="flex-1 flex items-center justify-center gap-1.5 border border-gray-300 text-gray-600 text-xs font-semibold py-2 rounded-lg transition-colors"
                   >
                     <Phone className="w-3.5 h-3.5" /> Call
-                  </button>
+                  </a>
                 </div>
               </div>
 
@@ -3084,15 +3144,23 @@ export function PropertyListingDetailPage({
       )}
 
       {/* Similar properties — above footer */}
-      <section className="border-t border-gray-200 bg-white mt-2">
-        <div className="max-w-7xl mx-auto px-4 py-10">
+      <section className="mt-8 border-t border-gray-200 py-10">
+        <div>
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="text-xl font-bold text-gray-900 font-display">
-                {isEvent ? "Similar event venues" : t("similarTitle")}
+                {isDining
+                  ? "Similar dining venues"
+                  : isEvent
+                    ? "Similar event venues"
+                    : t("similarTitle")}
               </h2>
               <p className="text-gray-500 text-sm mt-0.5">
-                {isEvent ? "Explore more venues for your next event" : t("similarSubtitle")}
+                {isDining
+                  ? "Explore more restaurants and dining experiences nearby"
+                  : isEvent
+                    ? "Explore more venues for your next event"
+                    : t("similarSubtitle")}
               </p>
             </div>
             <Link href="/listings" className="text-green-700 text-sm font-semibold flex items-center gap-1">
@@ -3138,7 +3206,7 @@ export function PropertyListingDetailPage({
                     href={`/listing/${s.id}`}
                     className="mt-3 block w-full bg-green-700 hover:bg-green-800 text-white text-sm font-semibold py-2 rounded-xl transition-colors text-center"
                   >
-                    {isEvent ? "View venue" : tc("bookNow")}
+                    {isEvent ? "View venue" : isDining ? "View restaurant" : tc("bookNow")}
                   </Link>
                 </div>
               </div>
@@ -3146,7 +3214,7 @@ export function PropertyListingDetailPage({
           </div>
         </div>
       </section>
-      {!isEvent && (
+      {!isEvent && !isDining && (
       <div className="lg:hidden fixed bottom-0 inset-x-0 z-50 border-t border-gray-200 bg-white/95 backdrop-blur-md px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
         <div className="min-w-0">
           <p className="text-base font-bold text-gray-900 tabular-nums leading-tight">
@@ -3159,6 +3227,22 @@ export function PropertyListingDetailPage({
           className="ms-auto shrink-0 inline-flex items-center justify-center bg-green-700 hover:bg-green-800 text-white text-sm font-bold px-5 py-2.5 rounded-xl min-h-[44px]"
         >
           {tc("checkAvailability")}
+        </a>
+      </div>
+      )}
+      {isDining && (
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-50 border-t border-gray-200 bg-white/95 backdrop-blur-md px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
+        <div className="min-w-0">
+          <p className="text-base font-bold text-gray-900 tabular-nums leading-tight">
+            {ratedStay.reviews > 0 ? `${ratedStay.rating.toFixed(1)} ★` : "Reserve"}
+          </p>
+          <p className="text-[11px] text-gray-500">Free reservation request</p>
+        </div>
+        <a
+          href="#booking-calculator"
+          className="ms-auto shrink-0 inline-flex items-center justify-center bg-green-700 hover:bg-green-800 text-white text-sm font-bold px-5 py-2.5 rounded-xl min-h-[44px]"
+        >
+          Reserve
         </a>
       </div>
       )}

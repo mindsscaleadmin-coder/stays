@@ -4,7 +4,7 @@ import { BookingError } from "@/lib/booking/confirm-booking";
 import { createQuotedBooking } from "@/lib/booking/create-quoted-booking";
 import { createQuotedExperienceBooking } from "@/lib/booking/create-quoted-experience-booking";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
-import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { markBookingPaid } from "@/lib/booking/mark-paid";
 import {
   queryBookings,
@@ -24,6 +24,7 @@ import { resolveSessionActor } from "@/lib/auth/resolve-actor";
 import { canAccessAdmin } from "@/lib/auth/roles";
 import { BASE_CURRENCY } from "@/lib/currency";
 import { getListingPricingMap } from "@/lib/server/listing-pricing-repo";
+import { checkBookingRateLimit, tooManyRequestsResponse } from "@/lib/rate-limit";
 
 function supabaseConfigured() {
   return isSupabaseConfigured();
@@ -149,7 +150,13 @@ const experienceBodySchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const requestId = getRequestId(request);
   try {
+    const ipLimited = await checkBookingRateLimit(request);
+    if (!ipLimited.success) {
+      return tooManyRequestsResponse(ipLimited.remaining, requestId);
+    }
+
     const json = await request.json();
 
     let resolvedGuestId: string | null = null;
@@ -179,6 +186,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Sign in required to book" }, { status: 401 });
     }
 
+    const userLimited = await checkBookingRateLimit(request, guestId, "user");
+    if (!userLimited.success) {
+      return tooManyRequestsResponse(userLimited.remaining, requestId);
+    }
+
     const listingRow = await prisma.listing.findUnique({
       where: { id: typeof json.listingId === "string" ? json.listingId : "" },
       select: { parentCategory: true, payload: true },
@@ -194,17 +206,17 @@ export async function POST(request: Request) {
     } catch {
       // ignore
     }
-    const treatAsEvent = isEventListing({
+    const treatAsDirectory = isDirectoryListing({
       parentCategory: listingRow?.parentCategory,
       type: payloadType || json.listing?.type,
       category: payloadCategory,
     });
 
-    if (treatAsEvent) {
+    if (treatAsDirectory) {
       return NextResponse.json(
         {
           error:
-            "Event listings are enquire-only. Guests contact the host directly — this platform does not take bookings or payment.",
+            "Directory listings are enquire-only. Guests contact the host directly — this platform does not take bookings or payment.",
         },
         { status: 400 }
       );

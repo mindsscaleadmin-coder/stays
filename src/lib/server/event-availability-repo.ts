@@ -1,7 +1,4 @@
-import {
-  getEventAvailabilityRequestsFromDb,
-  saveEventAvailabilityRequestsToDb,
-} from "@/lib/server/platform-catalog-repo";
+import { prisma } from "@/lib/prisma";
 import { getHostProfile } from "@/lib/server/host-profile-repo";
 import {
   isContactUnlocked,
@@ -11,15 +8,62 @@ import {
   type EventAvailabilityStatus,
 } from "@/lib/events/event-availability-types";
 
-function byNewest(a: EventAvailabilityRequest, b: EventAvailabilityRequest) {
-  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+type EventAvailabilityRow = {
+  id: string;
+  listingId: string;
+  listingTitle: string;
+  hostId: string;
+  guestId: string;
+  guestName: string;
+  guestEmail: string | null;
+  guestPhone: string | null;
+  spaceId: string | null;
+  spaceName: string | null;
+  occasion: string | null;
+  partyType: string | null;
+  eventDate: string | null;
+  dateFlexible: boolean;
+  guestCount: number;
+  message: string | null;
+  status: string;
+  createdAt: Date;
+  respondedAt: Date | null;
+  hostNote: string | null;
+};
+
+function mapRow(row: EventAvailabilityRow): EventAvailabilityRequest {
+  return {
+    id: row.id,
+    listingId: row.listingId,
+    listingTitle: row.listingTitle,
+    hostId: row.hostId,
+    guestId: row.guestId,
+    guestName: row.guestName,
+    guestEmail: row.guestEmail ?? undefined,
+    guestPhone: row.guestPhone ?? undefined,
+    spaceId: row.spaceId ?? undefined,
+    spaceName: row.spaceName ?? undefined,
+    occasion: row.occasion ?? undefined,
+    partyType: row.partyType ?? undefined,
+    eventDate: row.eventDate ?? undefined,
+    dateFlexible: row.dateFlexible,
+    guestCount: row.guestCount,
+    message: row.message ?? undefined,
+    status: row.status as EventAvailabilityStatus,
+    createdAt: row.createdAt.toISOString(),
+    respondedAt: row.respondedAt?.toISOString(),
+    hostNote: row.hostNote ?? undefined,
+  };
 }
 
 export async function listHostEventRequests(
   hostId: string
 ): Promise<EventAvailabilityRequest[]> {
-  const all = await getEventAvailabilityRequestsFromDb();
-  return all.filter((r) => r.hostId === hostId).sort(byNewest);
+  const rows = await prisma.eventAvailabilityRequest.findMany({
+    where: { hostId },
+    orderBy: { createdAt: "desc" },
+  });
+  return rows.map(mapRow);
 }
 
 /**
@@ -30,11 +74,14 @@ export async function listGuestEventRequests(
   guestId: string,
   listingId?: string
 ): Promise<EventAvailabilityRequestForGuest[]> {
-  const all = await getEventAvailabilityRequestsFromDb();
-  const mine = all
-    .filter((r) => r.guestId === guestId)
-    .filter((r) => !listingId || r.listingId === listingId)
-    .sort(byNewest);
+  const rows = await prisma.eventAvailabilityRequest.findMany({
+    where: {
+      guestId,
+      ...(listingId ? { listingId } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const mine = rows.map(mapRow);
 
   const hostIds = Array.from(
     new Set(mine.filter((r) => isContactUnlocked(r.status)).map((r) => r.hostId))
@@ -72,48 +119,52 @@ export async function createEventAvailabilityRequest(input: {
   guestCount: number;
   message?: string;
 }): Promise<EventAvailabilityRequest> {
-  const all = await getEventAvailabilityRequestsFromDb();
+  const dateFlexible = Boolean(input.dateFlexible);
+  const eventDate = input.eventDate ?? null;
 
-  const duplicate = all.find(
-    (r) =>
-      r.guestId === input.guestId &&
-      r.listingId === input.listingId &&
-      r.eventDate === input.eventDate &&
-      Boolean(r.dateFlexible) === Boolean(input.dateFlexible) &&
-      r.status === "pending"
-  );
-  if (duplicate) return duplicate;
+  return prisma.$transaction(async (tx) => {
+    const duplicate = await tx.eventAvailabilityRequest.findFirst({
+      where: {
+        guestId: input.guestId,
+        listingId: input.listingId,
+        eventDate,
+        dateFlexible,
+        status: "pending",
+      },
+    });
+    if (duplicate) return mapRow(duplicate);
 
-  const request: EventAvailabilityRequest = {
-    id: newEventAvailabilityRequestId(),
-    listingId: input.listingId,
-    listingTitle: input.listingTitle,
-    hostId: input.hostId,
-    guestId: input.guestId,
-    guestName: input.guestName.trim() || "Guest",
-    guestEmail: input.guestEmail?.trim() || undefined,
-    guestPhone: input.guestPhone?.trim() || undefined,
-    spaceId: input.spaceId?.trim() || undefined,
-    spaceName: input.spaceName?.trim() || undefined,
-    occasion: input.occasion?.trim() || undefined,
-    partyType: input.partyType?.trim() || undefined,
-    eventDate: input.eventDate,
-    dateFlexible: Boolean(input.dateFlexible),
-    guestCount: input.guestCount,
-    message: input.message?.trim() || undefined,
-    status: "pending",
-    createdAt: new Date().toISOString(),
-  };
+    const row = await tx.eventAvailabilityRequest.create({
+      data: {
+        id: newEventAvailabilityRequestId(),
+        listingId: input.listingId,
+        listingTitle: input.listingTitle,
+        hostId: input.hostId,
+        guestId: input.guestId,
+        guestName: input.guestName.trim() || "Guest",
+        guestEmail: input.guestEmail?.trim() || null,
+        guestPhone: input.guestPhone?.trim() || null,
+        spaceId: input.spaceId?.trim() || null,
+        spaceName: input.spaceName?.trim() || null,
+        occasion: input.occasion?.trim() || null,
+        partyType: input.partyType?.trim() || null,
+        eventDate,
+        dateFlexible,
+        guestCount: input.guestCount,
+        message: input.message?.trim() || null,
+        status: "pending",
+      },
+    });
 
-  await saveEventAvailabilityRequestsToDb([request, ...all]);
-  return request;
+    return mapRow(row);
+  });
 }
 
 export async function getEventAvailabilityRequest(
   id: string
 ): Promise<EventAvailabilityRequest | null> {
-  const all = await getEventAvailabilityRequestsFromDb();
-  return all.find((r) => r.id === id) ?? null;
+  const row = await prisma.eventAvailabilityRequest.findUnique({ where: { id } });
+  return row ? mapRow(row) : null;
 }
 
 export async function respondToEventAvailabilityRequest(
@@ -121,21 +172,17 @@ export async function respondToEventAvailabilityRequest(
   status: Exclude<EventAvailabilityStatus, "pending">,
   hostNote?: string
 ): Promise<EventAvailabilityRequest | null> {
-  const all = await getEventAvailabilityRequestsFromDb();
-  let updated: EventAvailabilityRequest | null = null;
+  const existing = await prisma.eventAvailabilityRequest.findUnique({ where: { id } });
+  if (!existing) return null;
 
-  const next = all.map((request) => {
-    if (request.id !== id) return request;
-    updated = {
-      ...request,
+  const row = await prisma.eventAvailabilityRequest.update({
+    where: { id },
+    data: {
       status,
-      respondedAt: new Date().toISOString(),
-      hostNote: hostNote?.trim() || undefined,
-    };
-    return updated;
+      respondedAt: new Date(),
+      hostNote: hostNote?.trim() || null,
+    },
   });
 
-  if (!updated) return null;
-  await saveEventAvailabilityRequestsToDb(next);
-  return updated;
+  return mapRow(row);
 }

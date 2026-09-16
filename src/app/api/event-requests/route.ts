@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { isDemoApiMode } from "@/lib/auth/booking-access";
 import { requireSessionUser, AuthError, authErrorResponse } from "@/lib/auth/session";
 import { resolveSessionActor } from "@/lib/auth/resolve-actor";
@@ -12,6 +12,7 @@ import {
   listGuestEventRequests,
   listHostEventRequests,
 } from "@/lib/server/event-availability-repo";
+import { checkEnquiryRateLimit, tooManyRequestsResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +87,11 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const requestId = getRequestId(request);
   try {
+    const ipLimited = await checkEnquiryRateLimit(request);
+    if (!ipLimited.success) {
+      return tooManyRequestsResponse(ipLimited.remaining, requestId);
+    }
+
     const json = await request.json();
     const parsed = createSchema.safeParse(json);
     if (!parsed.success) {
@@ -115,6 +121,11 @@ export async function POST(request: Request) {
       );
     }
 
+    const userLimited = await checkEnquiryRateLimit(request, guestId, "user");
+    if (!userLimited.success) {
+      return tooManyRequestsResponse(userLimited.remaining, requestId);
+    }
+
     const listing = await prisma.listing.findUnique({
       where: { id: body.listingId },
       select: {
@@ -141,14 +152,14 @@ export async function POST(request: Request) {
     }
 
     if (
-      !isEventListing({
+      !isDirectoryListing({
         parentCategory: listing.parentCategory,
         type: payloadType,
         category: payloadCategory,
       })
     ) {
       return NextResponse.json(
-        { error: "Availability requests apply to event listings only" },
+        { error: "Availability requests apply to directory listings only" },
         { status: 400 }
       );
     }

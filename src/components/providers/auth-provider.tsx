@@ -86,7 +86,10 @@ interface AuthContextValue {
   signInWithGoogle: () => Promise<{ error?: string }>;
   sendPhoneOtp: (phone: string) => Promise<{ error?: string }>;
   verifyPhoneOtp: (phone: string, token: string) => Promise<{ error?: string }>;
-  sendPasswordResetEmail: (email: string) => Promise<{ error?: string }>;
+  sendPasswordResetEmail: (
+    email: string,
+    redirectPath?: string
+  ) => Promise<{ error?: string }>;
   updatePassword: (password: string) => Promise<{ error?: string }>;
   updateProfile: (updates: Partial<GuestUser>) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
@@ -596,10 +599,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const sendPasswordResetEmail = useCallback(
-    async (email: string) => {
+    async (email: string, redirectPath = "/reset-password") => {
       if (supabase) {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/admin/reset-password`,
+          redirectTo: `${window.location.origin}${redirectPath}`,
         });
         return { error: error?.message };
       }

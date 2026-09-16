@@ -1,5 +1,6 @@
 import { setRequestLocale } from "next-intl/server";
 import { SiteInfoPage } from "@/components/layout/site-info-page";
+import { SupportContactPhone } from "@/components/layout/support-contact-phone";
 
 export default async function ContactPage({
   params,
@@ -15,7 +16,7 @@ export default async function ContactPage({
         <a className="text-green-700 font-medium hover:underline" href="mailto:hello@greenfieldfarmstays.com">
           hello@greenfieldfarmstays.com
         </a>
-        {" "}or call +971 4 123 4567.
+        {" "}or call <SupportContactPhone className="text-green-700 font-medium hover:underline" />.
       </p>
       <p>For an existing booking, message the host from your trip thread so they see it on that stay.</p>
     </SiteInfoPage>

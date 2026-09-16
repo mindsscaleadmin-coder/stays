@@ -20,7 +20,7 @@ export function AdminForgotPasswordContent() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const result = await sendPasswordResetEmail(email);
+    const result = await sendPasswordResetEmail(email, "/admin/reset-password");
     setLoading(false);
     if (result.error) {
       setError(result.error);

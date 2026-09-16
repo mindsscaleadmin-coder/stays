@@ -182,7 +182,7 @@ function taxonomySnapshotKey(data: TaxonomyData): string {
 
 export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<TaxonomyData>(SEED_TAXONOMY);
-  const [ready, setReady] = useState(!shouldUseSharedTaxonomy());
+  const [ready, setReady] = useState(false);
   const hydratedRef = useRef(false);
   const dataRef = useRef(data);
   const refreshGenRef = useRef(0);

@@ -14,15 +14,35 @@ import { normalizeExperienceSessions } from "@/lib/booking/experience-session-ty
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await context.params;
-  const settings = await getListingPricing(id);
-  if (!settings) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const requestId = getRequestId(request);
+  try {
+    const { id } = await context.params;
+    const listing = await prisma.listing.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (!listing) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    // Draft/pending listings: host-only. Approved listings stay public for checkout quotes.
+    if (listing.status !== "approved") {
+      await requireListingHostOrAdmin(id);
+    }
+    const settings = await getListingPricing(id);
+    if (!settings) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ settings }, { headers: { "x-request-id": requestId } });
+  } catch (error) {
+    if (error instanceof AuthError || error instanceof BookingAccessError) {
+      return hostDataErrorResponse(error, requestId);
+    }
+    console.error("Get pricing error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-  return NextResponse.json({ settings });
 }
 
 export async function PATCH(

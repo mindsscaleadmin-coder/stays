@@ -20,6 +20,8 @@ model User {
   createdAt  DateTime  @default(now())
   listings   Listing[]
   bookingsMade Booking[] @relation("GuestBookings")
+  guestEventRequests EventAvailabilityRequest[] @relation("GuestEventRequests")
+  hostEventRequests  EventAvailabilityRequest[] @relation("HostEventRequests")
   reviews    Review[]
   hostProfile HostProfile?
   hostTrust   HostTrust?
@@ -68,6 +70,7 @@ model Listing {
   updatedAt     DateTime       @updatedAt
   bookings         Booking[]
   bookingNights    BookingNight[]
+  eventAvailabilityRequests EventAvailabilityRequest[]
   experienceSlots  ExperienceSlot[]
   reviews          Review[]
   availability     Availability[]
@@ -214,6 +217,40 @@ model HostProfile {
   host      User     @relation(fields: [hostId], references: [id], onDelete: Cascade)
   payload   String
   updatedAt DateTime @updatedAt
+}
+
+/// Directory listing (events/dining) availability enquiry — one row per request.
+model EventAvailabilityRequest {
+  id           String    @id
+  listingId    String
+  listing      Listing   @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listingTitle String
+  hostId       String
+  host         User      @relation("HostEventRequests", fields: [hostId], references: [id], onDelete: Cascade)
+  guestId      String
+  guest        User      @relation("GuestEventRequests", fields: [guestId], references: [id], onDelete: Cascade)
+  guestName    String
+  guestEmail   String?
+  guestPhone   String?
+  spaceId      String?
+  spaceName    String?
+  occasion     String?
+  partyType    String?
+  /// YYYY-MM-DD when the guest picked a specific date.
+  eventDate    String?
+  dateFlexible Boolean   @default(false)
+  guestCount   Int
+  message      String?
+  /// pending | available | unavailable
+  status       String    @default("pending")
+  createdAt    DateTime  @default(now())
+  respondedAt  DateTime?
+  hostNote     String?
+
+  @@index([hostId, createdAt])
+  @@index([guestId, createdAt])
+  @@index([guestId, listingId])
+  @@index([listingId, status])
 }
 
 model BookingMessage {

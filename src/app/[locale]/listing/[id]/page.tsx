@@ -64,6 +64,7 @@ export default async function ListingPage({
       amenities={[...(listing.amenities ?? []), ...(listing.advancedFilters ?? [])]}
       advancedFilters={listing.advancedFilters ?? []}
       venueDetails={listing.venueDetails}
+      diningDetails={listing.diningDetails}
       extraCharges={pricing?.extraChargesEnabled ? pricing.extraCharges : []}
       extraChargesCurrency={pricing?.currency}
       itinerary={listing.itinerary}

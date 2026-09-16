@@ -25,6 +25,15 @@ export const DEFAULT_PHOTO_TAGS_CATALOG: PhotoTagCatalogItem[] = [
   { id: "pt-farm-view", value: "farm-view", label: "Farm view", enabled: true },
   { id: "pt-parking", value: "parking", label: "Parking", enabled: true },
   { id: "pt-entrance", value: "entrance", label: "Entrance", enabled: true },
+  { id: "pt-food", value: "food", label: "Food", enabled: true },
+  { id: "pt-dining-area", value: "dining-area", label: "Dining area", enabled: true },
+  { id: "pt-tables", value: "tables", label: "Tables", enabled: true },
+  { id: "pt-drinks", value: "drinks", label: "Drinks", enabled: true },
+  { id: "pt-private-dining", value: "private-dining", label: "Private dining", enabled: true },
+  { id: "pt-outdoor", value: "outdoor", label: "Outdoor", enabled: true },
+  { id: "pt-bar", value: "bar", label: "Bar", enabled: true },
+  { id: "pt-kitchen-view", value: "kitchen-view", label: "Kitchen", enabled: true },
+  { id: "pt-night", value: "night", label: "Nighttime atmosphere", enabled: true },
   { id: "pt-other", value: "other", label: "Other", enabled: true },
 ];
 

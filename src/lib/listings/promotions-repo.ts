@@ -6,7 +6,7 @@ import type {
 } from "@/lib/host/host-promotions-types";
 import { getEnabledPromotionPackageFromDb } from "@/lib/server/promotion-catalog-repo";
 import { createPropertyReference } from "@/lib/listings/property-reference";
-import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 
 function toDto(row: {
   id: string;
@@ -211,7 +211,7 @@ export async function purchasePromotionInDb(input: {
     } catch {
       // ignore
     }
-    if (isEventListing({ parentCategory: listing.parentCategory, type, category })) {
+    if (isDirectoryListing({ parentCategory: listing.parentCategory, type, category })) {
       const { isHostEventsSubscriptionActive } = await import("@/lib/server/host-profile-repo");
       const ok = await isHostEventsSubscriptionActive(listing.hostId);
       if (!ok) {

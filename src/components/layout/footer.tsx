@@ -17,6 +17,7 @@ import { useTranslations } from "next-intl";
 import { usePathname } from "@/i18n/routing";
 import { StarRating } from "@/components/ui/star-rating";
 import { isDashboardChromePath } from "@/lib/layout/dashboard-chrome";
+import { SupportContactPhone } from "@/components/layout/support-contact-phone";
 
 export function Footer() {
   const t = useTranslations("footer");
@@ -132,7 +133,8 @@ export function Footer() {
             <h4 className="text-white font-semibold text-sm mb-4">{t("contact")}</h4>
             <div className="flex flex-col gap-3 text-sm">
               <div className="flex items-center gap-2">
-                <Phone className="w-4 h-4 text-green-400" /> +971 4 123 4567
+                <Phone className="w-4 h-4 text-green-400" />
+                <SupportContactPhone className="hover:text-green-400 transition-colors" />
               </div>
               <div className="flex items-start gap-2 min-w-0">
                 <Mail className="w-4 h-4 text-green-400 mt-0.5 shrink-0" />

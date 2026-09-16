@@ -53,10 +53,20 @@ import {
   buildQualityChecklist,
   validateListingQuality,
 } from "@/lib/listings/listing-quality-validation";
-import { getListingMode, toListingQualityMode } from "@/lib/listings/listing-mode";
+import {
+  getListingMode,
+  isVenueDirectoryMode,
+  toListingQualityMode,
+} from "@/lib/listings/listing-mode";
 import {
   defaultExperienceSessions,
+  type ExperienceSessionTemplate,
 } from "@/lib/booking/experience-session-types";
+import {
+  ExperienceSessionsDraftEditor,
+  validateExperienceSessionsDraft,
+} from "@/components/dashboard/experience-sessions-draft-editor";
+import { ListingQualityChecklist } from "@/components/dashboard/listing-quality-checklist";
 import {
   LISTING_TITLE_MAX_CHARS,
   LISTING_TITLE_MAX_WORDS,
@@ -68,7 +78,17 @@ import {
   splitAdvancedIdsByVenueSection,
   useListingAdvancedFilterRows,
 } from "@/components/dashboard/listing-advanced-filters-field";
+import { DiningDetailsFields } from "@/components/dashboard/dining-details-fields";
+import { DiningFormSection } from "@/components/dashboard/dining-form-section";
 import { VenueRulesFields } from "@/components/dashboard/host-venue-listing-sections";
+import {
+  createEmptyDiningDetails,
+  deriveVenueDetailsFromDining,
+  hasDiningIndicativePricing,
+  hydrateDiningDetails,
+  normalizeDiningDetails,
+  type DiningDetails,
+} from "@/lib/listings/dining-details-types";
 import {
   createEmptyVenueDetails,
   hydrateVenueDetails,
@@ -139,7 +159,12 @@ export function HostNewListingContent({
   const [pricingMode, setPricingMode] = useState<ListingPricingMode>("whole_property");
   const [draftRooms, setDraftRooms] = useState<DraftListingRoom[]>([]);
   const [draftVenueSpaces, setDraftVenueSpaces] = useState<DraftVenueSpace[]>([]);
-  const [venueDetails, setVenueDetails] = useState<VenueDetails>(createEmptyVenueDetails());
+  const [venueDetails, setVenueDetails] = useState<VenueDetails>(() =>
+    createEmptyVenueDetails("event")
+  );
+  const [diningDetails, setDiningDetails] = useState<DiningDetails>(() =>
+    createEmptyDiningDetails()
+  );
   const [description, setDescription] = useState("");
   const [mapEmbedInput, setMapEmbedInput] = useState("");
   const [meetingPoint, setMeetingPoint] = useState("");
@@ -149,6 +174,9 @@ export function HostNewListingContent({
   const [itinerary, setItinerary] = useState<ItineraryStep[]>([
     { step: 1, title: "", description: "" },
   ]);
+  const [draftSessions, setDraftSessions] = useState<ExperienceSessionTemplate[]>(
+    () => defaultExperienceSessions()
+  );
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [hydrated, setHydrated] = useState(!listingId);
@@ -182,7 +210,10 @@ export function HostNewListingContent({
   });
   const isExperience = draftMode === "experience";
   const isEvent = draftMode === "event";
-  const showBasePrice = !isExperience && !isEvent;
+  const isDining = draftMode === "dining";
+  const venueDetailsVariant = isDining ? "dining" : "event";
+  const isVenueDirectory = isVenueDirectoryMode(draftMode);
+  const showBasePrice = !isExperience && !isVenueDirectory;
 
   const countryConfig = useMemo(
     () => resolveCountryPricingConfig(taxonomy.countries, draftLabels.country),
@@ -190,9 +221,10 @@ export function HostNewListingContent({
   );
 
   const isMultiRate = pricingMode === "multi_rate_rooms";
-  const isEventMultiRate = isEvent && isMultiRate;
-  const isEventSingleRate = isEvent && !isMultiRate;
-  const isEventVenueForm = isEventMultiRate || isEventSingleRate;
+  const isVenueMultiRate = isVenueDirectory && isMultiRate && !isDining;
+  const isVenueSingleRate = isVenueDirectory && (!isMultiRate || isDining);
+  const isVenueForm = isVenueMultiRate || isVenueSingleRate;
+  const pricingPickerVariant = isDining ? "dining" : isEvent ? "venue" : "stay";
   const venueOptionsFilterRows = useListingAdvancedFilterRows(
     filterValues,
     "venueOptionsRemainder"
@@ -201,9 +233,10 @@ export function HostNewListingContent({
     filterValues,
     "venueSpaceColumn"
   );
+  const diningFilterRows = useListingAdvancedFilterRows(filterValues, "all");
 
-  const eventSubmitFilterValues = useMemo(() => {
-    if (!isEventMultiRate) return filterValues;
+  const venueSubmitFilterValues = useMemo(() => {
+    if (!isVenueMultiRate) return filterValues;
     return {
       ...filterValues,
       advancedIds: Array.from(
@@ -213,20 +246,20 @@ export function HostNewListingContent({
         ])
       ),
     };
-  }, [isEventMultiRate, filterValues, draftVenueSpaces]);
+  }, [isVenueMultiRate, filterValues, draftVenueSpaces]);
 
   function handlePricingModeChange(mode: ListingPricingMode) {
     setPricingMode(mode);
     if (mode === "multi_rate_rooms") {
-      if (isEvent && draftVenueSpaces.length === 0) {
-        setDraftVenueSpaces([createEmptyDraftVenueSpace()]);
-      } else if (!isEvent && draftRooms.length === 0) {
+      if (isVenueDirectory && draftVenueSpaces.length === 0) {
+        setDraftVenueSpaces([createEmptyDraftVenueSpace(venueDetailsVariant)]);
+      } else if (!isVenueDirectory && draftRooms.length === 0) {
         setDraftRooms([createEmptyDraftRoom()]);
       }
     }
-    if (mode === "whole_property" && isEvent) {
+    if (mode === "whole_property" && isVenueDirectory) {
       if (draftVenueSpaces.length === 0) {
-        const space = createEmptyDraftVenueSpace();
+        const space = createEmptyDraftVenueSpace(venueDetailsVariant);
         if (title.trim()) space.name = title.trim();
         setDraftVenueSpaces([space]);
       } else if (draftVenueSpaces.length > 1) {
@@ -247,13 +280,24 @@ export function HostNewListingContent({
   }, [showBasePrice, isMultiRate, draftRooms.length]);
 
   useEffect(() => {
-    if (isEvent && draftVenueSpaces.length === 0) {
-      setDraftVenueSpaces([createEmptyDraftVenueSpace()]);
+    if (isVenueDirectory && draftVenueSpaces.length === 0) {
+      setDraftVenueSpaces([createEmptyDraftVenueSpace(venueDetailsVariant)]);
     }
-  }, [isEvent, draftVenueSpaces.length]);
+  }, [isVenueDirectory, draftVenueSpaces.length, venueDetailsVariant]);
+
+  useEffect(() => {
+    if (!isDining) return;
+    if (pricingMode !== "whole_property") {
+      setPricingMode("whole_property");
+    }
+    if (draftVenueSpaces.length > 1) {
+      const first = draftVenueSpaces[0];
+      setDraftVenueSpaces([{ ...first, name: title.trim() || first.name }]);
+    }
+  }, [isDining, pricingMode, draftVenueSpaces, title]);
 
   const wasExperienceRef = useRef(isExperience);
-  const wasEventRef = useRef(isEvent);
+  const wasVenueDirectoryRef = useRef(isVenueDirectory);
   // Clear experience-only fields only when host switches away from Experiences.
   useEffect(() => {
     if (wasExperienceRef.current && !isExperience) {
@@ -267,13 +311,13 @@ export function HostNewListingContent({
   }, [isExperience]);
 
   useEffect(() => {
-    if (wasEventRef.current && !isEvent) {
+    if (wasVenueDirectoryRef.current && !isVenueDirectory) {
       setDraftVenueSpaces([]);
-      setVenueDetails(createEmptyVenueDetails());
+      setVenueDetails(createEmptyVenueDetails("event"));
       setPricingMode("whole_property");
     }
-    wasEventRef.current = isEvent;
-  }, [isEvent]);
+    wasVenueDirectoryRef.current = isVenueDirectory;
+  }, [isVenueDirectory]);
 
   const multiRateRoomPhotoCount = useMemo(
     () => draftRooms.reduce((count, room) => count + room.photos.length, 0),
@@ -289,10 +333,10 @@ export function HostNewListingContent({
     () =>
       countAmenitySelections(
         taxonomy,
-        eventSubmitFilterValues.advancedIds,
+        venueSubmitFilterValues.advancedIds,
         existing?.amenities ?? []
       ),
-    [taxonomy, eventSubmitFilterValues.advancedIds, existing?.amenities]
+    [taxonomy, venueSubmitFilterValues.advancedIds, existing?.amenities]
   );
 
   const qualityInput = useMemo(
@@ -302,7 +346,7 @@ export function HostNewListingContent({
       photoCount:
         photos.length +
         (isMultiRate ? multiRateRoomPhotoCount : 0) +
-        (isEvent ? venueSpacePhotoCount : 0),
+        (isVenueDirectory ? venueSpacePhotoCount : 0),
       country: draftLabels.country,
       state: draftLabels.state,
       district: draftLabels.district,
@@ -313,7 +357,7 @@ export function HostNewListingContent({
       listingMode: draftMode,
       highlightCount: filterValues.highlightIds.length,
       featureIconCount: filterValues.featureIconIds.length,
-      advancedCount: eventSubmitFilterValues.advancedIds.length,
+      advancedCount: venueSubmitFilterValues.advancedIds.length,
       amenityCount,
       mapEmbedUrl: mapEmbedPreview ?? "",
       customSelections: filterValues.customSelections,
@@ -328,11 +372,11 @@ export function HostNewListingContent({
       photos.length,
       isMultiRate,
       multiRateRoomPhotoCount,
-      isEvent,
+      isVenueDirectory,
       venueSpacePhotoCount,
       draftLabels,
       filterValues,
-      eventSubmitFilterValues,
+      venueSubmitFilterValues,
       amenityCount,
       mapEmbedPreview,
       draftMode,
@@ -443,14 +487,20 @@ export function HostNewListingContent({
       category: existing.category,
     });
 
-    if (existingMode === "event") {
-      const hydratedVenueDetails = hydrateVenueDetails(existing.venueDetails);
+    if (existingMode === "event" || existingMode === "dining") {
+      const hydratedVenueDetails = hydrateVenueDetails(
+        existing.venueDetails,
+        existingMode === "dining" ? "dining" : "event"
+      );
       setVenueDetails(hydratedVenueDetails);
+      if (existingMode === "dining") {
+        setDiningDetails(hydrateDiningDetails(existing.diningDetails));
+      }
       const eventRooms = existing.rooms ?? [];
       const eventHasMultiRate =
         eventRooms.length > 1 || eventRooms.some((room) => room.price > 0);
 
-      if (eventHasMultiRate && eventRooms.length > 0) {
+      if (eventHasMultiRate && eventRooms.length > 0 && existingMode !== "dining") {
         setPricingMode("multi_rate_rooms");
         const { venueDetails, venueOptions } = splitAdvancedIdsByVenueSection(
           taxonomy,
@@ -468,7 +518,8 @@ export function HostNewListingContent({
             room.advancedFilterIds ??
             (index === 0 && venueDetails.length > 0 ? venueDetails : []),
           venueDetails: hydrateVenueDetails(
-            room.venueDetails ?? (index === 0 ? existing.venueDetails : undefined)
+            room.venueDetails ?? (index === 0 ? existing.venueDetails : undefined),
+            "event"
           ),
         }));
         setDraftVenueSpaces(hydratedVenues);
@@ -612,7 +663,7 @@ export function HostNewListingContent({
 
     const labels = resolveListingLabels(
       taxonomy,
-      isEvent ? eventSubmitFilterValues : filterValues
+      isVenueDirectory ? venueSubmitFilterValues : filterValues
     );
     const mapEmbedUrl = parseMapEmbedUrl(mapEmbedInput);
     if (mapEmbedInput.trim() && !mapEmbedUrl) {
@@ -634,7 +685,7 @@ export function HostNewListingContent({
         photoCount:
           photos.length +
           (isMultiRate ? multiRateRoomPhotoCount : 0) +
-          (isEvent ? venueSpacePhotoCount : 0),
+          (isVenueDirectory ? venueSpacePhotoCount : 0),
         country: labels.country,
         state: labels.state,
         district: labels.district,
@@ -645,7 +696,7 @@ export function HostNewListingContent({
         listingMode,
         highlightCount: filterValues.highlightIds.length,
         featureIconCount: filterValues.featureIconIds.length,
-        advancedCount: eventSubmitFilterValues.advancedIds.length,
+        advancedCount: venueSubmitFilterValues.advancedIds.length,
         amenityCount,
         mapEmbedUrl: mapEmbedUrl ?? "",
         customSelections: filterValues.customSelections,
@@ -665,36 +716,55 @@ export function HostNewListingContent({
       return;
     }
 
-    if (isEventVenueForm) {
+    if (isExperience && !listingId) {
+      const sessionError = validateExperienceSessionsDraft(draftSessions);
+      if (sessionError) {
+        setError(sessionError);
+        return;
+      }
+    }
+
+    if (isVenueForm) {
       if (draftVenueSpaces.length === 0) {
         setError(
-          isEventSingleRate
-            ? "Add venue details with a starting rate and at least one photo."
-            : "Add at least one venue space with a name, rate, and photo."
+          isVenueSingleRate
+            ? isDining
+              ? "Add restaurant details with at least one photo and dining information below."
+              : "Add venue details with a starting rate and at least one photo."
+            : `Add at least one ${isDining ? "dining space" : "venue space"} with a name, rate, and photo.`
         );
         return;
       }
       for (let i = 0; i < draftVenueSpaces.length; i++) {
         const space = draftVenueSpaces[i];
-        const label = isEventSingleRate ? "Venue" : `Space ${i + 1}`;
-        if (isEventSingleRate && i === 0 && !title.trim()) {
-          setError("Venue: enter a title.");
+        const label = isVenueSingleRate ? (isDining ? "Venue" : "Venue") : `Space ${i + 1}`;
+        if (isVenueSingleRate && i === 0 && !title.trim()) {
+          setError(`${isDining ? "Venue" : "Venue"}: enter a title.`);
           return;
         }
-        if (!isEventSingleRate && !space.name.trim()) {
+        if (!isVenueSingleRate && !space.name.trim()) {
           setError(`${label}: enter a name.`);
           return;
         }
-        if (!Number(space.price) || Number(space.price) <= 0) {
-          setError(`${label}: enter a ${isEventSingleRate ? "starting" : "indicative"} rate.`);
+        if (isDining) {
+          if (!hasDiningIndicativePricing(normalizeDiningDetails(diningDetails))) {
+            setError(
+              `${label}: add indicative pricing in Dining details (price level or average spend).`
+            );
+            return;
+          }
+        } else if (!Number(space.price) || Number(space.price) <= 0) {
+          setError(`${label}: enter a ${isVenueSingleRate ? "starting" : "indicative"} rate.`);
           return;
         }
-        if (space.photos.length === 0) {
+        const spacePhotos = isVenueSingleRate ? photos : space.photos;
+        const spacePhotoLimit = isVenueSingleRate ? MAX_PHOTOS : MAX_ROOM_PHOTOS;
+        if (spacePhotos.length === 0) {
           setError(`${label}: upload at least one photo.`);
           return;
         }
-        if (space.photos.length > MAX_ROOM_PHOTOS) {
-          setError(`${label}: up to ${MAX_ROOM_PHOTOS} photos.`);
+        if (spacePhotos.length > spacePhotoLimit) {
+          setError(`${label}: up to ${spacePhotoLimit} photos.`);
           return;
         }
       }
@@ -742,8 +812,8 @@ export function HostNewListingContent({
       }
 
       let listingRooms: ListingRoom[] | undefined;
-      if (isEventVenueForm && draftVenueSpaces.length > 0) {
-        if (isEventMultiRate) listingRooms = [];
+      if (isVenueForm && draftVenueSpaces.length > 0) {
+        if (isVenueMultiRate) listingRooms = [];
         for (let i = 0; i < draftVenueSpaces.length; i++) {
           const draft = draftVenueSpaces[i];
           const processedSpacePhotos: { url: string; tag: string }[] = [];
@@ -759,12 +829,13 @@ export function HostNewListingContent({
               tag: photo.tag || draft.name.trim(),
             });
           }
-          const spaceVenueDetails = draft.venueDetails ?? createEmptyVenueDetails();
+          const spaceVenueDetails =
+            draft.venueDetails ?? createEmptyVenueDetails(venueDetailsVariant);
           const capacity = Math.max(
             1,
             spaceVenueDetails.maxGuests ?? draft.capacity ?? 50
           );
-          if (isEventMultiRate) {
+          if (isVenueMultiRate) {
             listingRooms!.push({
               id: draft.key.startsWith("R-") || draft.key.startsWith("V-")
                 ? draft.key
@@ -831,7 +902,7 @@ export function HostNewListingContent({
       }
 
       const parsedBasePrice = Math.max(0, Number(basePrice) || 0);
-      const eventStartingPrice = isEventSingleRate
+      const venueStartingPrice = isVenueSingleRate
         ? Math.max(0, Number(draftVenueSpaces[0]?.price) || 0)
         : parsedBasePrice;
 
@@ -849,8 +920,8 @@ export function HostNewListingContent({
         highlightIds: filterValues.highlightIds,
         featureIconIds: filterValues.featureIconIds.slice(0, 4),
         mapEmbedUrl: mapEmbedUrl || "",
-        ...(isEvent
-          ? { rooms: isEventMultiRate ? listingRooms ?? [] : [] }
+        ...(isVenueDirectory
+          ? { rooms: isVenueMultiRate ? listingRooms ?? [] : [] }
           : listingRooms?.length
             ? { rooms: listingRooms }
             : {}),
@@ -869,23 +940,32 @@ export function HostNewListingContent({
                 })),
             }
           : {}),
-        ...(isEvent
+        ...(isVenueDirectory
           ? {
               venueDetails: normalizeVenueDetails(
-                isEventMultiRate
+                isVenueMultiRate
                   ? {
                       additionalRules: venueDetails.additionalRules,
                       videoTourUrl: venueDetails.videoTourUrl,
                     }
-                  : {
-                      ...venueDetails,
-                      ...(isEventSingleRate && eventStartingPrice > 0
-                        ? { startingPrice: eventStartingPrice }
-                        : {}),
-                    }
+                  : isDining
+                    ? deriveVenueDetailsFromDining(
+                        normalizeDiningDetails(diningDetails) ?? diningDetails,
+                        {
+                          ...venueDetails,
+                          videoTourUrl: venueDetails.videoTourUrl,
+                        }
+                      )
+                    : {
+                        ...venueDetails,
+                        ...(isVenueSingleRate && venueStartingPrice > 0
+                          ? { startingPrice: venueStartingPrice }
+                          : {}),
+                      }
               ),
             }
           : {}),
+        ...(isDining ? { diningDetails: normalizeDiningDetails(diningDetails) } : {}),
       };
 
       let savedId = listingId ?? "";
@@ -925,12 +1005,12 @@ export function HostNewListingContent({
           listingId: savedId,
           country: submitCountryConfig,
           similarListingIds,
-          seedSessions: isExperience ? defaultExperienceSessions() : undefined,
+          seedSessions: isExperience ? draftSessions : undefined,
           initialBasePrice:
             showBasePrice && !isMultiRate && parsedBasePrice > 0
               ? parsedBasePrice
-              : isEventSingleRate && eventStartingPrice > 0
-                ? eventStartingPrice
+              : isVenueSingleRate && venueStartingPrice > 0
+                ? venueStartingPrice
                 : undefined,
         });
       } else if (showBasePrice && !isMultiRate) {
@@ -939,11 +1019,11 @@ export function HostNewListingContent({
           ...current,
           basePrice: parsedBasePrice,
         });
-      } else if (isEventSingleRate && eventStartingPrice > 0) {
+      } else if (isVenueSingleRate && venueStartingPrice > 0) {
         const current = loadPricingSettings(savedId, submitCountryConfig);
         savePricingSettings({
           ...current,
-          basePrice: eventStartingPrice,
+          basePrice: venueStartingPrice,
         });
       }
 
@@ -1227,34 +1307,62 @@ export function HostNewListingContent({
             {isEdit
               ? isExperience
                 ? "Edit experience"
-                : "Edit listing"
+                : isDining
+                  ? "Edit dining venue"
+                  : isEvent
+                    ? "Edit event venue"
+                    : "Edit listing"
               : isExperience
                 ? "New experience"
-                : "New listing"}
+                : isDining
+                  ? "New dining venue"
+                  : isEvent
+                    ? "New event venue"
+                    : "New listing"}
           </h2>
           <p className="text-gray-500 text-sm mt-1">
             {isEdit
               ? wasLive
                 ? isExperience
                   ? "Update details and session pricing on this page. Live listings stay pending until admin re-approves."
-                  : "Update details and pricing on this page. Live listings stay pending until admin re-approves."
+                  : isVenueDirectory
+                    ? "Update venue details on this page. Live listings stay pending until admin re-approves."
+                    : "Update details and pricing on this page. Live listings stay pending until admin re-approves."
                 : isExperience
                   ? "Update experience details and session pricing below."
-                  : "Update listing details and pricing below."
+                  : isVenueDirectory
+                    ? "Update venue details, spaces, and indicative rates below."
+                    : "Update listing details and pricing below."
               : isExperience
                 ? "Add experience details, then set session pricing on the same page."
-                : "Add listing details, then set pricing on the same page."}
+                : isVenueDirectory
+                  ? "Add venue details, then choose one venue or multiple dining spaces with indicative rates."
+                  : "Add listing details, then set pricing on the same page."}
           </p>
-          {filterValues.parentId ? null : (
+          {!filterValues.parentId && !initialParentName ? (
             <p className="text-xs text-amber-700 mt-2">
-              Choose a category below — the form adapts for Experiences vs Stays.
+              Choose a category below — the form adapts for Stays, Experiences, Events, and Dining.
             </p>
-          )}
+          ) : null}
         </div>
+        {isExperience && (
+          <div className="bg-green-50 border border-green-200 text-green-950 text-sm rounded-xl px-4 py-3">
+            Experiences are booked by session on this platform. Add activity details and session
+            times/rates below — guests pay at checkout after picking a date and session.
+          </div>
+        )}
         {isEvent && (
           <div className="bg-amber-50 border border-amber-200 text-amber-950 text-sm rounded-xl px-4 py-3">
             Events listings appear in the Events section after a yearly subscription. Guests
             contact you directly — we do not take a booking fee.
+          </div>
+        )}
+        {isDining && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-950 text-sm rounded-xl px-4 py-3">
+            Dining is a subscription listing — guests are not charged for meals or bookings on our
+            platform. They must check availability and send a reservation request through us first.
+            After you confirm, contact details are shared with the guest. Add indicative pricing,
+            menus, hours, and policies below.
           </div>
         )}
 
@@ -1282,18 +1390,18 @@ export function HostNewListingContent({
               <>
                 {categoryLocation}
 
-                {(showBasePrice || isEvent) && (
+                {(showBasePrice || (isVenueDirectory && !isDining)) && (
                   <div className="space-y-3">
                     <p className="text-sm font-medium text-gray-700">How do you charge?</p>
                     <ListingPricingModePicker
                       mode={pricingMode}
                       onModeChange={handlePricingModeChange}
-                      variant={isEvent ? "venue" : "stay"}
+                      variant={pricingPickerVariant}
                     />
                   </div>
                 )}
 
-                {!isEventSingleRate ? (
+                {!isVenueSingleRate ? (
                   <>
                     <div>
                       <div
@@ -1322,9 +1430,11 @@ export function HostNewListingContent({
                             placeholder={
                               isExperience
                                 ? "Sunrise desert safari"
-                                : isEvent
-                                  ? "Grand Palace Banquet Hall"
-                                  : "Green Valley Farmhouse"
+                                : isDining
+                                  ? "Sunset Farm Table & Kitchen"
+                                  : isEvent
+                                    ? "Grand Palace Banquet Hall"
+                                    : "Green Valley Farmhouse"
                             }
                           />
                         </div>
@@ -1361,14 +1471,14 @@ export function HostNewListingContent({
                       </div>
                       <p className="text-xs text-gray-400 mt-1">
                         {isMultiRate
-                          ? isEvent
-                            ? "Overall venue name shown on the listing page."
+                          ? isVenueDirectory
+                            ? isDining
+                              ? "Overall dining venue name shown on the listing page."
+                              : "Overall venue name shown on the listing page."
                             : "Overall property name shown on the listing page."
                           : isExperience
                             ? "Clear titles help guests find your experience."
-                            : isEvent
-                              ? "Short titles stay on one line on the listing page."
-                              : "Short titles stay on one line on the listing page."}
+                            : "Short titles stay on one line on the listing page."}
                       </p>
                     </div>
 
@@ -1388,16 +1498,19 @@ export function HostNewListingContent({
                         placeholder={
                           isExperience
                             ? "Describe what guests will do, see, and take away…"
-                            : "Describe your property..."
+                            : isDining
+                              ? "Describe your dining experience, menu style, and setting…"
+                              : "Describe your property..."
                         }
                       />
                     </div>
 
                     <div>
-                      {isEvent && !isEventSingleRate ? (
+                      {isVenueDirectory && !isVenueSingleRate ? (
                         <p className="text-xs text-gray-500 mb-1.5">
-                          Venue overview photos (exterior, entrance, common areas). Space photos go
-                          in the venue card below.
+                          {isDining
+                            ? "Venue overview photos (exterior, dining room, terrace). Space photos go in each space card below."
+                            : "Venue overview photos (exterior, entrance, common areas). Space photos go in the venue card below."}
                         </p>
                       ) : null}
                       {photosSection}
@@ -1416,7 +1529,17 @@ export function HostNewListingContent({
 
                 {experienceSection}
 
-                <div className="space-y-5 pt-1 border-t border-gray-100">{extras}</div>
+                {isExperience && !listingId ? (
+                  <ExperienceSessionsDraftEditor
+                    sessions={draftSessions}
+                    onChange={setDraftSessions}
+                    currency={countryConfig.currency}
+                  />
+                ) : null}
+
+                {!isDining ? (
+                  <div className="space-y-5 pt-1 border-t border-gray-100">{extras}</div>
+                ) : null}
               </>
             )}
           />
@@ -1425,7 +1548,7 @@ export function HostNewListingContent({
             <ListingAdvancedFiltersField values={filterValues} onChange={setFilterValues} />
           ) : null}
 
-          {isEventVenueForm ? (
+          {isVenueForm ? (
             <ListingDraftVenueSpacesEditor
               spaces={draftVenueSpaces}
               onSpacesChange={setDraftVenueSpaces}
@@ -1433,61 +1556,99 @@ export function HostNewListingContent({
               onVenueDetailsChange={setVenueDetails}
               currency={countryConfig.currency}
               currencySymbol={countryConfig.currencySymbol}
-              singleVenueMode={isEventSingleRate}
-              title={isEventSingleRate ? title : undefined}
-              onTitleChange={isEventSingleRate ? setTitle : undefined}
-              description={isEventSingleRate ? description : undefined}
-              onDescriptionChange={isEventSingleRate ? setDescription : undefined}
-              overviewPhotos={isEventSingleRate ? photosSection : undefined}
-              filterValues={isEventMultiRate ? filterValues : undefined}
-              onFilterValuesChange={isEventMultiRate ? setFilterValues : undefined}
+              variant={venueDetailsVariant}
+              singleVenueMode={isVenueSingleRate}
+              title={isVenueSingleRate ? title : undefined}
+              onTitleChange={isVenueSingleRate ? setTitle : undefined}
+              description={isVenueSingleRate ? description : undefined}
+              onDescriptionChange={isVenueSingleRate ? setDescription : undefined}
+              overviewPhotos={isVenueSingleRate ? photosSection : undefined}
+              filterValues={isVenueMultiRate ? filterValues : undefined}
+              onFilterValuesChange={isVenueMultiRate ? setFilterValues : undefined}
             />
           ) : null}
 
-          {isEvent && filterValues.categoryId ? (
-            <div className="space-y-4">
-              {isEventSingleRate && venueDetailFilterRows.length > 0 ? (
-                <div className="space-y-2">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">Venue details</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Suitable events, amenities, and facilities for this venue.
-                    </p>
+          {isVenueDirectory && filterValues.categoryId ? (
+            isDining && isVenueSingleRate && diningFilterRows.length > 0 ? (
+              <DiningFormSection
+                number={2}
+                title="Search filters"
+                tier="required"
+                description="Cuisine, setting, meal service, amenities, parking, and rules — each asked once here and used for search and your guest listing page."
+              >
+                <ListingAdvancedFiltersField
+                  values={filterValues}
+                  onChange={setFilterValues}
+                  placement="all"
+                  embedded
+                />
+              </DiningFormSection>
+            ) : !isDining ? (
+              <div className="space-y-8 border-t border-gray-100 pt-8">
+                {isVenueSingleRate && venueDetailFilterRows.length > 0 ? (
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Venue details</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Suitable events, amenities, and facilities for this venue.
+                      </p>
+                    </div>
+                    <ListingAdvancedFiltersField
+                      values={filterValues}
+                      onChange={setFilterValues}
+                      placement="venueSpaceColumn"
+                    />
                   </div>
-                  <ListingAdvancedFiltersField
-                    values={filterValues}
-                    onChange={setFilterValues}
-                    placement="venueSpaceColumn"
-                  />
-                </div>
-              ) : null}
-              {venueOptionsFilterRows.length > 0 ? (
-                <div className="space-y-2">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">Venue options</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Parking, catering, and rules — configured in Admin → Filter.
-                    </p>
+                ) : null}
+                {venueOptionsFilterRows.length > 0 ? (
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Venue options</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Parking, catering, and rules — configured in Admin → Filter.
+                      </p>
+                    </div>
+                    <ListingAdvancedFiltersField
+                      values={filterValues}
+                      onChange={setFilterValues}
+                      placement="venueOptionsRemainder"
+                    />
                   </div>
-                  <ListingAdvancedFiltersField
-                    values={filterValues}
-                    onChange={setFilterValues}
-                    placement="venueOptionsRemainder"
-                  />
-                </div>
-              ) : null}
-            </div>
+                ) : null}
+              </div>
+            ) : null
           ) : null}
 
-          {isEventVenueForm ? (
-            <VenueRulesFields value={venueDetails} onChange={setVenueDetails} />
+          {isDining ? (
+            <DiningDetailsFields
+              value={diningDetails}
+              onChange={setDiningDetails}
+              currency={countryConfig.currency}
+              currencySymbol={countryConfig.currencySymbol}
+            />
+          ) : null}
+
+          {isVenueForm ? (
+            <VenueRulesFields
+              value={venueDetails}
+              onChange={setVenueDetails}
+              variant={venueDetailsVariant}
+            />
           ) : null}
 
           <div className="space-y-3 border border-gray-100 rounded-xl p-4 bg-gray-50/60">
             <div className="flex items-start gap-2">
               <MapPin className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-gray-900">Embed map</p>
+                <p className="text-sm font-semibold text-gray-900">
+                  {isDining ? "Map location" : "Embed map"}
+                </p>
+                {isDining ? (
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Required for dining listings. Shown to guests as a location preview only — not
+                    interactive. Paste your Google Maps embed code.
+                  </p>
+                ) : null}
               </div>
             </div>
             <textarea
@@ -1516,6 +1677,10 @@ export function HostNewListingContent({
               </div>
             ) : null}
           </div>
+
+          {qualityChecklist.length > 0 ? (
+            <ListingQualityChecklist items={qualityChecklist} />
+          ) : null}
 
           {error && (
             <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
@@ -1549,12 +1714,12 @@ export function HostNewListingContent({
                 ? "Saves experience details. Session pricing is below — use Save & submit when ready for review."
                 : "Saves listing details. Pricing is below — use Save & submit when ready for review."
               : isExperience
-                ? "Saves this experience and reveals session pricing below. Currency and tax come from the selected country."
+                ? "Saves the experience with your session rates. You can refine pricing below after save."
                 : "Saves this listing and reveals pricing below. Currency and tax come from the selected country."}
           </p>
         </form>
 
-        {listingId && !isEvent && (
+        {listingId && !isVenueDirectory && (
           <HostListingPricingSection
             listingId={listingId}
             embedded

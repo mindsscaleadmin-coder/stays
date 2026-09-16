@@ -42,6 +42,7 @@ import { hostDataErrorResponse, requireListingHostOrAdmin } from "@/lib/auth/lis
 import { actingHostId, requireActor, requireAdmin, requireHost } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
 import { parseListingPagination } from "@/lib/listings/listings-pagination";
+import { checkSearchRateLimit, tooManyRequestsResponse } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +79,7 @@ function parseListingSearchParams(request: Request): ListingSearchFilters {
 }
 
 export async function GET(request: Request) {
+  const requestId = getRequestId(request);
   try {
     await ensureSeeded();
     const filters = parseListingSearchParams(request);
@@ -88,6 +90,13 @@ export async function GET(request: Request) {
       perPage: url.searchParams.get("perPage") ?? url.searchParams.get("limit"),
     });
     const adminLoadAll = !publicCatalog && url.searchParams.get("all") === "1";
+
+    if ((publicCatalog || listingSearchHasFilters(filters)) && !adminLoadAll) {
+      const limited = await checkSearchRateLimit(request);
+      if (!limited.success) {
+        return tooManyRequestsResponse(limited.remaining, requestId);
+      }
+    }
 
     if (!publicCatalog && !isDemoApiMode()) {
       const actor = await requireActor();

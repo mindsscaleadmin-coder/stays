@@ -17,7 +17,7 @@ import type {
   HostTransaction,
 } from "@/lib/host/host-accounts-types";
 import type { FinancialHostOption } from "@/lib/admin/financial-data";
-import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { BASE_CURRENCY } from "@/lib/currency";
 
 type StoredAccounts = {
@@ -106,7 +106,7 @@ function commissionPct(
   hostId: string,
   listing?: { parentCategory?: string; type?: string; category?: string }
 ): number {
-  if (listing && isEventListing(listing)) return 0;
+  if (listing && isDirectoryListing(listing)) return 0;
   const override = settings.commission.hostOverrides.find((o) => o.hostId === hostId);
   return clampCommissionPct(override?.feePct ?? settings.commission.globalFeePct);
 }

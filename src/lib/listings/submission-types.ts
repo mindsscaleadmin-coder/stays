@@ -1,3 +1,4 @@
+import type { DiningDetails } from "./dining-details-types";
 import type { VenueDetails } from "./venue-details-types";
 
 export type ListingReviewStatus = "pending" | "approved" | "rejected" | "unpublished";
@@ -126,6 +127,8 @@ export interface SubmittedListing {
   groupSizeMin?: number;
   /** Event venue — capacity, pricing, rules, and media (optional) */
   venueDetails?: VenueDetails;
+  /** Dining listings — hours, menu, price level, and policies */
+  diningDetails?: DiningDetails;
 }
 
 export interface SubmitListingInput {
@@ -162,6 +165,7 @@ export interface SubmitListingInput {
   licenseNumber?: string;
   groupSizeMin?: number;
   venueDetails?: VenueDetails;
+  diningDetails?: DiningDetails;
 }
 
 /** Fields a host can change when editing an existing listing. */

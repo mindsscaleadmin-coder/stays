@@ -85,4 +85,53 @@ describe("normalizeTaxonomy", () => {
     expect(normalized.mainTabs.some((tab) => tab.id === "tab-junior")).toBe(false);
     expect(normalized.customItems["tab-junior"]).toBeUndefined();
   });
+
+  it("canonicalizes auto-generated Dining parent ids to p-dining", () => {
+    const legacyDiningId = "p-1787333933933-6itay";
+    const drifted = {
+      ...SEED_TAXONOMY,
+      parents: [
+        ...SEED_TAXONOMY.parents.filter((p) => p.name !== "Dining"),
+        { id: legacyDiningId, name: "Dining" },
+      ],
+      categories: SEED_TAXONOMY.categories.map((cat) =>
+        cat.parentId === "p-dining" ? { ...cat, parentId: legacyDiningId } : cat
+      ),
+      extraFilters: SEED_TAXONOMY.extraFilters,
+    };
+
+    const normalized = normalizeTaxonomy(drifted);
+
+    expect(normalized.parents.some((p) => p.id === "p-dining" && p.name === "Dining")).toBe(
+      true
+    );
+    expect(normalized.parents.some((p) => p.id === legacyDiningId)).toBe(false);
+    expect(
+      normalized.categories.filter((c) => c.parentId === "p-dining").length
+    ).toBeGreaterThan(0);
+    expect(
+      normalized.extraFilters
+        .filter((ef) => ef.type.startsWith("dining"))
+        .every((ef) => ef.parentId === "p-dining")
+    ).toBe(true);
+  });
+
+  it("merges dining taxonomy into stored admin data", () => {
+    const withoutDining = {
+      ...SEED_TAXONOMY,
+      parents: SEED_TAXONOMY.parents.filter((p) => p.name !== "Dining"),
+      categories: SEED_TAXONOMY.categories.filter((c) => c.parentId !== "p-dining"),
+      subcategories: SEED_TAXONOMY.subcategories.filter((sc) => sc.parentId !== "p-dining"),
+      extraFilters: SEED_TAXONOMY.extraFilters.filter((ef) => ef.parentId !== "p-dining"),
+      extraTabs: SEED_TAXONOMY.extraTabs.filter((tab) => !tab.id.startsWith("dining")),
+    };
+
+    const normalized = normalizeTaxonomy(withoutDining);
+
+    expect(normalized.parents.some((p) => p.name === "Dining")).toBe(true);
+    expect(normalized.categories.filter((c) => c.parentId === "p-dining")).toHaveLength(6);
+    expect(normalized.subcategories.filter((sc) => sc.parentId === "p-dining")).toHaveLength(41);
+    expect(normalized.extraFilters.some((ef) => ef.type === "diningCuisine")).toBe(true);
+    expect(normalized.extraTabs.some((tab) => tab.id === "diningCuisine")).toBe(true);
+  });
 });

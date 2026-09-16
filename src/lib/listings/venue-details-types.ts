@@ -1,4 +1,13 @@
-export type VenuePriceUnit = "hour" | "half_day" | "full_day" | "event";
+export type VenuePriceUnit =
+  | "hour"
+  | "half_day"
+  | "full_day"
+  | "event"
+  | "per_person"
+  | "per_table"
+  | "minimum_spend";
+
+export type VenueDetailsVariant = "event" | "dining";
 
 export interface VenueDetails {
   maxGuests?: number;
@@ -26,7 +35,27 @@ export const VENUE_PRICE_UNIT_OPTIONS: { value: VenuePriceUnit; label: string }[
   { value: "event", label: "Per event" },
 ];
 
-export function createEmptyVenueDetails(): VenueDetails {
+export const DINING_PRICE_UNIT_OPTIONS: { value: VenuePriceUnit; label: string }[] = [
+  { value: "per_person", label: "Per person" },
+  { value: "per_table", label: "Per table" },
+  { value: "minimum_spend", label: "Minimum spend" },
+  { value: "full_day", label: "Private hire (full day)" },
+  { value: "half_day", label: "Private hire (half day)" },
+];
+
+export function venuePriceUnitOptions(
+  variant: VenueDetailsVariant = "event"
+): { value: VenuePriceUnit; label: string }[] {
+  return variant === "dining" ? DINING_PRICE_UNIT_OPTIONS : VENUE_PRICE_UNIT_OPTIONS;
+}
+
+export function defaultVenuePriceUnit(variant: VenueDetailsVariant = "event"): VenuePriceUnit {
+  return variant === "dining" ? "per_person" : "event";
+}
+
+export function createEmptyVenueDetails(
+  variant: VenueDetailsVariant = "event"
+): VenueDetails {
   return {
     maxGuests: undefined,
     seatedCapacity: undefined,
@@ -39,7 +68,7 @@ export function createEmptyVenueDetails(): VenueDetails {
     ceilingHeightFt: undefined,
     parkingCapacity: "",
     startingPrice: undefined,
-    priceUnit: "event",
+    priceUnit: defaultVenuePriceUnit(variant),
     minimumBookingDuration: "",
     securityDeposit: undefined,
     additionalRules: "",
@@ -95,9 +124,18 @@ export function normalizeVenueDetails(input: VenueDetails): VenueDetails | undef
   return Object.keys(next).length > 0 ? next : undefined;
 }
 
-export function hydrateVenueDetails(source?: VenueDetails | null): VenueDetails {
-  const empty = createEmptyVenueDetails();
+export function hydrateVenueDetails(
+  source?: VenueDetails | null,
+  variant: VenueDetailsVariant = "event"
+): VenueDetails {
+  const empty = createEmptyVenueDetails(variant);
   if (!source) return empty;
+  const rawUnit =
+    source.priceUnit ??
+    (source as VenueDetails & { priceUnits?: VenuePriceUnit[] }).priceUnits?.[0];
+  const allowed = venuePriceUnitOptions(variant).map((option) => option.value);
+  const priceUnit =
+    rawUnit && allowed.includes(rawUnit) ? rawUnit : defaultVenuePriceUnit(variant);
   return {
     ...empty,
     ...source,
@@ -105,9 +143,6 @@ export function hydrateVenueDetails(source?: VenueDetails | null): VenueDetails 
     minimumBookingDuration: source.minimumBookingDuration ?? "",
     additionalRules: source.additionalRules ?? "",
     videoTourUrl: source.videoTourUrl ?? "",
-    priceUnit:
-      source.priceUnit ??
-      (source as VenueDetails & { priceUnits?: VenuePriceUnit[] }).priceUnits?.[0] ??
-      "event",
+    priceUnit,
   };
 }

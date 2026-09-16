@@ -4,25 +4,24 @@ import type {
 } from "@/lib/admin/financial-types";
 
 /**
- * Events directory pricing.
+ * Events and dining directory pricing.
  *
- * Launch phase is free: approved venues go public without paying, so the
- * directory fills up before anyone is charged. Once `freeDuringLaunch` is
- * turned off, hosts pay by how many venues they list — a single venue costs a
- * fraction of the unlimited tier.
+ * Launch phase is free: approved directory listings go public without paying.
+ * Once `freeDuringLaunch` is turned off, hosts pay yearly by how many
+ * event or dining listings they publish.
  */
 export const DEFAULT_EVENTS_SUBSCRIPTION_PLANS: EventsSubscriptionPlan[] = [
   {
     id: "single",
-    name: "Single property",
-    maxListings: 10,
+    name: "Single venue",
+    maxListings: 1,
     yearlyFeeAed: 1199,
     active: true,
   },
   {
     id: "portfolio",
-    name: "Three properties",
-    maxListings: 30,
+    name: "Three venues",
+    maxListings: 3,
     yearlyFeeAed: 2499,
     active: true,
   },
@@ -112,17 +111,18 @@ export function formatEventsPlanCapacity(
     id === "portfolio" ||
     id === "small" ||
     name.includes("three") ||
-    name.includes("3 propert")
+    name.includes("3 propert") ||
+    plan.maxListings === 3
   ) {
-    return "Up to 10 listings each";
+    return "Up to 3 listings";
   }
   if (
     id === "single" ||
     id === "growth" ||
     name.includes("single") ||
-    plan.maxListings === 10
+    plan.maxListings === 1
   ) {
-    return "Up to 10 listings";
+    return "1 listing";
   }
   return `Up to ${plan.maxListings} listing${plan.maxListings === 1 ? "" : "s"}`;
 }
