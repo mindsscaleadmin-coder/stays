@@ -27,16 +27,15 @@ const nextConfig = {
       { protocol: "https", hostname: "*.supabase.co" },
     ],
   },
+  turbopack: {
+    resolveAlias: {
+      "@valkey/valkey-glide": "./src/lib/optional-module-stub.ts",
+    },
+  },
   experimental: {
     optimizePackageImports: ["lucide-react"],
     serverActions: {
       bodySizeLimit: "2mb",
-    },
-    turbo: {
-      resolveAlias: {
-        "@opentelemetry/api": "./src/lib/otel-stub.ts",
-        "@valkey/valkey-glide": "./src/lib/optional-module-stub.ts",
-      },
     },
   },
   webpack: (config, { dev }) => {

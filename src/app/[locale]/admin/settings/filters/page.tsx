@@ -1,5 +1,5 @@
 import { setRequestLocale } from "next-intl/server";
-import { AdminFiltersPageLoader } from "@/components/dashboard/admin-filters-page-loader";
+import AdminFiltersPageClient from "@/components/dashboard/admin-filters-page-client";
 
 export default async function AdminSettingsFiltersPage({
   params,
@@ -8,5 +8,5 @@ export default async function AdminSettingsFiltersPage({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  return <AdminFiltersPageLoader />;
+  return <AdminFiltersPageClient />;
 }

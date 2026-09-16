@@ -469,7 +469,15 @@ export function AdminListingControlContent() {
 
         {activeTab === "queue" && (
           <section>
-            <PendingListingReviewPanel listings={pending} onApprove={approve} onReject={reject} />
+            <PendingListingReviewPanel
+              listings={pending}
+              onApprove={async (id) => {
+                await approve(id);
+              }}
+              onReject={async (id) => {
+                await reject(id);
+              }}
+            />
           </section>
         )}
 
