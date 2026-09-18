@@ -1,4 +1,4 @@
-import { calculateStayQuote } from "@/lib/host/calculate-stay-price";
+import { calculateStayQuote, stayAccommodationNet } from "@/lib/host/calculate-stay-price";
 import { resolveBookingListingPricing } from "@/lib/booking/resolve-booking-listing-pricing";
 import { sumExperienceTotal } from "@/lib/booking/experience-prices";
 import type { BookingQuote } from "@/lib/booking/compute-quote";
@@ -36,10 +36,7 @@ export async function computeBookingQuoteFromListing(input: {
     throw new BookingError("Select valid check-in and check-out dates", "INVALID_DATES");
   }
 
-  const accommodation = Math.max(
-    0,
-    stayQuote.accommodationSubtotal - stayQuote.discountAmount
-  );
+  const accommodation = stayAccommodationNet(stayQuote);
   return computeBookingQuote({
     checkIn: input.checkIn,
     checkOut: input.checkOut,

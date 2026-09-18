@@ -9,7 +9,11 @@ import { usePublicListings } from "@/lib/listings/use-public-listings";
 import { loadPricingSettings, savePricingSettings } from "@/lib/host/host-pricing-data";
 import { fetchPricingFromApi, shouldUseSharedPricingStore } from "@/lib/host/host-pricing-api";
 import type { ListingPricingSettings } from "@/lib/host/host-pricing-types";
-import { calculateStayQuote, countNights } from "@/lib/host/calculate-stay-price";
+import {
+  calculateStayQuote,
+  countNights,
+  stayAccommodationNet,
+} from "@/lib/host/calculate-stay-price";
 import { BASE_CURRENCY, formatMoney, formatStoredMoney  } from "@/lib/currency";
 import { listingHref } from "@/lib/guest/stay-search-dates";
 import { resolveCatalogListingHost } from "@/lib/listings/catalog-listing-hosts";
@@ -17,6 +21,7 @@ import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { useLocale } from "next-intl";
 import { computeExperienceQuote } from "@/lib/booking/compute-experience-quote";
+import { extractInclusiveTax } from "@/lib/tax/inclusive-tax";
 import {
   DEFAULT_CANCELLATION_POLICY_ID,
   evaluateCancellationRefund,
@@ -176,6 +181,10 @@ export function CheckoutContent({
 
     if (!stayQuote) {
       const accommodation = stay.price * nights;
+      const pretax = accommodation + experiencesTotal;
+      const taxPct = Math.max(0, countryPricing.taxPct);
+      const { taxAmount } = extractInclusiveTax(pretax, taxPct);
+      const taxLabel = countryPricing.taxLabel || "Tax";
       const nightlyLabel = formatMoney(stay.price, {
         currency,
         exchangeRateToAED: countryPricing.exchangeRateToAED,
@@ -186,9 +195,9 @@ export function CheckoutContent({
         nightlyRate: stay.price,
         experiencesTotal,
         extrasTotal: 0,
-        taxAmount: 0,
+        taxAmount,
         accommodation,
-        total: accommodation + experiencesTotal,
+        total: pretax,
         currency,
         exchangeRateToAED: countryPricing.exchangeRateToAED,
         lines: [
@@ -198,6 +207,9 @@ export function CheckoutContent({
           },
           ...(experiencesTotal > 0
             ? [{ label: "Experiences", amount: experiencesTotal }]
+            : []),
+          ...(taxAmount > 0
+            ? [{ label: `${taxLabel} (${taxPct}%, included)`, amount: taxAmount }]
             : []),
         ],
       };
@@ -214,10 +226,7 @@ export function CheckoutContent({
       experiencesTotal,
       extrasTotal: stayQuote.extrasTotal,
       taxAmount: stayQuote.taxAmount,
-      accommodation: Math.max(
-        0,
-        stayQuote.accommodationSubtotal - stayQuote.discountAmount
-      ),
+      accommodation: stayAccommodationNet(stayQuote),
       total: stayQuote.total,
       currency: stayQuote.currency || currency,
       exchangeRateToAED: countryPricing.exchangeRateToAED,

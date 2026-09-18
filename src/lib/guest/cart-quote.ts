@@ -1,5 +1,9 @@
 import { loadPricingSettings } from "@/lib/host/host-pricing-data";
-import { calculateStayQuote, countNights } from "@/lib/host/calculate-stay-price";
+import {
+  calculateStayQuote,
+  countNights,
+  stayAccommodationNet,
+} from "@/lib/host/calculate-stay-price";
 import type { ListingPricingSettings } from "@/lib/host/host-pricing-types";
 import type { BookingCartLine } from "@/lib/guest/booking-cart";
 import { BASE_CURRENCY, normalizeCurrency } from "@/lib/currency";
@@ -72,10 +76,7 @@ export function quoteCartLine(
       stayQuote.nights > 0
         ? stayQuote.accommodationSubtotal / stayQuote.nights
         : line.pricePerNight,
-    accommodation: Math.max(
-      0,
-      stayQuote.accommodationSubtotal - stayQuote.discountAmount
-    ),
+    accommodation: stayAccommodationNet(stayQuote),
     experiencesTotal,
     extrasTotal: stayQuote.extrasTotal,
     taxAmount: stayQuote.taxAmount,

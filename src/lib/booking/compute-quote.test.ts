@@ -3,7 +3,7 @@ import { computeBookingQuote } from "./compute-quote";
 import { BASE_CURRENCY } from "@/lib/currency";
 
 describe("computeBookingQuote", () => {
-  it("sums accommodation, experiences, extras, and tax", () => {
+  it("tax is informational only; total excludes double-counting", () => {
     const quote = computeBookingQuote({
       checkIn: "2026-10-01",
       checkOut: "2026-10-04",

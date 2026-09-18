@@ -4,6 +4,7 @@ import {
   type ListingPricingSettings,
 } from "./host-pricing-types";
 import { isFlashDealActive } from "./flash-deal-utils";
+import { extractInclusiveTax } from "@/lib/tax/inclusive-tax";
 
 export type StayQuoteInput = {
   settings: ListingPricingSettings;
@@ -23,6 +24,14 @@ export type StayQuoteLine = {
   amount: number;
 };
 
+/** Accommodation after discounts, including extra-guest surcharges (VAT-inclusive). */
+export function stayAccommodationNet(quote: StayQuote): number {
+  return Math.max(
+    0,
+    quote.accommodationSubtotal - quote.discountAmount + quote.extraGuestTotal
+  );
+}
+
 export type StayQuote = {
   nights: number;
   currency: string;
@@ -32,6 +41,7 @@ export type StayQuote = {
   discountPct: number;
   discountLabel: string | null;
   discountAmount: number;
+  extraGuestTotal: number;
   extrasTotal: number;
   experiencesTotal: number;
   taxPct: number;
@@ -261,13 +271,20 @@ export function calculateStayQuote(input: StayQuoteInput): StayQuote | null {
   const afterDiscount = accommodationSubtotal - discountAmount;
 
   const extrasOn = settings.extraChargesEnabled;
+  const extraGuests = Math.max(0, guests - settings.guestsIncludedInBase);
+  const extraGuestTotal =
+    extrasOn &&
+    extraGuests > 0 &&
+    settings.extraGuestCharge > 0 &&
+    accommodationSubtotal > 0
+      ? extraGuests * settings.extraGuestCharge * nights
+      : 0;
   const extrasTotal = extrasOn ? extrasAmount(selectedExtras, nights, guests) : 0;
 
   const experiences = Math.max(0, experiencesTotal);
-  const inclusiveSubtotal = afterDiscount + extrasTotal + experiences;
+  const inclusiveSubtotal = afterDiscount + extraGuestTotal + extrasTotal + experiences;
   const taxPct = Math.max(0, settings.taxPct);
-  const taxAmount =
-    taxPct > 0 ? Math.round((inclusiveSubtotal * taxPct) / (100 + taxPct)) : 0;
+  const { taxAmount } = extractInclusiveTax(inclusiveSubtotal, taxPct);
   const total = inclusiveSubtotal;
 
   const roomCount = resolvedRoomIds.filter(Boolean).length;
@@ -284,11 +301,23 @@ export function calculateStayQuote(input: StayQuoteInput): StayQuote | null {
   if (discountAmount > 0 && discountLabel) {
     lines.push({ label: discountLabel, amount: -discountAmount });
   }
+  if (extraGuestTotal > 0) {
+    lines.push({
+      label: `Extra guests (${extraGuests} × ${nights} night${nights === 1 ? "" : "s"})`,
+      amount: extraGuestTotal,
+    });
+  }
   if (extrasTotal > 0) {
     lines.push({ label: "Extras", amount: extrasTotal });
   }
   if (experiences > 0) {
     lines.push({ label: "Experiences", amount: experiences });
+  }
+  if (taxAmount > 0) {
+    lines.push({
+      label: `${settings.taxLabel} (${taxPct}%, included)`,
+      amount: taxAmount,
+    });
   }
 
   return {
@@ -299,6 +328,7 @@ export function calculateStayQuote(input: StayQuoteInput): StayQuote | null {
     discountPct,
     discountLabel,
     discountAmount,
+    extraGuestTotal,
     extrasTotal,
     experiencesTotal: experiences,
     taxPct,
