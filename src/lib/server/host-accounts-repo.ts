@@ -16,7 +16,13 @@ import type {
   HostPayoutRecord,
   HostTransaction,
 } from "@/lib/host/host-accounts-types";
-import type { FinancialHostOption } from "@/lib/admin/financial-data";
+import {
+  mergeFinancialHostOption,
+  mergeFinancialHostOptions,
+  resolveHostName,
+  type FinancialHostOption,
+} from "@/lib/admin/financial-data";
+import { LAUNCH_COUNTRY_NAME } from "@/lib/tax/launch-market";
 import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { parseFinancialSnapshot } from "@/lib/booking/financial-snapshot";
 import {
@@ -52,6 +58,7 @@ function nextFriday(from = new Date()): string {
 function parseListingMeta(payload: string): {
   currency: string;
   country: string;
+  state: string;
   parentCategory: string;
   type: string;
   category: string;
@@ -60,6 +67,7 @@ function parseListingMeta(payload: string): {
     const p = JSON.parse(payload) as {
       currency?: string;
       country?: string;
+      state?: string;
       parentCategory?: string;
       type?: string;
       category?: string;
@@ -67,6 +75,7 @@ function parseListingMeta(payload: string): {
     return {
       currency: p.currency || LAUNCH_CURRENCY,
       country: p.country?.trim() || "",
+      state: p.state?.trim() || "",
       parentCategory: p.parentCategory?.trim() || "",
       type: p.type?.trim() || "",
       category: p.category?.trim() || "",
@@ -75,6 +84,7 @@ function parseListingMeta(payload: string): {
     return {
       currency: LAUNCH_CURRENCY,
       country: "",
+      state: "",
       parentCategory: "",
       type: "",
       category: "",
@@ -467,6 +477,65 @@ export type PlatformLedger = {
   hosts: FinancialHostOption[];
 };
 
+/** All hosts with listings or a host role — not limited to paid bookings. */
+export async function listFinancialHostsFromDb(): Promise<FinancialHostOption[]> {
+  const byId = new Map<string, FinancialHostOption>();
+
+  const rows = await prisma.listing.findMany({
+    select: {
+      hostId: true,
+      country: true,
+      state: true,
+      payload: true,
+      host: { select: { fullName: true } },
+    },
+  });
+
+  for (const row of rows) {
+    if (!row.hostId?.trim()) continue;
+    const meta = parseListingMeta(row.payload);
+    const country = row.country?.trim() || meta.country || LAUNCH_COUNTRY_NAME;
+    const state = row.state?.trim() || meta.state || "";
+    const hostName = row.host.fullName?.trim() || resolveHostName(row.hostId);
+    const existing = byId.get(row.hostId);
+    const next: FinancialHostOption = existing
+      ? mergeFinancialHostOption(existing, {
+          hostId: row.hostId,
+          hostName,
+          country,
+          ...(state ? { state } : {}),
+        })
+      : {
+          hostId: row.hostId,
+          hostName,
+          country,
+          ...(state ? { state, states: [state] } : {}),
+          countries: [country],
+        };
+    byId.set(row.hostId, next);
+  }
+
+  const users = await prisma.user.findMany({
+    where: { roles: { contains: "host" } },
+    select: { id: true, fullName: true },
+  });
+  for (const user of users) {
+    const hostName = user.fullName?.trim() || resolveHostName(user.id);
+    const existing = byId.get(user.id);
+    if (existing) {
+      if (hostName) existing.hostName = hostName;
+      continue;
+    }
+    byId.set(user.id, {
+      hostId: user.id,
+      hostName,
+      country: LAUNCH_COUNTRY_NAME,
+    });
+  }
+
+  return Array.from(byId.values()).sort((a, b) => a.hostName.localeCompare(b.hostName));
+}
+
 export async function getPlatformLedger(): Promise<PlatformLedger> {
   const settings = await getFinancialSettingsFromDb();
   const rows = await loadPaidBookings();
@@ -487,7 +556,7 @@ export async function getPlatformLedger(): Promise<PlatformLedger> {
   );
 
   const payouts: AdminPayoutItem[] = [];
-  const hosts: FinancialHostOption[] = [];
+  const bookingHosts: FinancialHostOption[] = [];
   const seen = new Set<string>();
 
   for (const row of rows) {
@@ -496,14 +565,21 @@ export async function getPlatformLedger(): Promise<PlatformLedger> {
     seen.add(hostId);
     const stored = storedByHost.get(hostId) ?? { payoutAccount: null };
     const hostName = row.listing.host.fullName;
-    const country = parseListingMeta(row.listing.payload).country;
-    hosts.push({ hostId, hostName, country });
+    const meta = parseListingMeta(row.listing.payload);
+    bookingHosts.push({
+      hostId,
+      hostName,
+      country: meta.country || LAUNCH_COUNTRY_NAME,
+      ...(meta.state ? { state: meta.state } : {}),
+    });
     const upcoming = upcomingForHost(hostId, hostName, transactions, settings);
     if (upcoming) payouts.push(upcoming);
     payouts.push(
       ...historyForHost(hostId, stored, settings).map((p) => ({ ...p, hostName }))
     );
   }
+
+  const hosts = mergeFinancialHostOptions(bookingHosts, await listFinancialHostsFromDb());
 
   const refunds = refundsFromBookings(rows);
   const report = computeFinancialReport(transactions, payouts, refunds);

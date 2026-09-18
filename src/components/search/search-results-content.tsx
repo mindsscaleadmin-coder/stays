@@ -15,7 +15,8 @@ import {
   Zap,
 } from "lucide-react";
 import { useTranslations, useLocale } from "next-intl";
-import { enabledListingAds } from "@/lib/admin/listing-ads-data";
+import { pickListingAdsForContext } from "@/lib/admin/listing-ad-targeting";
+import type { ListingAdSearchContext } from "@/lib/admin/listing-ad-targeting";
 import { useListingAds } from "@/lib/admin/use-listing-ads";
 import type { ListingSidebarAd } from "@/lib/admin/listing-ads-types";
 import {
@@ -154,27 +155,22 @@ function ShortListingAd({ ad }: { ad: ListingSidebarAd }) {
   );
 }
 
-function ListingsAdSlot() {
+function ListingsAdSlot({ context }: { context: ListingAdSearchContext }) {
   const { ready, settings } = useListingAds();
-  const ads = settings ? enabledListingAds(settings) : [];
-  const tall = ads.filter((ad) => ad.placement === "tall");
-  const short = ads.filter((ad) => ad.placement === "short");
+  const picked =
+    ready && settings ? pickListingAdsForContext(settings, context) : { tall: null, short: null };
 
   return (
     <aside className="hidden lg:block w-[220px] xl:w-[240px] shrink-0 self-stretch">
       <div className="sticky top-24 space-y-4">
-        {ready && tall.length === 0 && short.length === 0 ? (
+        {ready && !picked.tall && !picked.short ? (
           <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 min-h-[220px] flex items-center justify-center px-4 text-center">
             <p className="text-xs text-gray-400 leading-relaxed">Ad space</p>
           </div>
         ) : (
           <>
-            {tall.map((ad) => (
-              <TallListingAd key={ad.id} ad={ad} />
-            ))}
-            {short.map((ad) => (
-              <ShortListingAd key={ad.id} ad={ad} />
-            ))}
+            {picked.tall ? <TallListingAd key={picked.tall.id} ad={picked.tall} /> : null}
+            {picked.short ? <ShortListingAd key={picked.short.id} ad={picked.short} /> : null}
           </>
         )}
       </div>
@@ -890,7 +886,16 @@ export function SearchResultsContent({
               )}
             </div>
 
-            <ListingsAdSlot />
+            <ListingsAdSlot
+              context={{
+                country: effectiveCountry || undefined,
+                state: state || undefined,
+                district: district || undefined,
+                parent: parent || undefined,
+                category: category || undefined,
+                subcategory: subcategory || undefined,
+              }}
+            />
           </div>
         </div>
       </div>

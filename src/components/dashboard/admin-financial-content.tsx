@@ -32,6 +32,7 @@ import {
   filterPayoutsByHost,
   filterRefundsByHost,
   filterTransactionsByHost,
+  hostMatchesFinancialLocationFilter,
 } from "@/lib/admin/financial-data";
 import { useAdminFinancial } from "@/lib/admin/use-admin-financial";
 import { useAdminPlatformConfig } from "@/lib/admin/use-admin-platform-config";
@@ -272,6 +273,9 @@ export function AdminFinancialContent() {
   const [overrideHostName, setOverrideHostName] = useState("");
   const [overrideFee, setOverrideFee] = useState("10");
   const [overrideNote, setOverrideNote] = useState("");
+  const [overridePickerQuery, setOverridePickerQuery] = useState("");
+  const [overridePickerCountry, setOverridePickerCountry] = useState("");
+  const [overridePickerState, setOverridePickerState] = useState("");
 
   useEffect(() => {
     setGlobalFee(String(settings.commission.globalFeePct));
@@ -290,9 +294,26 @@ export function AdminFinancialContent() {
     for (const c of taxonomyCountries) names.add(c.name);
     for (const h of allHosts) {
       if (h.country) names.add(h.country);
+      for (const name of h.countries ?? []) {
+        if (name) names.add(name);
+      }
     }
     return sortCountriesIndiaFirst(Array.from(names));
   }, [taxonomyCountries, allHosts]);
+
+  const overrideCountryOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const h of allHosts) {
+      if (h.country.trim()) names.add(h.country.trim());
+      for (const name of h.countries ?? []) {
+        if (name.trim()) names.add(name.trim());
+      }
+    }
+    if (names.size === 0) return countryOptions;
+    return sortCountriesIndiaFirst(
+      countryOptions.filter((name) => names.has(name))
+    );
+  }, [allHosts, countryOptions]);
 
   const hostsInCountry = useMemo(() => {
     if (!countryParam) return allHosts;
@@ -422,6 +443,115 @@ export function AdminFinancialContent() {
       return allowed.has(o.hostId);
     });
   }, [settings.commission.hostOverrides, countryParam, hostParam, hostsInCountry]);
+
+  const overridePickerStateOptions = useMemo(() => {
+    const countryName = overridePickerCountry.trim();
+    if (!countryName) return [];
+
+    const countryMatch = taxonomyCountries.find(
+      (c) => c.name.trim().toLowerCase() === countryName.toLowerCase()
+    );
+    const fromTaxonomy = taxonomy.states
+      .filter((s) => s.enabled !== false && (!countryMatch || s.countryId === countryMatch.id))
+      .map((s) => s.name);
+    const countryNeedle = countryName.toLowerCase();
+    const fromHosts = allHosts
+      .filter((h) => hostMatchesFinancialLocationFilter(h, { country: countryName }))
+      .flatMap((h) => [h.state?.trim(), ...(h.states ?? [])])
+      .filter((name): name is string => Boolean(name) && !fromTaxonomy.includes(name));
+
+    return [...fromTaxonomy, ...Array.from(new Set(fromHosts))].sort((a, b) =>
+      a.localeCompare(b)
+    );
+  }, [allHosts, overridePickerCountry, taxonomyCountries, taxonomy.states]);
+
+  const overrideLocationFilterActive = useMemo(
+    () => Boolean(overridePickerCountry.trim()),
+    [overridePickerCountry]
+  );
+
+  const hostsInOverrideRegion = useMemo(() => {
+    const country = overridePickerCountry.trim();
+    const state = overridePickerState.trim();
+
+    if (!country) {
+      return [...allHosts].sort((a, b) => a.hostName.localeCompare(b.hostName));
+    }
+
+    return allHosts
+      .filter((h) =>
+        hostMatchesFinancialLocationFilter(h, { country, state: state || undefined })
+      )
+      .sort((a, b) => a.hostName.localeCompare(b.hostName));
+  }, [allHosts, overridePickerCountry, overridePickerState]);
+
+  const hostsForOverridePicker = useMemo(() => {
+    const queryNeedle = overridePickerQuery.trim().toLowerCase();
+    const hasSearch = Boolean(queryNeedle);
+
+    if (!hasSearch && !overrideLocationFilterActive) return [];
+
+    let pool = overrideLocationFilterActive ? hostsInOverrideRegion : allHosts;
+
+    if (hasSearch) {
+      pool = pool.filter((h) => {
+        const haystack = [h.hostName, h.hostId].join(" ").toLowerCase();
+        return haystack.includes(queryNeedle);
+      });
+    }
+
+    return pool.sort((a, b) => a.hostName.localeCompare(b.hostName));
+  }, [
+    allHosts,
+    hostsInOverrideRegion,
+    overridePickerQuery,
+    overrideLocationFilterActive,
+  ]);
+
+  useEffect(() => {
+    if (!overrideHostId) return;
+    if (!hostsForOverridePicker.some((h) => h.hostId === overrideHostId)) {
+      setOverrideHostId("");
+      setOverrideHostName("");
+    }
+  }, [hostsForOverridePicker, overrideHostId]);
+
+  function formatHostLocation(
+    host: { state?: string; states?: string[]; country: string; countries?: string[] },
+    filters?: { state?: string; country?: string }
+  ): string {
+    const state =
+      filters?.state?.trim() ||
+      host.state?.trim() ||
+      host.states?.[0] ||
+      "";
+    const country =
+      filters?.country?.trim() ||
+      host.country.trim() ||
+      host.countries?.[0] ||
+      "";
+    return [state, country].filter(Boolean).join(", ");
+  }
+
+  const overrideHostPickerReady =
+    Boolean(overridePickerQuery.trim()) || overrideLocationFilterActive;
+
+  function applyHostSelection(hostId: string) {
+    const host =
+      hostsForOverridePicker.find((h) => h.hostId === hostId) ??
+      allHosts.find((h) => h.hostId === hostId);
+    setOverrideHostId(hostId);
+    setOverrideHostName(host?.hostName ?? "");
+    if (!host) return;
+    if (!overridePickerCountry.trim()) {
+      const country = host.country.trim() || host.countries?.[0]?.trim() || "";
+      if (country) setOverridePickerCountry(country);
+    }
+    if (!overridePickerState.trim()) {
+      const state = host.state?.trim() || host.states?.[0]?.trim() || "";
+      if (state) setOverridePickerState(state);
+    }
+  }
 
   if (!ready) {
     return (
@@ -755,15 +885,24 @@ export function AdminFinancialContent() {
                 <HandCoins className="w-4 h-4 text-blue-700" />
                 <h3 className="font-semibold text-gray-900">Per-host overrides</h3>
               </div>
+              <p className="text-xs text-gray-500">
+                Search by host name, or filter by country and state — then pick a host.
+              </p>
               <div className="space-y-2">
                 {scopedOverrides.length === 0 ? (
                   <p className="text-sm text-gray-400 py-2">No host overrides for this filter.</p>
                 ) : (
-                  scopedOverrides.map((o) => (
+                  scopedOverrides.map((o) => {
+                    const hostMeta = allHosts.find((h) => h.hostId === o.hostId);
+                    const location = hostMeta ? formatHostLocation(hostMeta) : "";
+                    return (
                     <div key={o.hostId} className="flex flex-col sm:flex-row sm:items-center gap-3 border border-gray-100 rounded-xl p-3 bg-gray-50/50">
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-gray-900">{o.hostName}</p>
-                        <p className="text-xs text-gray-500">{o.feePct}% {o.note ? `· ${o.note}` : ""}</p>
+                        <p className="text-xs text-gray-500">
+                          {o.feePct}% {o.note ? `· ${o.note}` : ""}
+                          {location ? ` · ${location}` : ""}
+                        </p>
                       </div>
                       <button
                         type="button"
@@ -776,7 +915,8 @@ export function AdminFinancialContent() {
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
               <form
@@ -794,45 +934,157 @@ export function AdminFinancialContent() {
                   setOverrideNote("");
                   flash("Host override saved.");
                 }}
-                className="border-t pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"
+                className="border-t pt-4 space-y-3"
               >
-                <select
-                  value={overrideHostId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    setOverrideHostId(id);
-                    const host = hostsInCountry.find((h) => h.hostId === id);
-                    setOverrideHostName(host?.hostName ?? "");
-                  }}
-                  className={inputClass}
-                  required
-                >
-                  <option value="">Select host…</option>
-                  {hostsInCountry.map((h) => (
-                    <option key={h.hostId} value={h.hostId}>
-                      {h.hostName}
-                      {h.country ? ` · ${h.country}` : ""}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-gray-500">1. Search host</span>
+                    <div className="relative mt-1">
+                      <Search className="w-4 h-4 text-gray-400 absolute start-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        value={overridePickerQuery}
+                        onChange={(e) => {
+                          setOverridePickerQuery(e.target.value);
+                          setOverrideHostId("");
+                          setOverrideHostName("");
+                        }}
+                        placeholder="Search by name…"
+                        className={cn(inputClass, "ps-9")}
+                      />
+                    </div>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-gray-500">2. Country (optional)</span>
+                    <select
+                      value={overridePickerCountry}
+                      onChange={(e) => {
+                        setOverridePickerCountry(e.target.value);
+                        setOverridePickerState("");
+                        setOverrideHostId("");
+                        setOverrideHostName("");
+                      }}
+                      className={cn(inputClass, "mt-1")}
+                      disabled={overrideCountryOptions.length === 0}
+                    >
+                      <option value="">All countries</option>
+                      {overrideCountryOptions.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-gray-500">3. State (optional)</span>
+                    <select
+                      value={overridePickerState}
+                      onChange={(e) => {
+                        setOverridePickerState(e.target.value);
+                        setOverrideHostId("");
+                        setOverrideHostName("");
+                      }}
+                      className={cn(inputClass, "mt-1")}
+                      disabled={
+                        !overridePickerCountry.trim() || overridePickerStateOptions.length === 0
+                      }
+                    >
+                      <option value="">
+                        {!overridePickerCountry.trim()
+                          ? "Select country first"
+                          : overridePickerStateOptions.length === 0
+                            ? "No states for this country"
+                            : "All states"}
+                      </option>
+                      {overridePickerStateOptions.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label className="block">
+                  <span className="text-xs font-semibold text-gray-500">4. Host</span>
+                  <select
+                    value={overrideHostId}
+                    onChange={(e) => applyHostSelection(e.target.value)}
+                    className={cn(inputClass, "mt-1")}
+                    required
+                    disabled={!overrideHostPickerReady}
+                  >
+                    <option value="" disabled>
+                      {!overrideHostPickerReady
+                        ? "Search by name or filter by location first"
+                        : hostsForOverridePicker.length === 0
+                          ? "No hosts match"
+                          : "Select host…"}
                     </option>
-                  ))}
-                </select>
+                    {hostsForOverridePicker.map((h) => {
+                      const location = formatHostLocation(h);
+                      return (
+                        <option key={h.hostId} value={h.hostId}>
+                          {h.hostName}
+                          {location ? ` · ${location}` : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+                <p className="text-xs text-gray-500">
+                  {overridePickerQuery.trim() && overrideLocationFilterActive
+                    ? `${hostsForOverridePicker.length} host${
+                        hostsForOverridePicker.length === 1 ? "" : "s"
+                      } match "${overridePickerQuery.trim()}" in${
+                        overridePickerState.trim()
+                          ? ` ${overridePickerState}, ${overridePickerCountry}`
+                          : ` ${overridePickerCountry}`
+                      }.`
+                    : overridePickerQuery.trim()
+                      ? `${hostsForOverridePicker.length} host${
+                          hostsForOverridePicker.length === 1 ? "" : "s"
+                        } match "${overridePickerQuery.trim()}".`
+                      : overrideLocationFilterActive
+                        ? `${hostsForOverridePicker.length} host${
+                            hostsForOverridePicker.length === 1 ? "" : "s"
+                          } in${
+                            overridePickerState.trim()
+                              ? ` ${overridePickerState}, ${overridePickerCountry}`
+                              : ` ${overridePickerCountry}`
+                          }.`
+                        : "Search by name or choose a country to list hosts."}
+                  {allHosts.length === 0
+                    ? " No hosts loaded yet — refresh or add listings with a host account."
+                    : hostsForOverridePicker.length === 0 && overrideHostPickerReady
+                      ? " No hosts match — try a different search or location."
+                      : ""}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <label className="block">
+                  <span className="text-xs font-semibold text-gray-500">Fee %</span>
                 <input
                   type="number"
                   min={0}
                   max={50}
                   value={overrideFee}
                   onChange={(e) => setOverrideFee(e.target.value)}
-                  placeholder="Fee %"
-                  className={inputClass}
+                  className={cn(inputClass, "mt-1")}
                 />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-semibold text-gray-500">Note (optional)</span>
                 <input
                   value={overrideNote}
                   onChange={(e) => setOverrideNote(e.target.value)}
-                  placeholder="Note (optional)"
-                  className={inputClass}
+                  placeholder="e.g. Early partner rate"
+                  className={cn(inputClass, "mt-1")}
                 />
-                <button type="submit" className="inline-flex items-center justify-center gap-1 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold px-4 py-2 rounded-lg">
+                </label>
+                <div className="flex items-end">
+                <button type="submit" className="inline-flex w-full items-center justify-center gap-1 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold px-4 py-2 rounded-lg">
                   <Plus className="w-4 h-4" /> Add override
                 </button>
+                </div>
+                </div>
               </form>
             </section>
           </div>

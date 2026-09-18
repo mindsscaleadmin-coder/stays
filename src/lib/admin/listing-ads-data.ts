@@ -1,4 +1,5 @@
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
+import { normalizeListingAdTargeting } from "./listing-ad-targeting";
 import type { ListingAdsSettings, ListingSidebarAd } from "./listing-ads-types";
 
 const STORAGE_KEY = "farm-stays-listing-ads";
@@ -29,6 +30,7 @@ export function emptyListingAd(): ListingSidebarAd {
     id: newListingAdId(),
     enabled: true,
     placement: "tall",
+    targeting: {},
     eyebrow: "Sponsored",
     title: "",
     body: "",
@@ -48,6 +50,7 @@ export function normalizeListingAds(
       id: ad.id || `ad-${index}`,
       enabled: ad.enabled !== false,
       placement: ad.placement === "short" ? "short" : "tall",
+      targeting: normalizeListingAdTargeting(ad.targeting),
       eyebrow: (ad.eyebrow || "Sponsored").trim(),
       title: (ad.title || "").trim(),
       body: (ad.body || "").trim(),

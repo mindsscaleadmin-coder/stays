@@ -18,6 +18,7 @@ import {
   normalizeEventsSubscription,
 } from "./events-subscription";
 import { BASE_CURRENCY } from "@/lib/currency";
+import { LAUNCH_COUNTRY_NAME } from "@/lib/tax/launch-market";
 
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
 const STORAGE_KEY = "farm-stays-financial-settings";
@@ -31,19 +32,94 @@ const HOST_NAMES: Record<string, string> = {
   "demo-host": "Demo Host",
 };
 
-/** Seed hosts without listing country → UAE for financial filtering demos */
+/** Seed hosts without listing country → launch market for financial filtering */
 const HOST_COUNTRY_FALLBACK: Record<string, string> = {
-  "seed-host-4": "United Arab Emirates",
-  "seed-host-5": "United Arab Emirates",
-  "demo-host": "United Arab Emirates",
+  "seed-host-4": LAUNCH_COUNTRY_NAME,
+  "seed-host-5": LAUNCH_COUNTRY_NAME,
+  "demo-host": LAUNCH_COUNTRY_NAME,
 };
 
 export type FinancialHostOption = {
   hostId: string;
   hostName: string;
-  /** Listing / profile country name */
+  /** Primary listing / profile country name */
   country: string;
+  /** Primary listing state / region when available */
+  state?: string;
+  /** All countries this host has listings in */
+  countries?: string[];
+  /** All states this host has listings in */
+  states?: string[];
 };
+
+function mergeLocationNames(...values: (string | undefined)[]): string[] {
+  return Array.from(
+    new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))
+  );
+}
+
+export function mergeFinancialHostOption(
+  existing: FinancialHostOption,
+  host: FinancialHostOption
+): FinancialHostOption {
+  const countries = mergeLocationNames(
+    existing.country,
+    host.country,
+    ...(existing.countries ?? []),
+    ...(host.countries ?? [])
+  );
+  const states = mergeLocationNames(
+    existing.state,
+    host.state,
+    ...(existing.states ?? []),
+    ...(host.states ?? [])
+  );
+  return {
+    hostId: existing.hostId,
+    hostName: host.hostName?.trim() || existing.hostName,
+    country: countries[0] || LAUNCH_COUNTRY_NAME,
+    state: states[0],
+    ...(countries.length > 0 ? { countries } : {}),
+    ...(states.length > 0 ? { states } : {}),
+  };
+}
+
+export function hostMatchesFinancialLocationFilter(
+  host: FinancialHostOption,
+  filters: { country?: string; state?: string }
+): boolean {
+  const countryNeedle = filters.country?.trim().toLowerCase();
+  const stateNeedle = filters.state?.trim().toLowerCase();
+  const countries = mergeLocationNames(host.country, ...(host.countries ?? [])).map((value) =>
+    value.toLowerCase()
+  );
+  const states = mergeLocationNames(host.state, ...(host.states ?? [])).map((value) =>
+    value.toLowerCase()
+  );
+
+  if (countryNeedle && !countries.includes(countryNeedle)) return false;
+  if (stateNeedle && !states.includes(stateNeedle)) return false;
+  return true;
+}
+
+export function mergeFinancialHostOptions(
+  ...sources: (FinancialHostOption[] | undefined)[]
+): FinancialHostOption[] {
+  const byId = new Map<string, FinancialHostOption>();
+  for (const source of sources) {
+    if (!source) continue;
+    for (const host of source) {
+      if (!host.hostId?.trim()) continue;
+      const existing = byId.get(host.hostId);
+      if (!existing) {
+        byId.set(host.hostId, host);
+        continue;
+      }
+      byId.set(host.hostId, mergeFinancialHostOption(existing, host));
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => a.hostName.localeCompare(b.hostName));
+}
 
 export type FinancialHostFilter = {
   /** Country name (taxonomy / listing). Empty = all. */
@@ -191,41 +267,59 @@ export function listFinancialHosts(): FinancialHostOption[] {
     const country =
       listing.country?.trim() ||
       HOST_COUNTRY_FALLBACK[listing.hostId] ||
-      "United Arab Emirates";
+      LAUNCH_COUNTRY_NAME;
+    const state = listing.state?.trim() || "";
+    const hostName = listing.hostName?.trim() || resolveHostName(listing.hostId);
     const existing = byId.get(listing.hostId);
-    if (!existing) {
-      byId.set(listing.hostId, {
-        hostId: listing.hostId,
-        hostName: listing.hostName?.trim() || resolveHostName(listing.hostId),
-        country,
-      });
-    } else if (!existing.country && country) {
-      existing.country = country;
-    }
+    const next: FinancialHostOption = existing
+      ? mergeFinancialHostOption(existing, {
+          hostId: listing.hostId,
+          hostName,
+          country,
+          ...(state ? { state } : {}),
+        })
+      : {
+          hostId: listing.hostId,
+          hostName,
+          country,
+          ...(state ? { state, states: [state] } : {}),
+          countries: [country],
+        };
+    byId.set(listing.hostId, next);
   }
 
   for (const user of loadAllUsers()) {
     if (!user.roles.includes("host")) continue;
     const country = resolveCountryName(user.country) || HOST_COUNTRY_FALLBACK[user.id] || "";
+    const hostName = user.name?.trim() || resolveHostName(user.id);
     const existing = byId.get(user.id);
     if (existing) {
-      if (country && !existing.country) existing.country = country;
-      if (user.name?.trim()) existing.hostName = user.name.trim();
+      byId.set(
+        user.id,
+        mergeFinancialHostOption(existing, {
+          hostId: user.id,
+          hostName,
+          country: country || LAUNCH_COUNTRY_NAME,
+        })
+      );
       continue;
     }
     byId.set(user.id, {
       hostId: user.id,
-      hostName: user.name?.trim() || resolveHostName(user.id),
-      country: country || "United Arab Emirates",
+      hostName,
+      country: country || LAUNCH_COUNTRY_NAME,
+      ...(country ? { countries: [country] } : {}),
     });
   }
 
   for (const hostId of collectHostAccountIds()) {
     if (byId.has(hostId)) continue;
+    const country = HOST_COUNTRY_FALLBACK[hostId] || LAUNCH_COUNTRY_NAME;
     byId.set(hostId, {
       hostId,
       hostName: resolveHostName(hostId),
-      country: HOST_COUNTRY_FALLBACK[hostId] || "United Arab Emirates",
+      country,
+      countries: [country],
     });
   }
 

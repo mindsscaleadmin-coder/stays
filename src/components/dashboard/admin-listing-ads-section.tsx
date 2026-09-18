@@ -1,11 +1,138 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import Image from "next/image";
+import { ImagePlus, Plus, Trash2, Upload } from "lucide-react";
+import { ListingAdTargetingFields } from "@/components/dashboard/listing-ad-targeting-fields";
 import { emptyListingAd } from "@/lib/admin/listing-ads-data";
 import { useListingAds } from "@/lib/admin/use-listing-ads";
 
 const fieldClass =
   "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500";
+
+const AD_IMAGE_ACCEPT = "image/jpeg,image/png,image/webp";
+const AD_IMAGE_MAX_BYTES = 1_500_000;
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Could not read image file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function ListingAdImageField({
+  imageUrl,
+  onChange,
+  onNotice,
+}: {
+  imageUrl: string;
+  onChange: (url: string) => void;
+  onNotice: (text: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const isUploadedFile = imageUrl.startsWith("data:image/");
+
+  async function handleFile(file: File | undefined) {
+    setError("");
+    if (!file) return;
+    if (!AD_IMAGE_ACCEPT.split(",").includes(file.type)) {
+      setError("Use JPG, PNG, or WebP.");
+      return;
+    }
+    if (file.size > AD_IMAGE_MAX_BYTES) {
+      setError(`Image is too large (${formatBytes(file.size)}). Max is 1.5 MB.`);
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const url = await fileToDataUrl(file);
+      onChange(url);
+      onNotice("Ad image uploaded.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <span className="text-xs font-medium text-gray-600 block">Image (optional)</span>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Upload from your computer or paste a public image link (https://…). Recommended: tall ads
+          ~800×1200px, short ads ~800×400px.
+        </p>
+      </div>
+
+      {imageUrl ? (
+        <div className="relative h-28 w-full max-w-xs overflow-hidden rounded-lg border border-gray-200 bg-gray-100">
+          <Image src={imageUrl} alt="" fill className="object-cover" sizes="320px" unoptimized />
+        </div>
+      ) : (
+        <div className="flex h-28 w-full max-w-xs items-center justify-center rounded-lg border border-dashed border-gray-300 bg-white text-gray-400">
+          <ImagePlus className="h-8 w-8" />
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          ref={inputRef}
+          type="file"
+          accept={AD_IMAGE_ACCEPT}
+          className="hidden"
+          onChange={(e) => void handleFile(e.target.files?.[0])}
+        />
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          <Upload className="h-4 w-4" />
+          {uploading ? "Uploading…" : imageUrl ? "Replace image" : "Upload image"}
+        </button>
+        {imageUrl ? (
+          <button
+            type="button"
+            onClick={() => {
+              onChange("");
+              onNotice("Ad image removed.");
+            }}
+            className="text-sm font-medium text-red-600 hover:text-red-800"
+          >
+            Remove
+          </button>
+        ) : null}
+      </div>
+
+      <label className="block">
+        <span className="text-xs font-medium text-gray-600 mb-1 block">Or paste image URL</span>
+        <input
+          value={isUploadedFile ? "" : imageUrl}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={() => onNotice("Ad saved.")}
+          placeholder={isUploadedFile ? "Uploaded image saved — paste a URL to replace" : "https://…"}
+          className={fieldClass}
+        />
+      </label>
+
+      {error ? <p className="text-xs text-red-600">{error}</p> : null}
+    </div>
+  );
+}
 
 export function AdminListingAdsSection({ onNotice }: { onNotice?: (message: string) => void }) {
   const { ready, settings, updateAd, addAd, removeAd } = useListingAds();
@@ -24,7 +151,8 @@ export function AdminListingAdsSection({ onNotice }: { onNotice?: (message: stri
         <div>
           <h3 className="font-display font-semibold text-gray-900">Listings sidebar</h3>
           <p className="text-sm text-gray-500 mt-0.5">
-            Wired to search results — tall fills the sponsored card; short fills the smaller slot.
+            Contextual sidebar ads on search results — target by location and taxonomy. Tall fills
+            the sponsored card; short fills the smaller slot.
           </p>
         </div>
         <button
@@ -85,6 +213,13 @@ export function AdminListingAdsSection({ onNotice }: { onNotice?: (message: stri
                   <Trash2 className="w-3.5 h-3.5" /> Remove
                 </button>
               </div>
+              <ListingAdTargetingFields
+                ad={ad}
+                onChange={(targeting) => {
+                  updateAd(ad.id, { targeting });
+                  notice("Ad targeting saved.");
+                }}
+              />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="block">
                   <span className="text-xs font-medium text-gray-600 mb-1 block">Eyebrow</span>
@@ -139,18 +274,11 @@ export function AdminListingAdsSection({ onNotice }: { onNotice?: (message: stri
                   />
                 </label>
               </div>
-              <label className="block">
-                <span className="text-xs font-medium text-gray-600 mb-1 block">
-                  Image URL (optional)
-                </span>
-                <input
-                  value={ad.imageUrl}
-                  onChange={(e) => updateAd(ad.id, { imageUrl: e.target.value })}
-                  onBlur={() => notice("Ad saved.")}
-                  placeholder="https://…"
-                  className={fieldClass}
-                />
-              </label>
+              <ListingAdImageField
+                imageUrl={ad.imageUrl}
+                onChange={(imageUrl) => updateAd(ad.id, { imageUrl })}
+                onNotice={notice}
+              />
             </li>
           ))}
         </ul>
