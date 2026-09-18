@@ -31,7 +31,10 @@ export function useGuestSupport(
     if (shared) {
       void fetchGuestSupportFromApi(guestId)
         .then((tickets) => setData({ guestId, tickets }))
-        .catch(() => setData(loadGuestSupport(guestId)));
+        .catch((error) => {
+          console.error(error);
+          setData({ guestId, tickets: [] });
+        });
     } else {
       setData(loadGuestSupport(guestId));
     }
@@ -72,14 +75,8 @@ export function useGuestSupport(
           guestEmail: guestProfile?.guestEmail,
         })
           .then((tickets) => setData({ guestId, tickets }))
-          .catch(() => {
-            const next = createGuestSupportTicket({
-              guestId,
-              guestName: guestProfile?.guestName ?? guestId,
-              guestEmail: guestProfile?.guestEmail,
-              ...input,
-            });
-            setData(next);
+          .catch((error) => {
+            console.error(error);
           });
         return data;
       }

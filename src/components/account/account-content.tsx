@@ -186,15 +186,21 @@ export function AccountContent() {
   }, [tab]);
 
   useEffect(() => {
+    if (tab !== "bookings" && tab !== "messages") return;
+
     let cancelled = false;
+    // Paint cached/local bookings immediately; refresh from the server in the
+    // background so changing guest tabs never waits on the network.
+    setLiveBookings(loadGuestBookings());
+
     async function refreshBookings() {
       if (user?.id) {
         const server = await fetchGuestBookingsFromServer(user.id);
         if (!cancelled && server) {
           mergeServerGuestBookings(server);
+          setLiveBookings(loadGuestBookings());
         }
       }
-      if (!cancelled) setLiveBookings(loadGuestBookings());
       // Seed demo thread for the disputed sample booking once
       if (loadBookingMessages("GF-A8K2X1").length === 0) {
         appendBookingMessage({
@@ -222,7 +228,7 @@ export function AccountContent() {
       cancelled = true;
       window.removeEventListener(GUEST_BOOKINGS_SYNC_EVENT, onSync);
     };
-  }, [user?.id]);
+  }, [user?.id, tab]);
 
   useEffect(() => {
     function onMessagesSync() {
@@ -397,7 +403,13 @@ export function AccountContent() {
   }
 
   return (
-    <DashboardShell title="Guest" subtitle="Your account" navItems={GUEST_NAV}>
+    <DashboardShell
+      title="Guest"
+      subtitle="Your account"
+      tone="client"
+      navItems={GUEST_NAV}
+      guestTab={searchParams.get("tab")}
+    >
       <div className="space-y-6">
         <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.06)] p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <div className="flex items-center gap-3 shrink-0">

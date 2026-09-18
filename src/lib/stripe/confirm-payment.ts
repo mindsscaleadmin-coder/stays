@@ -9,10 +9,35 @@ function sessionLooksPaid(session: {
   payment_status?: string | null;
   status?: string | null;
 }): boolean {
-  if (session.payment_status === "paid" || session.payment_status === "no_payment_required") {
-    return true;
-  }
-  return session.status === "complete" && session.payment_status !== "unpaid";
+  return (
+    session.payment_status === "paid" || session.payment_status === "no_payment_required"
+  );
+}
+
+function bookingIdsFromSession(metadata: Record<string, string> | null | undefined): string[] {
+  return (metadata?.bookingIds || metadata?.bookingId || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
+function isNonBookingStripeSession(metadata: Record<string, string> | null | undefined): boolean {
+  if (!metadata) return false;
+  return Boolean(
+    metadata.promotionId ||
+      metadata.directorySubscriptionHostId ||
+      metadata.directorySubscriptionPlanId
+  );
+}
+
+function sessionMatchesBooking(
+  booking: { id: string; stripeSessionId: string | null },
+  session: { id: string; metadata: Record<string, string> | null }
+): boolean {
+  if (isNonBookingStripeSession(session.metadata)) return false;
+  const metaIds = bookingIdsFromSession(session.metadata);
+  if (metaIds.length > 0) return metaIds.includes(booking.id);
+  return booking.stripeSessionId === session.id;
 }
 
 /**
@@ -37,16 +62,14 @@ export async function confirmPaidFromStripe(input: {
 
   const stripe = getStripe()!;
   const session = await stripe.checkout.sessions.retrieve(sessionId);
-  const metaIds = (session.metadata?.bookingIds || session.metadata?.bookingId || "")
-    .split(",")
-    .map((id) => id.trim())
-    .filter(Boolean);
-  if (metaIds.length > 0 && !metaIds.includes(booking.id)) {
+
+  if (!sessionMatchesBooking(booking, session)) {
     throw new BookingError("Stripe session does not match booking", "INVALID_DATES");
   }
 
   if (!sessionLooksPaid(session)) return booking;
 
+  const metaIds = bookingIdsFromSession(session.metadata);
   const siblings = await prisma.booking.findMany({
     where: {
       OR: [
@@ -82,8 +105,7 @@ export async function confirmPaidFromStripe(input: {
     const next = await markBookingPaid(row.id);
     await captureBookingFinancials(next.id, {
       stripeSessionId: session.id,
-      sessionBookingTotals:
-        sessionTotal > 0 ? sessionBookingTotals : undefined,
+      sessionBookingTotals: sessionTotal > 0 ? sessionBookingTotals : undefined,
     });
     void enqueueBookingConfirmedJob({ bookingId: next.id, guestId: next.guestId });
     if (next.id === booking.id) paid = next;
@@ -93,8 +115,7 @@ export async function confirmPaidFromStripe(input: {
     const next = await markBookingPaid(booking.id);
     await captureBookingFinancials(next.id, {
       stripeSessionId: session.id,
-      sessionBookingTotals:
-        sessionTotal > 0 ? sessionBookingTotals : undefined,
+      sessionBookingTotals: sessionTotal > 0 ? sessionBookingTotals : undefined,
     });
     return next;
   }

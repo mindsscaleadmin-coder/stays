@@ -1,4 +1,4 @@
-import { confirmBooking } from "@/lib/booking/confirm-booking";
+import { BookingError, confirmBooking } from "@/lib/booking/confirm-booking";
 import { computeBookingQuoteFromListing } from "@/lib/booking/compute-booking-quote-from-listing";
 import { ensureListingForBooking } from "@/lib/booking/ensure-listing";
 import { resolveListingHostForBooking } from "@/lib/server/resolve-listing-host";
@@ -8,8 +8,7 @@ import {
   buildGuestQuoteSnapshotFromBookingQuote,
   serializeGuestQuoteSnapshot,
 } from "@/lib/booking/guest-quote-snapshot";
-import { getListingPricing } from "@/lib/server/listing-pricing-repo";
-import { defaultForListing } from "@/lib/host/host-pricing-data";
+import { resolveBookingListingPricing } from "@/lib/booking/resolve-booking-listing-pricing";
 
 export type QuotedBookingListing = {
   id: string;
@@ -42,6 +41,23 @@ export async function createQuotedBooking(input: CreateQuotedBookingInput): Prom
   booking: Awaited<ReturnType<typeof confirmBooking>>;
   quote: BookingQuote;
 }> {
+  const resolvedHost = await resolveListingHostForBooking(input.listingId, input.listing);
+  if (!resolvedHost) {
+    throw new BookingError("Listing not found or not available", "NOT_FOUND");
+  }
+
+  await ensureListingForBooking({
+    id: input.listingId,
+    title: input.listing.title,
+    hostId: resolvedHost.hostId,
+    hostName: resolvedHost.hostName,
+    location: input.listing.location,
+    maxGuests: input.listing.maxGuests,
+    pricePerNight: 0,
+    instantBook: input.listing.instantBook,
+    currency: input.listing.currency,
+  });
+
   const quote = await computeBookingQuoteFromListing({
     listingId: input.listingId,
     checkIn: input.checkIn,
@@ -51,18 +67,6 @@ export async function createQuotedBooking(input: CreateQuotedBookingInput): Prom
     experienceIds: input.experienceIds,
     extraIds: input.extraIds,
     currency: input.currency,
-  });
-
-  const resolvedHost = await resolveListingHostForBooking(input.listingId, input.listing);
-
-  await ensureListingForBooking({
-    ...input.listing,
-    id: input.listingId,
-    hostId: resolvedHost?.hostId ?? input.listing.hostId,
-    hostName: resolvedHost?.hostName ?? input.listing.hostName,
-    pricePerNight:
-      input.listing.pricePerNight ||
-      (quote.nights > 0 ? quote.accommodation / quote.nights : 0),
   });
 
   const existingGuest = await prisma.user.findUnique({ where: { id: input.guestId } });
@@ -85,8 +89,7 @@ export async function createQuotedBooking(input: CreateQuotedBookingInput): Prom
     });
   }
 
-  const pricing =
-    (await getListingPricing(input.listingId)) ?? defaultForListing(input.listingId);
+  const pricing = await resolveBookingListingPricing(input.listingId);
   const guestSnapshot = serializeGuestQuoteSnapshot(
     buildGuestQuoteSnapshotFromBookingQuote(quote, pricing.taxLabel, pricing.taxPct)
   );

@@ -3,7 +3,7 @@ import { OpsCardRow } from "@/components/dashboard/booking-ops/ops-card-row";
 import { OpsSectionCard } from "@/components/dashboard/booking-ops/ops-section-card";
 import { bookingCategoryForRecord, hostBookingCategoryLabel } from "@/lib/host/booking-category";
 import type { HostBookingRecord } from "@/lib/host/host-booking-types";
-import { formatBookingDate } from "@/lib/mock/dashboard-data";
+import { formatBookingDate } from "@/lib/booking/display";
 
 export function OpsBookingSection({ booking }: { booking: HostBookingRecord }) {
   const category = bookingCategoryForRecord(booking);

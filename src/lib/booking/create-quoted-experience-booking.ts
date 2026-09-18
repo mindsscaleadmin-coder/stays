@@ -52,13 +52,20 @@ export async function createQuotedExperienceBooking(
   });
 
   const resolvedHost = await resolveListingHostForBooking(input.listingId, input.listing);
+  if (!resolvedHost) {
+    throw new BookingError("Listing not found or not available", "NOT_FOUND");
+  }
 
   await ensureListingForBooking({
-    ...input.listing,
     id: input.listingId,
-    hostId: resolvedHost?.hostId ?? input.listing.hostId,
-    hostName: resolvedHost?.hostName ?? input.listing.hostName,
-    pricePerNight: input.listing.pricePerNight || session.price,
+    title: input.listing.title,
+    hostId: resolvedHost.hostId,
+    hostName: resolvedHost.hostName,
+    location: input.listing.location,
+    maxGuests: input.listing.maxGuests,
+    pricePerNight: 0,
+    instantBook: input.listing.instantBook,
+    currency: input.listing.currency,
   });
 
   const existingGuest = await prisma.user.findUnique({ where: { id: input.guestId } });

@@ -80,7 +80,7 @@ export function GuestSupportContent() {
 
   if (loading || !ready || !user || !data) {
     return (
-      <DashboardShell title="Guest" subtitle="Support" navItems={GUEST_NAV}>
+      <DashboardShell title="Guest" subtitle="Support" tone="client" navItems={GUEST_NAV}>
         <div className="flex items-center justify-center min-h-[320px]">
           <Loader2 className="w-8 h-8 animate-spin text-green-600" />
         </div>
@@ -89,7 +89,7 @@ export function GuestSupportContent() {
   }
 
   return (
-    <DashboardShell title="Guest" subtitle="Support" navItems={GUEST_NAV}>
+    <DashboardShell title="Guest" subtitle="Support" tone="client" navItems={GUEST_NAV}>
       <div className="space-y-6 max-w-3xl">
         <div>
           <h2 className="text-xl font-bold text-gray-900 font-display">Support</h2>

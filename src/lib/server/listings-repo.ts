@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { isDemoApiMode } from "@/lib/auth/booking-access";
 import { prisma } from "@/lib/prisma";
 import { countryMatchTokens } from "@/lib/currency";
 import type {
@@ -413,6 +414,7 @@ let listingsSeeded = false;
 
 export async function seedListingsIfEmpty(seed: SubmittedListing[]): Promise<number> {
   if (listingsSeeded) return 0;
+  if (!isDemoApiMode()) return 0;
   const count = await prisma.listing.count();
   if (count > 0) {
     listingsSeeded = true;

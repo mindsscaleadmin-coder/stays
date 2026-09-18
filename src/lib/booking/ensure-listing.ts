@@ -1,6 +1,7 @@
-import { prisma } from "@/lib/prisma";
+import { BookingError } from "@/lib/booking/confirm-booking";
 import { resolveCatalogListingHost } from "@/lib/listings/catalog-listing-hosts";
 import { createPropertyReference } from "@/lib/listings/property-reference";
+import { prisma } from "@/lib/prisma";
 
 export type ListingBookingSnapshot = {
   id: string;
@@ -14,44 +15,30 @@ export type ListingBookingSnapshot = {
   currency?: string;
 };
 
-function resolveHost(snapshot: ListingBookingSnapshot) {
-  const catalog = resolveCatalogListingHost(snapshot.id);
-  if (snapshot.hostId) {
-    return {
-      hostId: snapshot.hostId,
-      hostName: snapshot.hostName || catalog?.hostName || "Host",
-    };
-  }
-  if (catalog) {
-    return { hostId: catalog.hostId, hostName: catalog.hostName };
-  }
-  return {
-    hostId: `host-for-${snapshot.id}`,
-    hostName: snapshot.hostName || "Host",
-  };
-}
-
 /**
  * Ensure a Listing row exists so confirmBooking can run for mock + catalog stays.
  * Never upgrades an existing host submission to approved — moderation is admin-only.
  * Synthetic shells created here are for booking infrastructure only (catalog IDs).
+ * Client-supplied hostId and pricePerNight are never trusted.
  */
 export async function ensureListingForBooking(
   snapshot: ListingBookingSnapshot
 ): Promise<void> {
-  const { hostId, hostName } = resolveHost(snapshot);
+  const catalog = resolveCatalogListingHost(snapshot.id);
   const existing = await prisma.listing.findUnique({ where: { id: snapshot.id } });
 
   if (existing) {
+    const catalogHostId = catalog?.hostId;
     const wrongSyntheticHost = existing.hostId.startsWith("host-for-");
     const shouldReassign =
-      wrongSyntheticHost && hostId !== existing.hostId && !hostId.startsWith("host-for-");
+      wrongSyntheticHost &&
+      catalogHostId &&
+      catalogHostId !== existing.hostId;
 
-    // Never auto-approve host submissions. Booking requires status=approved elsewhere.
     if (shouldReassign) {
       await prisma.listing.update({
         where: { id: snapshot.id },
-        data: { hostId },
+        data: { hostId: catalogHostId },
       });
     }
     return;
@@ -60,10 +47,18 @@ export async function ensureListingForBooking(
   // Host-created listing IDs (L-…) must be submitted via the host form and approved
   // by admin — do not invent an approved shell for them.
   if (/^L-/i.test(snapshot.id)) {
-    throw new Error(
-      `Listing ${snapshot.id} is not approved yet. Host properties require admin approval before booking.`
+    throw new BookingError(
+      `Listing ${snapshot.id} is not approved yet. Host properties require admin approval before booking.`,
+      "NOT_FOUND"
     );
   }
+
+  if (!catalog) {
+    throw new BookingError("Listing not found or not available", "NOT_FOUND");
+  }
+
+  const { hostId, hostName } = catalog;
+  const pricePerNight = 0;
 
   const host = await prisma.user.findUnique({ where: { id: hostId } });
   if (!host) {
@@ -93,7 +88,7 @@ export async function ensureListingForBooking(
         id: "default",
         name: "Entire place",
         capacity: snapshot.maxGuests ?? 4,
-        price: snapshot.pricePerNight,
+        price: pricePerNight,
       },
     ],
   };
@@ -107,7 +102,7 @@ export async function ensureListingForBooking(
       status: "approved",
       payload: JSON.stringify(payload),
       maxGuests: snapshot.maxGuests ?? 4,
-      pricePerNight: snapshot.pricePerNight,
+      pricePerNight,
     },
   });
 }

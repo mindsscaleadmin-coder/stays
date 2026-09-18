@@ -3,6 +3,7 @@ import { getFinancialSettingsFromDb } from "@/lib/server/platform-catalog-repo";
 import { clampCommissionPct } from "@/lib/admin/platform-config-data";
 import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { getListingPricing } from "@/lib/server/listing-pricing-repo";
+import { isSharedDbEnabled } from "@/lib/shared-db";
 import { defaultForListing } from "@/lib/host/host-pricing-data";
 import {
   buildFinancialSnapshot,
@@ -66,9 +67,11 @@ export async function captureBookingFinancials(
   if (!booking) return;
 
   const meta = parseListingMeta(booking.listing.payload);
-  const pricing = (await getListingPricing(booking.listingId)) ?? defaultForListing(booking.listingId);
+  const storedPricing = await getListingPricing(booking.listingId);
+  const pricing =
+    storedPricing ?? (isSharedDbEnabled() ? null : defaultForListing(booking.listingId));
   const currency = normalizeCurrency(
-    pricing.currency || meta.currency || currencyForCountryName(booking.listing.country || meta.country)
+    pricing?.currency || meta.currency || currencyForCountryName(booking.listing.country || meta.country)
   );
 
   const guestQuote =
@@ -76,8 +79,8 @@ export async function captureBookingFinancials(
     estimateGuestQuoteSnapshot({
       totalPrice: booking.totalPrice,
       currency,
-      taxPct: pricing.taxPct ?? LAUNCH_TAX_PCT,
-      taxLabel: pricing.taxLabel ?? LAUNCH_TAX_LABEL,
+      taxPct: pricing?.taxPct ?? LAUNCH_TAX_PCT,
+      taxLabel: pricing?.taxLabel ?? LAUNCH_TAX_LABEL,
     });
 
   const pct = await commissionPctForBooking(booking.listing.hostId, meta);

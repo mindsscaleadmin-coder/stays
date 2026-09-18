@@ -20,6 +20,8 @@ import { computeExperienceQuote } from "@/lib/booking/compute-experience-quote";
 import {
   DEFAULT_CANCELLATION_POLICY_ID,
   evaluateCancellationRefund,
+  getCancellationRule,
+  type CancellationPolicyId,
 } from "@/lib/booking/policies";
 import { normalizeExperienceSessions } from "@/lib/booking/experience-session-types";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
@@ -79,15 +81,13 @@ export function CheckoutContent({
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paymentMode, setPaymentMode] = useState<"stripe" | "demo">("demo");
-  const [cancellationPolicyId, setCancellationPolicyId] = useState(
-    DEFAULT_CANCELLATION_POLICY_ID
-  );
+  const [cancellationPolicyId, setCancellationPolicyId] =
+    useState<CancellationPolicyId>(DEFAULT_CANCELLATION_POLICY_ID);
 
   useEffect(() => {
     function loadPolicy() {
       setCancellationPolicyId(
-        getSubmissionById(listingId)?.cancellationPolicyId ??
-          DEFAULT_CANCELLATION_POLICY_ID
+        getCancellationRule(getSubmissionById(listingId)?.cancellationPolicyId).id
       );
     }
     loadPolicy();

@@ -14,7 +14,7 @@ import { OpsDetailHeader } from "@/components/dashboard/booking-ops/ops-detail-h
 import { OpsPrivateNotes } from "@/components/dashboard/booking-ops/ops-private-notes";
 import { OpsSectionCard } from "@/components/dashboard/booking-ops/ops-section-card";
 import { OpsStaffAssign } from "@/components/dashboard/booking-ops/ops-staff-assign";
-import { formatBookingDate, STATUS_STYLES } from "@/lib/mock/dashboard-data";
+import { formatBookingDate, STATUS_STYLES } from "@/lib/booking/display";
 import { useHostBookings } from "@/lib/host/use-host-bookings";
 import type { RefundStatus } from "@/lib/host/host-booking-types";
 import { displaySpecialRequests, getBookingTimeline } from "@/lib/host/host-booking-utils";
@@ -152,31 +152,23 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
 
   return (
     <HostDashboardShell>
-      <div className="space-y-5 print:space-y-0">
-        <div className="flex items-center justify-between gap-3 print:hidden">
+      <div className="space-y-4 print:space-y-0">
+        <div className="flex items-center justify-between gap-4 print:hidden">
           <Link
             href="/host/bookings"
-            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-green-800"
+            className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-green-800 transition-colors"
           >
-            <ArrowLeft className="w-4 h-4" />
-            Bookings
+            <ArrowLeft className="w-4 h-4 shrink-0" />
+            <span>Back to bookings</span>
           </Link>
-          <div className="flex items-center gap-2">
-            <span className="hidden sm:inline text-[11px] text-gray-500">
-              Booking{" "}
-              <span className="font-mono font-semibold text-green-800">
-                {booking.bookingReference || booking.id}
-              </span>
-            </span>
-            <button
-              type="button"
-              onClick={handlePrint}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 border border-gray-200 hover:border-green-400 px-3 py-1.5 rounded-full"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              Print
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="inline-flex items-center gap-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 px-4 py-2 rounded-xl shadow-sm transition-colors"
+          >
+            <Printer className="w-4 h-4" />
+            Print summary
+          </button>
         </div>
 
         {message && (
@@ -192,8 +184,8 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
 
         <OpsDetailHeader booking={booking} />
 
-        <div className="grid grid-cols-1 xl:grid-cols-5 gap-5 print:hidden">
-          <div className="xl:col-span-3 space-y-5">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start print:hidden">
+          <div className="lg:col-span-3 space-y-4">
             <OpsCustomerSection
               booking={booking}
               guestSummary={guestSummary}
@@ -201,34 +193,8 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
             />
             <OpsBookingSection booking={booking} />
 
-            {hostId ? (
-              <>
-                <OpsStaffAssign
-                  hostId={hostId}
-                  assignedStaffId={opsView.ops?.assignedStaffId ?? null}
-                  assignedStaffName={opsView.assignedStaffName}
-                  saving={opsSaving}
-                  onAssign={async (staffId) => {
-                    const result = await patchOps({ assignedStaffId: staffId });
-                    if (result) {
-                      await refresh({ force: true });
-                      flash(staffId ? "Staff assigned." : "Staff unassigned.");
-                    }
-                  }}
-                />
-                <OpsPrivateNotes
-                  notes={opsView.ops?.privateNotes ?? ""}
-                  saving={opsSaving}
-                  onSave={async (privateNotes) => {
-                    const result = await patchOps({ privateNotes });
-                    if (result) await refresh({ force: true });
-                  }}
-                />
-              </>
-            ) : null}
-
             <OpsSectionCard title="Payment">
-              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
                 <OpsCardRow
                   label="Listed nightly"
                   value={`${booking.nightlyRate} × ${booking.nights}`}
@@ -260,7 +226,7 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
             <OpsActivityTimeline booking={booking} />
           </div>
 
-          <div className="xl:col-span-2 space-y-5">
+          <aside className="lg:col-span-2 space-y-4">
             <OpsCompletionActions
               booking={booking}
               timeline={timeline}
@@ -306,6 +272,32 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
               onCancel={openCancel}
             />
 
+            {hostId ? (
+              <>
+                <OpsStaffAssign
+                  hostId={hostId}
+                  assignedStaffId={opsView.ops?.assignedStaffId ?? null}
+                  assignedStaffName={opsView.assignedStaffName}
+                  saving={opsSaving}
+                  onAssign={async (staffId) => {
+                    const result = await patchOps({ assignedStaffId: staffId });
+                    if (result) {
+                      await refresh({ force: true });
+                      flash(staffId ? "Staff assigned." : "Staff unassigned.");
+                    }
+                  }}
+                />
+                <OpsPrivateNotes
+                  notes={opsView.ops?.privateNotes ?? ""}
+                  saving={opsSaving}
+                  onSave={async (privateNotes) => {
+                    const result = await patchOps({ privateNotes });
+                    if (result) await refresh({ force: true });
+                  }}
+                />
+              </>
+            ) : null}
+
             <BookingMessageThread
               bookingId={booking.id}
               viewerRole="host"
@@ -316,7 +308,7 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
               compact
             />
 
-            <section className="bg-white rounded-2xl border border-gray-200 p-5">
+            <section className="bg-white rounded-2xl border border-gray-200/90 p-4 shadow-sm">
               <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 mb-3">
                 Cancellation
               </h2>
@@ -398,7 +390,7 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
               </div>
             )}
             </section>
-          </div>
+          </aside>
         </div>
 
         <article className="booking-sheet hidden print:block bg-white rounded-2xl border shadow-sm overflow-hidden print:shadow-none print:rounded-none print:border print:border-black max-w-3xl mx-auto">

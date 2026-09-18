@@ -36,4 +36,18 @@ describe("guest receipt email", () => {
     expect(html).toContain("GST (18%, included)");
     expect(html).not.toContain("VAT");
   });
+
+  it("escapes html in guest-controlled fields", () => {
+    const html = buildGuestInvoiceHtml({
+      ...input,
+      guestName: '<img src=x onerror="alert(1)">',
+      propertyTitle: "Evil <b>Property</b>",
+      bookingReference: "REF-<script>",
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain('<img src=x onerror="alert(1)">');
+    expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
+    expect(html).toContain("Evil &lt;b&gt;Property&lt;/b&gt;");
+    expect(html).toContain("REF-&lt;script&gt;");
+  });
 });

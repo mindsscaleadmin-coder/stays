@@ -61,8 +61,15 @@ services:
       context: .
       dockerfile: docker/worker/Dockerfile
     environment:
+      DATABASE_URL: postgresql://farmstays:farmstays@postgres:5432/farmstays?pgbouncer=false
+      DIRECT_URL: postgresql://farmstays:farmstays@postgres:5432/farmstays
+      NEXT_PUBLIC_APP_URL: http://localhost:8080
       REDIS_URL: redis://redis:6379
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-Farm Stays <noreply@example.com>}
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
 

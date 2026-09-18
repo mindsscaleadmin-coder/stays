@@ -198,6 +198,20 @@ export function useHostBookings(bookingId?: string) {
       }
       throw new Error("This booking is not on the server calendar.");
     },
+    markNoShow: async (id: string, noShow: boolean, note?: string) => {
+      if (looksLikeServerBooking(id)) {
+        const result = await tryServer(`/api/bookings/${id}/no-show`, {
+          method: "POST",
+          body: JSON.stringify({ noShow, note }),
+        });
+        if (!result.ok) throw new Error(result.error || "Could not update no-show");
+        await refresh({ force: true });
+        return getHostBookingRecord(id);
+      }
+      const saved = updateHostBookingRecord(id, { noShow });
+      await refresh({ force: true });
+      return saved;
+    },
     update: async (id: string, updates: HostBookingUpdate) => {
       if (looksLikeServerBooking(id)) {
         if (updates.refundStatus && updates.refundStatus !== "none") {

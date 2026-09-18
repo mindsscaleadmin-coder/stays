@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { usePathname } from "@/i18n/routing";
 import { HostRouteGuard } from "@/components/auth/host-route-guard";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
+import { HostStaffAccessProvider } from "@/lib/host/use-host-staff-access";
 
 const PUBLIC_HOST_PATHS = ["/host/login", "/host/signup"];
 
@@ -23,8 +24,10 @@ function HostChrome({ children }: { children: ReactNode }) {
 
 export function HostLayoutWrapper({ children }: { children: ReactNode }) {
   return (
-    <HostChrome>
-      <HostRouteGuard>{children}</HostRouteGuard>
-    </HostChrome>
+    <HostStaffAccessProvider>
+      <HostChrome>
+        <HostRouteGuard>{children}</HostRouteGuard>
+      </HostChrome>
+    </HostStaffAccessProvider>
   );
 }

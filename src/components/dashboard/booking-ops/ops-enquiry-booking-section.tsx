@@ -3,7 +3,7 @@ import { OpsCardRow } from "@/components/dashboard/booking-ops/ops-card-row";
 import { OpsSectionCard } from "@/components/dashboard/booking-ops/ops-section-card";
 import { hostBookingCategoryLabel, bookingCategoryForRecord } from "@/lib/host/booking-category";
 import type { HostBookingRecord } from "@/lib/host/host-booking-types";
-import { formatBookingDate } from "@/lib/mock/dashboard-data";
+import { formatBookingDate } from "@/lib/booking/display";
 
 function formatEventDate(booking: HostBookingRecord): string {
   if (booking.dateFlexible) return "Flexible date";

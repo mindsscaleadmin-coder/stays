@@ -32,7 +32,7 @@ import {
   qualityInputFromListing,
 } from "@/lib/listings/listing-quality-validation";
 import { ListingQualityChecklist } from "@/components/dashboard/listing-quality-checklist";
-import { STATUS_STYLES } from "@/lib/mock/dashboard-data";
+import { STATUS_STYLES } from "@/lib/booking/display";
 import { cn } from "@/lib/utils";
 import {
   LISTING_TITLE_MAX_CHARS,

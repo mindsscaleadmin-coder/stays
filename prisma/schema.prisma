@@ -151,6 +151,9 @@ model Booking {
   checkInStatus String    @default("pending")
   checkedInAt   DateTime?
   checkedOutAt  DateTime?
+  /// manual | auto
+  checkInSource  String?
+  checkOutSource String?
   /// none | open | resolved
   disputeStatus      String    @default("none")
   disputeSummary     String?

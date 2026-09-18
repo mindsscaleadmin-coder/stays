@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "@/i18n/routing";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { canManageListings } from "@/lib/auth/roles";
+import { useHostStaffAccess } from "@/lib/host/use-host-staff-access";
 
 const PUBLIC_HOST_PATHS = ["/host/login", "/host/signup"];
 
@@ -19,6 +20,7 @@ function HostAuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { user, loading, isHostAccountRestricted, impersonating, stopImpersonating } =
     useAuth();
+  const { ready, member, canAccessPath, homePath, isOwner } = useHostStaffAccess();
   const wasHostRef = useRef(false);
 
   useEffect(() => {
@@ -36,10 +38,70 @@ function HostAuthGate({ children }: { children: ReactNode }) {
     router.push(`/host/login?next=${next}`);
   }, [loading, user, router, pathname]);
 
+  useEffect(() => {
+    if (loading || !ready || !user || !canManageListings(user.roles)) return;
+    if (isOwner || impersonating) return;
+    if (!member) {
+      router.replace("/host/login");
+      return;
+    }
+    if (!canAccessPath(pathname) && pathname !== homePath) {
+      router.replace(homePath);
+    }
+  }, [
+    loading,
+    ready,
+    user,
+    member,
+    isOwner,
+    impersonating,
+    canAccessPath,
+    pathname,
+    homePath,
+    router,
+  ]);
+
   if (!user || !canManageListings(user.roles)) {
     if (loading && wasHostRef.current) {
       return <>{children}</>;
     }
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-green-700" />
+      </div>
+    );
+  }
+
+  if (
+    ready &&
+    user &&
+    canManageListings(user.roles) &&
+    !isOwner &&
+    !impersonating &&
+    !member
+  ) {
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center px-4">
+        <div className="bg-white border rounded-2xl p-6 max-w-md text-center space-y-3">
+          <h2 className="text-lg font-bold text-gray-900">Access removed</h2>
+          <p className="text-sm text-gray-500">
+            Your staff account is inactive or no longer exists. Contact the host owner or platform
+            support.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (
+    ready &&
+    user &&
+    canManageListings(user.roles) &&
+    !isOwner &&
+    !impersonating &&
+    member &&
+    !canAccessPath(pathname)
+  ) {
     return (
       <div className="min-h-[50vh] flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-green-700" />

@@ -80,8 +80,15 @@ async function fetchSharedListings(force = false): Promise<SubmittedListing[]> {
       sharedListingsCache = listings;
       sharedListingsFetchedAt = Date.now();
       return listings;
-    } catch {
-      return sharedListingsCache ?? loadMirroredSubmissions();
+    } catch (error) {
+      if (sharedListingsCache) {
+        return sharedListingsCache;
+      }
+      const mirrored = loadMirroredSubmissions();
+      if (mirrored.length > 0) {
+        return mirrored;
+      }
+      throw error instanceof Error ? error : new Error("Failed to load listings");
     }
   })();
   try {
@@ -146,6 +153,9 @@ export function useListingSubmissionsStore() {
         return;
       } catch (error) {
         console.error(error);
+        const fallback = sharedListingsCache ?? loadMirroredSubmissions();
+        setAll(fallback);
+        return;
       }
     }
     setAll(loadAllSubmissions());
@@ -244,18 +254,9 @@ export function useListingSubmissionsStore() {
     shared,
     submit: async (input: SubmitListingInput) => {
       if (shared) {
-        try {
-          const { listing } = await postListingAction(input);
-          await refresh(true);
-          return listing.id as string;
-        } catch (error) {
-          if (process.env.NODE_ENV === "development" && isNetworkFetchError(error)) {
-            const id = submitListing(input);
-            setAll(loadAllSubmissions());
-            return id;
-          }
-          throw error;
-        }
+        const { listing } = await postListingAction(input);
+        await refresh(true);
+        return listing.id as string;
       }
       const id = submitListing(input);
       await refresh(true);

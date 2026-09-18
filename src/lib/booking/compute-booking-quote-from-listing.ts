@@ -1,6 +1,5 @@
 import { calculateStayQuote } from "@/lib/host/calculate-stay-price";
-import { defaultForListing } from "@/lib/host/host-pricing-data";
-import { getListingPricing } from "@/lib/server/listing-pricing-repo";
+import { resolveBookingListingPricing } from "@/lib/booking/resolve-booking-listing-pricing";
 import { sumExperienceTotal } from "@/lib/booking/experience-prices";
 import type { BookingQuote } from "@/lib/booking/compute-quote";
 import { computeBookingQuote } from "@/lib/booking/compute-quote";
@@ -17,9 +16,7 @@ export async function computeBookingQuoteFromListing(input: {
   currency?: string;
 }): Promise<BookingQuote> {
   const experiencesTotal = sumExperienceTotal(input.experienceIds ?? [], input.guestCount);
-  const pricing =
-    (await getListingPricing(input.listingId)) ??
-    defaultForListing(input.listingId);
+  const pricing = await resolveBookingListingPricing(input.listingId);
 
   const selectedExtras = pricing.extraChargesEnabled
     ? (pricing.extraCharges ?? []).filter((e) => (input.extraIds ?? []).includes(e.id))

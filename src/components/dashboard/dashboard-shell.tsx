@@ -1,7 +1,7 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useSyncExternalStore, useState, type ComponentType, type ReactNode } from "react";
-import { Link, usePathname } from "@/i18n/routing";
+import { memo, useCallback, useEffect, useMemo, useSyncExternalStore, useState, type ComponentType, type MouseEvent, type ReactNode } from "react";
+import { Link, usePathname, useRouter } from "@/i18n/routing";
 import { ChevronDown, Leaf, Menu, X, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DASHBOARD_SIDEBAR_WIDTH_PX } from "@/lib/layout/dashboard-chrome";
@@ -25,10 +25,14 @@ interface DashboardShellProps {
   subtitle?: string;
   /** Host / company brand mark for the sidebar header */
   brandLogo?: string | null;
+  /** Optional visual treatment for product-specific dashboards. */
+  tone?: "default" | "host" | "admin" | "client";
   navItems: DashboardNavItem[];
   sidebarExtra?: ReactNode;
   /** Exact-match roots so /admin doesn't stay active on every admin page */
   exactHrefs?: string[];
+  /** Current `tab` query on /account — keeps guest sidebar active state in sync. */
+  guestTab?: string | null;
   children: ReactNode;
 }
 
@@ -37,22 +41,36 @@ function splitHref(href: string): { path: string; query: URLSearchParams } {
   return { path, query: new URLSearchParams(qs) };
 }
 
+function subscribeLocationSearch(callback: () => void) {
+  const notify = () => callback();
+  window.addEventListener("popstate", notify);
+  return () => window.removeEventListener("popstate", notify);
+}
+
 /**
  * Active-state without useSearchParams — that hook forces a Suspense boundary
  * which remounted the whole sidebar on every navigation and ate clicks.
  */
-function useNavActive(navItems: DashboardNavItem[], exactHrefs: string[]) {
+function useNavActive(
+  navItems: DashboardNavItem[],
+  exactHrefs: string[],
+  guestTab?: string | null
+) {
   const pathname = usePathname();
   const search = useSyncExternalStore(
-    () => () => {},
+    subscribeLocationSearch,
     () => (typeof window !== "undefined" ? window.location.search : ""),
     () => ""
   );
 
-  const searchParams = useMemo(
-    () => new URLSearchParams(search.startsWith("?") ? search.slice(1) : search),
-    [search]
-  );
+  const searchParams = useMemo(() => {
+    if (guestTab !== undefined && pathname === "/account") {
+      const params = new URLSearchParams();
+      if (guestTab) params.set("tab", guestTab);
+      return params;
+    }
+    return new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  }, [guestTab, pathname, search]);
 
   const exactSet = useMemo(() => new Set(exactHrefs), [exactHrefs]);
 
@@ -119,20 +137,46 @@ function toIntlHref(href: string) {
 function NavLink({
   href,
   onNavigate,
+  clientTabNav = false,
   className,
   children,
 }: {
   href: string;
   onNavigate?: () => void;
+  clientTabNav?: boolean;
   className?: string;
   children: ReactNode;
 }) {
+  const pathname = usePathname();
+  const router = useRouter();
+
+  function handleClick(event: MouseEvent<HTMLAnchorElement>) {
+    const plainLeftClick =
+      event.button === 0 &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.shiftKey &&
+      !event.altKey;
+    const { path, query } = splitHref(href);
+
+    // Guest /account tabs share one route — router.replace updates search params.
+    if (clientTabNav && plainLeftClick && pathname === path) {
+      event.preventDefault();
+      const search = query.toString();
+      const nextHref = search ? `${path}?${search}` : path;
+      router.replace(nextHref, { scroll: false });
+      onNavigate?.();
+      return;
+    }
+    onNavigate?.();
+  }
+
   return (
     <Link
       href={toIntlHref(href)}
       prefetch={false}
       className={className}
-      onClick={() => onNavigate?.()}
+      onClick={handleClick}
     >
       {children}
     </Link>
@@ -142,14 +186,20 @@ function NavLink({
 const SidebarNav = memo(function SidebarNav({
   navItems,
   exactHrefs,
+  guestTab,
   onNavigate,
+  tone = "default",
 }: {
   navItems: DashboardNavItem[];
   exactHrefs: string[];
+  guestTab?: string | null;
   onNavigate?: () => void;
+  tone?: DashboardShellProps["tone"];
 }) {
-  const { isActive, isSectionActive } = useNavActive(navItems, exactHrefs);
+  const { isActive, isSectionActive } = useNavActive(navItems, exactHrefs, guestTab);
+  const clientTabNav = tone === "client";
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const hostTone = tone !== "default";
 
   return (
     <nav className="p-3 flex flex-col gap-0.5 relative z-10">
@@ -173,18 +223,28 @@ const SidebarNav = memo(function SidebarNav({
                 className={cn(
                   "relative flex items-center gap-3 w-full px-3.5 py-3 rounded-xl text-sm font-medium text-start",
                   sectionActive
-                    ? "bg-gray-100 text-gray-900"
-                    : "text-gray-700 hover:bg-gray-50"
+                    ? hostTone
+                      ? "bg-white/12 text-white ring-1 ring-inset ring-white/10"
+                      : "bg-gray-100 text-gray-900"
+                    : hostTone
+                      ? "text-green-100/80 hover:bg-white/8 hover:text-white"
+                      : "text-gray-700 hover:bg-gray-50"
                 )}
               >
                 {sectionActive && (
-                  <span className="absolute start-0 top-2 bottom-2 w-[3px] rounded-full bg-green-600" />
+                  <span className="absolute start-0 top-2 bottom-2 w-[3px] rounded-full bg-amber-400" />
                 )}
               {Icon && (
                 <Icon
                   className={cn(
                     "w-[18px] h-[18px] shrink-0",
-                    sectionActive ? "text-gray-900" : "text-gray-500"
+                    sectionActive
+                      ? hostTone
+                        ? "text-amber-300"
+                        : "text-gray-900"
+                      : hostTone
+                        ? "text-green-200/70"
+                        : "text-gray-500"
                   )}
                   strokeWidth={1.75}
                 />
@@ -200,22 +260,33 @@ const SidebarNav = memo(function SidebarNav({
                 )}
                 <ChevronDown
                   className={cn(
-                    "w-4 h-4 text-gray-400 transition-transform",
+                    "w-4 h-4 transition-transform",
+                    hostTone ? "text-green-200/60" : "text-gray-400",
                     isOpen && "rotate-180"
                   )}
                 />
               </button>
               {isOpen && (
-                <div className="ms-4 mt-0.5 mb-1 flex flex-col gap-0.5 border-s border-gray-100 ps-2">
+                <div
+                  className={cn(
+                    "ms-4 mt-0.5 mb-1 flex flex-col gap-0.5 border-s ps-2",
+                    hostTone ? "border-white/10" : "border-gray-100"
+                  )}
+                >
                   <NavLink
                     href={item.href}
                     onNavigate={onNavigate}
+                    clientTabNav={clientTabNav}
                     className={cn(
                       "relative px-3 py-2 rounded-lg text-sm font-medium",
                       isActive(item.href) &&
                         !item.children?.some((c) => isActive(c.href))
-                        ? "bg-gray-100 text-gray-900"
-                        : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
+                        ? hostTone
+                          ? "bg-white/12 text-white"
+                          : "bg-gray-100 text-gray-900"
+                        : hostTone
+                          ? "text-green-100/65 hover:bg-white/8 hover:text-white"
+                          : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
                     )}
                   >
                     {item.overviewLabel ?? "Overview"}
@@ -228,15 +299,25 @@ const SidebarNav = memo(function SidebarNav({
                         key={child.href}
                         href={child.href}
                         onNavigate={onNavigate}
+                        clientTabNav={clientTabNav}
                         className={cn(
                           "relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium",
                           childActive
-                            ? "bg-gray-100 text-gray-900"
-                            : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
+                            ? hostTone
+                              ? "bg-white/12 text-white"
+                              : "bg-gray-100 text-gray-900"
+                            : hostTone
+                              ? "text-green-100/65 hover:bg-white/8 hover:text-white"
+                              : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
                         )}
                       >
                         {childActive && (
-                          <span className="absolute start-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-green-600" />
+                          <span
+                            className={cn(
+                              "absolute start-0 top-1.5 bottom-1.5 w-[3px] rounded-full",
+                              hostTone ? "bg-amber-400" : "bg-green-600"
+                            )}
+                          />
                         )}
                         {ChildIcon && (
                           <ChildIcon className="w-4 h-4 shrink-0" strokeWidth={1.75} />
@@ -262,27 +343,44 @@ const SidebarNav = memo(function SidebarNav({
         const active = isActive(item.href);
         const Trailing = item.Trailing;
         const showNotice = Boolean(item.trailing || item.badge);
-
         return (
           <div key={`${item.href}-${item.label}`} className="relative">
             <NavLink
               href={item.href}
               onNavigate={onNavigate}
+              clientTabNav={clientTabNav}
               className={cn(
                 "relative flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium cursor-pointer",
-                active ? "bg-gray-100 text-gray-900" : "text-gray-700 hover:bg-gray-50",
+                active
+                  ? hostTone
+                    ? "bg-white/12 text-white shadow-sm ring-1 ring-inset ring-white/10"
+                    : "bg-gray-100 text-gray-900"
+                  : hostTone
+                    ? "text-green-100/80 hover:bg-white/8 hover:text-white"
+                    : "text-gray-700 hover:bg-gray-50",
                 Trailing ? "pe-14" : undefined
               )}
             >
               {active && (
-                <span className="absolute start-0 top-2 bottom-2 w-[3px] rounded-full bg-green-600" />
+                <span
+                  className={cn(
+                    "absolute start-0 top-2 bottom-2 w-[3px] rounded-full",
+                    hostTone ? "bg-amber-400" : "bg-green-600"
+                  )}
+                />
               )}
               {Icon && (
                 <span className="relative shrink-0">
                   <Icon
                     className={cn(
                       "w-[18px] h-[18px]",
-                      active ? "text-gray-900" : "text-gray-500"
+                      active
+                        ? hostTone
+                          ? "text-amber-300"
+                          : "text-gray-900"
+                        : hostTone
+                          ? "text-green-200/70"
+                          : "text-gray-500"
                     )}
                     strokeWidth={1.75}
                   />
@@ -323,15 +421,25 @@ function SidebarChrome({
   brandLogo,
   onClose,
   showClose,
+  tone = "default",
 }: {
   title: string;
   subtitle?: string;
   brandLogo?: string | null;
   onClose?: () => void;
   showClose?: boolean;
+  tone?: DashboardShellProps["tone"];
 }) {
+  const hostTone = tone !== "default";
   return (
-    <div className="p-5 border-b border-gray-100 flex items-center justify-between shrink-0">
+    <div
+      className={cn(
+        "p-5 border-b flex items-center justify-between shrink-0",
+        hostTone
+          ? "border-white/10 bg-transparent"
+          : "border-gray-100"
+      )}
+    >
       <Link href="/" onClick={onClose} className="flex items-center gap-2.5 min-w-0">
         {brandLogo ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -341,23 +449,47 @@ function SidebarChrome({
             className="w-9 h-9 rounded-xl object-contain bg-white border border-gray-200 shadow-sm shrink-0"
           />
         ) : (
-          <div className="w-9 h-9 bg-green-700 rounded-xl flex items-center justify-center shadow-sm shrink-0">
-            <Leaf className="w-4 h-4 text-white" />
+          <div
+            className={cn(
+              "w-9 h-9 rounded-xl flex items-center justify-center shadow-sm shrink-0",
+              hostTone ? "bg-amber-400" : "bg-green-700"
+            )}
+          >
+            <Leaf className={cn("w-4 h-4", hostTone ? "text-green-950" : "text-white")} />
           </div>
         )}
         <div className="min-w-0">
-          <div className="font-display font-semibold text-sm text-gray-900 tracking-tight truncate">{title}</div>
-          {subtitle && <div className="text-[11px] text-gray-400 mt-0.5 truncate">{subtitle}</div>}
+          <div
+            className={cn(
+              "font-display font-semibold text-sm tracking-tight truncate",
+              hostTone ? "text-white" : "text-gray-900"
+            )}
+          >
+            {title}
+          </div>
+          {subtitle && (
+            <div
+              className={cn(
+                "text-[11px] mt-0.5 truncate",
+                hostTone ? "text-green-100/80" : "text-gray-400"
+              )}
+            >
+              {subtitle}
+            </div>
+          )}
         </div>
       </Link>
       {showClose && (
         <button
           type="button"
-          className="p-1.5 rounded-lg hover:bg-gray-50"
+          className={cn(
+            "p-1.5 rounded-lg",
+            hostTone ? "hover:bg-white/10" : "hover:bg-gray-50"
+          )}
           onClick={onClose}
           aria-label="Close menu"
         >
-          <X className="w-5 h-5 text-gray-500" />
+          <X className={cn("w-5 h-5", hostTone ? "text-white" : "text-gray-500")} />
         </button>
       )}
     </div>
@@ -368,9 +500,11 @@ function DashboardShellInner({
   title,
   subtitle,
   brandLogo,
+  tone = "default",
   navItems,
   sidebarExtra,
   exactHrefs = ["/admin", "/host", "/account"],
+  guestTab,
   children,
 }: DashboardShellProps) {
   const pathname = usePathname();
@@ -386,19 +520,26 @@ function DashboardShellInner({
   }, [pathname]);
 
   return (
-    <div className="min-h-[calc(100vh-120px)] bg-gray-100 lg:flex lg:items-start">
+    <div
+      className={cn(
+        "min-h-[calc(100vh-120px)] lg:flex lg:items-start",
+        tone !== "default" ? "bg-[#f3f7f1]" : "bg-gray-100"
+      )}
+    >
       <DashboardSidebarColumn
         pathname={pathname}
         title={title}
         subtitle={subtitle}
         brandLogo={brandLogo}
+        tone={tone}
         navItems={navItems}
         exactHrefs={exactHrefs}
+        guestTab={guestTab}
         sidebarExtra={sidebarExtra}
         sidebarOpen={sidebarOpen}
         onCloseSidebar={closeSidebar}
       />
-      <DashboardMainColumn onOpenSidebar={openSidebar}>
+      <DashboardMainColumn onOpenSidebar={openSidebar} tone={tone}>
         {children}
       </DashboardMainColumn>
     </div>
@@ -410,8 +551,10 @@ const DashboardSidebarColumn = memo(function DashboardSidebarColumn({
   title,
   subtitle,
   brandLogo,
+  tone = "default",
   navItems,
   exactHrefs,
+  guestTab,
   sidebarExtra,
   sidebarOpen,
   onCloseSidebar,
@@ -420,8 +563,10 @@ const DashboardSidebarColumn = memo(function DashboardSidebarColumn({
   title: string;
   subtitle?: string;
   brandLogo?: string | null;
+  tone?: DashboardShellProps["tone"];
   navItems: DashboardNavItem[];
   exactHrefs: string[];
+  guestTab?: string | null;
   sidebarExtra?: ReactNode;
   sidebarOpen: boolean;
   onCloseSidebar: () => void;
@@ -429,15 +574,25 @@ const DashboardSidebarColumn = memo(function DashboardSidebarColumn({
   return (
     <>
       <aside
-        className="hidden lg:flex flex-col shrink-0 bg-white border-e border-gray-100 sticky z-20 overflow-y-auto pointer-events-auto"
+        className={cn(
+          "hidden lg:flex flex-col shrink-0 border-e sticky z-20 overflow-y-auto pointer-events-auto",
+          tone !== "default"
+            ? "bg-gradient-to-b from-[#123d2d] via-[#174a36] to-[#1b513b] border-green-950/40"
+            : "bg-white border-gray-100"
+        )}
         style={{
           width: DASHBOARD_SIDEBAR_WIDTH_PX,
           top: "4.5rem",
           height: "calc(100dvh - 4.5rem)",
         }}
       >
-        <SidebarChrome title={title} subtitle={subtitle} brandLogo={brandLogo} />
-        <SidebarNav navItems={navItems} exactHrefs={exactHrefs} />
+        <SidebarChrome title={title} subtitle={subtitle} brandLogo={brandLogo} tone={tone} />
+        <SidebarNav
+          navItems={navItems}
+          exactHrefs={exactHrefs}
+          guestTab={guestTab}
+          tone={tone}
+        />
         {sidebarExtra}
       </aside>
 
@@ -450,20 +605,28 @@ const DashboardSidebarColumn = memo(function DashboardSidebarColumn({
             aria-label="Close overlay"
           />
           <aside
-            className="lg:hidden fixed inset-y-0 start-0 z-[100] isolate pointer-events-auto bg-white shadow-[0_8px_30px_rgb(0,0,0,0.08)] flex flex-col overflow-y-auto pt-[env(safe-area-inset-top)]"
+            className={cn(
+              "lg:hidden fixed inset-y-0 start-0 z-[100] isolate pointer-events-auto shadow-[0_8px_30px_rgb(0,0,0,0.08)] flex flex-col overflow-y-auto pt-[env(safe-area-inset-top)]",
+              tone !== "default"
+                ? "bg-gradient-to-b from-[#123d2d] via-[#174a36] to-[#1b513b]"
+                : "bg-white"
+            )}
             style={{ width: DASHBOARD_SIDEBAR_WIDTH_PX }}
           >
             <SidebarChrome
               title={title}
               subtitle={subtitle}
               brandLogo={brandLogo}
+              tone={tone}
               showClose
               onClose={onCloseSidebar}
             />
             <SidebarNav
               navItems={navItems}
               exactHrefs={exactHrefs}
+              guestTab={guestTab}
               onNavigate={onCloseSidebar}
+              tone={tone}
             />
             {sidebarExtra}
           </aside>
@@ -476,16 +639,24 @@ const DashboardSidebarColumn = memo(function DashboardSidebarColumn({
 const DashboardMainColumn = memo(function DashboardMainColumn({
   children,
   onOpenSidebar,
+  tone = "default",
 }: {
   children: ReactNode;
   onOpenSidebar: () => void;
+  tone?: DashboardShellProps["tone"];
 }) {
   return (
     <div id="dashboard-main-column" className="min-w-0 flex-1">
       <div className="max-w-7xl mx-auto px-4 py-4 sm:py-6">
         <button
           type="button"
-          className="lg:hidden mb-4 flex items-center gap-2 text-sm font-medium text-gray-600"
+          className={cn(
+            "lg:hidden mb-4 items-center gap-2 text-sm font-semibold px-3 py-2 rounded-xl border",
+            "flex",
+            tone !== "default"
+              ? "border-green-200 bg-white text-green-800 shadow-sm"
+              : "border-transparent text-gray-600"
+          )}
           onClick={onOpenSidebar}
         >
           <Menu className="w-5 h-5" /> Menu

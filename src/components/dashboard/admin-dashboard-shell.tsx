@@ -60,13 +60,15 @@ function AdminDashboardLayout({ children }: { children: ReactNode }) {
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
 
   return (
-    <div className="min-h-[calc(100vh-120px)] bg-gray-100 lg:flex lg:items-start">
+    <div className="min-h-[calc(100vh-120px)] bg-[#f3f7f1] lg:flex lg:items-start">
       <AdminSidebar
         pathname={pathname}
         sidebarOpen={sidebarOpen}
         onCloseSidebar={closeSidebar}
       />
-      <DashboardMainColumn onOpenSidebar={openSidebar}>{children}</DashboardMainColumn>
+      <DashboardMainColumn onOpenSidebar={openSidebar} tone="admin">
+        {children}
+      </DashboardMainColumn>
     </div>
   );
 }
@@ -103,6 +105,7 @@ const AdminSidebar = memo(function AdminSidebar({
       pathname={pathname}
       title={title}
       subtitle={subtitle}
+      tone="admin"
       navItems={navItems}
       exactHrefs={ADMIN_EXACT_HREFS}
       sidebarOpen={sidebarOpen}

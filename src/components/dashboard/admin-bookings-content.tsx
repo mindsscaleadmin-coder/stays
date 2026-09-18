@@ -20,7 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { BookingMessageThread } from "@/components/booking/booking-message-thread";
-import { formatBookingDate, STATUS_STYLES } from "@/lib/mock/dashboard-data";
+import { formatBookingDate, STATUS_STYLES } from "@/lib/booking/display";
 import { formatRate } from "@/lib/admin/booking-oversight-utils";
 import { useAdminBookings } from "@/lib/admin/use-admin-bookings";
 import type { HostBookingRecord } from "@/lib/host/host-booking-types";

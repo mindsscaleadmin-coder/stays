@@ -15,6 +15,7 @@ import {
 import { DEFAULT_CANCELLATION_POLICY_ID } from "@/lib/booking/policies";
 import type { HouseRule } from "@/lib/listings/submission-types";
 import { HOST_LISTINGS } from "@/lib/mock/dashboard-data";
+import { isSharedDbEnabled } from "@/lib/shared-db";
 
 export function HostHouseRulesContent() {
   const searchParams = useSearchParams();
@@ -28,7 +29,10 @@ export function HostHouseRulesContent() {
     if (submissions.length > 0) {
       return submissions.map((l) => ({ id: l.id, title: l.title }));
     }
-    return HOST_LISTINGS.map((l) => ({ id: l.id, title: l.title }));
+    if (!isSharedDbEnabled()) {
+      return HOST_LISTINGS.map((l) => ({ id: l.id, title: l.title }));
+    }
+    return [];
   }, [submissions]);
 
   const initialListingId =

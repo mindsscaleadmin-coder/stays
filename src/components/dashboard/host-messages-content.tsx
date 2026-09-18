@@ -7,7 +7,7 @@ import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell"
 import { useAuth } from "@/components/providers/auth-provider";
 import { useHostMessages } from "@/lib/host/use-host-messages";
 import { resolveHostId } from "@/lib/listings/host-listings-utils";
-import { formatBookingDate } from "@/lib/mock/dashboard-data";
+import { formatBookingDate } from "@/lib/booking/display";
 import { cn } from "@/lib/utils";
 
 function formatWhen(iso: string): string {

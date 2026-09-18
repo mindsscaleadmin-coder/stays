@@ -125,7 +125,9 @@ export function OpsCompletionActions({
           </div>
           {booking.checkedInAt ? (
             <div>
-              <dt className="text-[11px] font-medium text-gray-400">Checked in</dt>
+              <dt className="text-[11px] font-medium text-gray-400">
+                Checked in{booking.checkInSource ? ` (${booking.checkInSource})` : ""}
+              </dt>
               <dd className="text-gray-800 mt-0.5">
                 {new Date(booking.checkedInAt).toLocaleString()}
               </dd>
@@ -133,7 +135,9 @@ export function OpsCompletionActions({
           ) : null}
           {booking.checkedOutAt ? (
             <div>
-              <dt className="text-[11px] font-medium text-gray-400">Checked out</dt>
+              <dt className="text-[11px] font-medium text-gray-400">
+                Checked out{booking.checkOutSource ? ` (${booking.checkOutSource})` : ""}
+              </dt>
               <dd className="text-gray-800 mt-0.5">
                 {new Date(booking.checkedOutAt).toLocaleString()}
               </dd>

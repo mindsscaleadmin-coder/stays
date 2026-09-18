@@ -219,6 +219,11 @@ export function Header() {
   const { user, loading, isAdmin, isHost, signOut } = useAuth();
   const dashboardChrome = isDashboardChromePath(pathname);
   const adminDashboard = isAdminDashboardPath(pathname);
+  const hostDashboard =
+    pathname === "/host" ||
+    (pathname.startsWith("/host/") &&
+      !pathname.endsWith("/login") &&
+      !pathname.endsWith("/signup"));
   const [hostHref, setHostHref] = useState("/host/login");
   const [profileHref, setProfileHref] = useState("/account");
   const [verifyHref, setVerifyHref] = useState("/account/verify");
@@ -282,7 +287,8 @@ export function Header() {
     <header
       className={cn(
         "relative z-[100] w-full min-w-0 bg-white shadow-sm",
-        dashboardChrome && "lg:border-b lg:border-gray-100"
+        dashboardChrome && "lg:border-b",
+        hostDashboard ? "lg:border-green-100" : dashboardChrome && "lg:border-gray-100"
       )}
     >
       <div className="home-page-container py-4 flex items-center justify-between gap-3">
@@ -313,7 +319,12 @@ export function Header() {
           {!adminDashboard ? (
             <Link
               href={hostHref}
-              className="hidden lg:flex items-center gap-1 border border-gray-200 hover:border-green-400 text-gray-500 hover:text-green-700 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+              className={cn(
+                "hidden lg:flex items-center gap-1 border text-xs font-semibold px-2.5 py-1.5 rounded-lg transition-colors",
+                hostDashboard
+                  ? "border-green-700 bg-green-700 text-white shadow-sm hover:bg-green-800 hover:border-green-800"
+                  : "border-gray-200 text-gray-500 hover:border-green-400 hover:text-green-700"
+              )}
             >
               <Home className="w-3.5 h-3.5" /> {t("host")}
             </Link>

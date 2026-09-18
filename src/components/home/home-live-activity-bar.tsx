@@ -3,18 +3,23 @@
 import { memo, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { BOOKING_ACTIVITY } from "@/lib/mock/data";
+import { isSharedDbEnabled } from "@/lib/shared-db";
 
 export const HomeLiveActivityBar = memo(function HomeLiveActivityBar() {
   const t = useTranslations("home");
   const [activityIdx, setActivityIdx] = useState(0);
+  const showBar = !isSharedDbEnabled();
 
   useEffect(() => {
+    if (!showBar) return;
     const iv = setInterval(
       () => setActivityIdx((i) => (i + 1) % BOOKING_ACTIVITY.length),
       3000
     );
     return () => clearInterval(iv);
-  }, []);
+  }, [showBar]);
+
+  if (!showBar) return null;
 
   const activity = BOOKING_ACTIVITY[activityIdx];
 

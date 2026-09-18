@@ -13,7 +13,7 @@ const nextConfig = {
         permanent: true,
       },
       {
-        source: "/:locale(en|ar)/admin/filters",
+        source: "/:locale(en)/admin/filters",
         destination: "/:locale/admin/settings/filters",
         permanent: true,
       },

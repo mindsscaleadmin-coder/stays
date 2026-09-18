@@ -2,46 +2,23 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Link } from "@/i18n/routing";
-import { CalendarRange, ChevronRight, Loader2, X, Zap } from "lucide-react";
+import { CalendarDays, Loader2 } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
-import { OpsListBadges } from "@/components/dashboard/booking-ops/ops-list-badges";
+import { CrmPageHeader } from "@/components/dashboard/crm/crm-page-header";
+import { CrmStatsBar } from "@/components/dashboard/crm/crm-stats-bar";
+import { CrmToolbar } from "@/components/dashboard/crm/crm-toolbar";
+import { CrmBookingCard } from "@/components/dashboard/crm/crm-booking-card";
+import { CrmEmptyState } from "@/components/dashboard/crm/crm-empty-state";
 import { useHostBookings } from "@/lib/host/use-host-bookings";
 import type { BookingTimelineTab } from "@/lib/host/host-booking-types";
+import { getBookingTimeline, todayIso } from "@/lib/host/host-booking-utils";
 import {
-  displaySpecialRequests,
-  filterBookingsByTab,
-  getBookingTimeline,
-  timelineTabLabel,
-} from "@/lib/host/host-booking-utils";
-import { hostBookingDetailPath } from "@/lib/host/host-ops-adapter";
-import {
-  filterBookingsByOperationalStatus,
-  formatBookingListDates,
-} from "@/lib/host/host-booking-list-utils";
-import { operationalStatusLabel } from "@/lib/host/operational-status";
+  applyCrmBookingFilters,
+  bookingNeedsAttention,
+  computeCrmBookingStats,
+  type CrmCategoryFilter,
+} from "@/lib/host/crm-utils";
 import type { OperationalStatus } from "@/lib/host/host-ops-types";
-import { cn } from "@/lib/utils";
-
-const OPS_STATUS_FILTER_OPTIONS: OperationalStatus[] = [
-  "confirmed",
-  "upcoming",
-  "in_progress",
-  "completed",
-  "cancelled",
-];
-
-const TABS: BookingTimelineTab[] = ["upcoming", "ongoing", "past", "all"];
-
-function bookingInDateRange(
-  booking: { checkIn: string; checkOut: string },
-  from: string,
-  to: string
-): boolean {
-  if (from && booking.checkOut < from) return false;
-  if (to && booking.checkIn > to) return false;
-  return true;
-}
 
 function monthBounds(ym: string): { from: string; to: string } {
   const [year, month] = ym.split("-").map(Number);
@@ -58,11 +35,38 @@ function monthFromRange(from: string, to: string): string {
   return from === bounds.from && to === bounds.to ? from.slice(0, 7) : "";
 }
 
+type AttentionFilter = "all" | "attention" | "unassigned";
+
 export function HostBookingsContent() {
   const searchParams = useSearchParams();
   const focusId = searchParams.get("booking");
   const { bookings, ready } = useHostBookings();
+
   const [tab, setTab] = useState<BookingTimelineTab>("upcoming");
+  const [category, setCategory] = useState<CrmCategoryFilter>(() => {
+    const fromUrl = searchParams.get("category");
+    if (fromUrl === "stay" || fromUrl === "experience") return fromUrl;
+    return "all";
+  });
+  const [query, setQuery] = useState("");
+  const [attentionFilter, setAttentionFilter] = useState<AttentionFilter>("all");
+  const [showFilters, setShowFilters] = useState(false);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [month, setMonth] = useState("");
+  const [status, setStatus] = useState("");
+  const [opsStatus, setOpsStatus] = useState<OperationalStatus | "">("");
+
+  useEffect(() => {
+    const fromUrl = searchParams.get("category");
+    if (fromUrl === "stay" || fromUrl === "experience") {
+      setCategory(fromUrl);
+      return;
+    }
+    if (fromUrl === "dining" || fromUrl === "event") {
+      setCategory("all");
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (!focusId) return;
@@ -71,30 +75,65 @@ export function HostBookingsContent() {
     const timeline = getBookingTimeline(found);
     setTab(timeline === "all" ? "upcoming" : timeline);
   }, [focusId, bookings]);
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [month, setMonth] = useState("");
-  const [status, setStatus] = useState<string>("");
-  const [opsStatus, setOpsStatus] = useState<OperationalStatus | "">("");
+
+  useEffect(() => {
+    if (!ready || bookings.length === 0 || focusId) return;
+    const upcomingCount = bookings.filter((b) => getBookingTimeline(b) === "upcoming").length;
+    const ongoingCount = bookings.filter((b) => getBookingTimeline(b) === "ongoing").length;
+    if (upcomingCount === 0 && ongoingCount > 0) {
+      setTab("ongoing");
+    }
+  }, [ready, bookings, focusId]);
+
+  const stats = useMemo(() => computeCrmBookingStats(bookings), [bookings]);
 
   const tabCounts = useMemo(() => {
-    const counts = { upcoming: 0, ongoing: 0, past: 0, all: bookings.length };
-    for (const b of bookings) {
-      const timeline = getBookingTimeline(b);
+    const counts: Record<BookingTimelineTab, number> = {
+      upcoming: 0,
+      ongoing: 0,
+      past: 0,
+      all: bookings.length,
+    };
+    for (const booking of bookings) {
+      const timeline = getBookingTimeline(booking);
       if (timeline !== "all") counts[timeline] += 1;
     }
     return counts;
   }, [bookings]);
 
   const filtered = useMemo(() => {
-    let list = filterBookingsByTab(bookings, tab);
-    if (status) list = list.filter((b) => b.status === status);
-    list = filterBookingsByOperationalStatus(list, opsStatus);
-    if (fromDate || toDate) list = list.filter((b) => bookingInDateRange(b, fromDate, toDate));
-    return list;
-  }, [bookings, tab, status, opsStatus, fromDate, toDate]);
+    let list = applyCrmBookingFilters(bookings, {
+      tab,
+      category,
+      query,
+      fromDate,
+      toDate,
+      status,
+      opsStatus,
+    });
 
-  const hasFilters = Boolean(fromDate || toDate || month || status || opsStatus);
+    if (attentionFilter === "attention") {
+      list = list.filter((booking) => bookingNeedsAttention(booking));
+    } else if (attentionFilter === "unassigned") {
+      list = list.filter((booking) => !booking.assignedStaffName);
+    }
+
+    return list;
+  }, [
+    bookings,
+    tab,
+    category,
+    query,
+    fromDate,
+    toDate,
+    status,
+    opsStatus,
+    attentionFilter,
+  ]);
+
+  const hasFilters = Boolean(
+    fromDate || toDate || month || status || opsStatus || query || category !== "all"
+  );
 
   function applyMonth(value: string) {
     setMonth(value);
@@ -124,6 +163,9 @@ export function HostBookingsContent() {
     setMonth("");
     setStatus("");
     setOpsStatus("");
+    setQuery("");
+    setCategory("all");
+    setAttentionFilter("all");
   }
 
   if (!ready) {
@@ -138,190 +180,141 @@ export function HostBookingsContent() {
 
   return (
     <HostDashboardShell>
-      <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 font-display">Bookings</h2>
-            <p className="text-gray-500 text-sm mt-1">
-              Stays, experiences, and confirmed dining/event enquiries — operational status, staff,
-              and guest details in one place.
-            </p>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border p-4 sm:p-5 flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-green-50 text-green-700 flex items-center justify-center shrink-0">
-            <Zap className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Bookings confirm automatically</p>
-            <p className="text-xs text-gray-500 mt-0.5 max-w-lg">
-              Guests are confirmed as soon as the dates are available. Control who can book by
-              blocking dates or unpublishing a listing.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {TABS.map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              className={cn(
-                "inline-flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-xl border transition-colors",
-                tab === key
-                  ? "bg-green-700 border-green-700 text-white"
-                  : "bg-white border-gray-200 text-gray-600 hover:border-green-300 hover:text-green-800"
-              )}
-            >
-              {timelineTabLabel(key)}
-              {key !== "all" && tabCounts[key] > 0 && (
-                <span
-                  className={cn(
-                    "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center",
-                    tab === key ? "bg-white/20 text-white" : "bg-gray-100 text-gray-600"
-                  )}
-                >
-                  {tabCounts[key]}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <div className="bg-white rounded-2xl border p-4 sm:p-5">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <div className="flex items-center gap-2">
-              <CalendarRange className="w-4 h-4 text-green-600" />
-              <h3 className="text-sm font-semibold text-gray-900">Filters</h3>
-            </div>
-            {hasFilters && (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-900"
-              >
-                <X className="w-3.5 h-3.5" />
-                Clear
-              </button>
-            )}
-          </div>
-          <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
-            <label className="block w-[9.5rem] space-y-1">
-              <span className="text-xs font-medium text-gray-600">Month</span>
-              <input
-                type="month"
-                value={month}
-                onChange={(e) => applyMonth(e.target.value)}
-                className="w-full h-9 border border-gray-200 rounded-lg px-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
-            </label>
-            <label className="block w-[9.5rem] space-y-1">
-              <span className="text-xs font-medium text-gray-600">From</span>
-              <input
-                type="date"
-                value={fromDate}
-                onChange={(e) => applyFromDate(e.target.value)}
-                className="w-full h-9 border border-gray-200 rounded-lg px-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
-            </label>
-            <label className="block w-[9.5rem] space-y-1">
-              <span className="text-xs font-medium text-gray-600">To</span>
-              <input
-                type="date"
-                value={toDate}
-                min={fromDate || undefined}
-                onChange={(e) => applyToDate(e.target.value)}
-                className="w-full h-9 border border-gray-200 rounded-lg px-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
-            </label>
-            <label className="block w-[9.5rem] space-y-1">
-              <span className="text-xs font-medium text-gray-600">Booking status</span>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="w-full h-9 border border-gray-200 rounded-lg px-2.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
-              >
-                <option value="">All statuses</option>
-                <option value="confirmed">Confirmed</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </label>
-            <label className="block w-[9.5rem] space-y-1">
-              <span className="text-xs font-medium text-gray-600">Ops status</span>
-              <select
-                value={opsStatus}
-                onChange={(e) => setOpsStatus(e.target.value as OperationalStatus | "")}
-                className="w-full h-9 border border-gray-200 rounded-lg px-2.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
-              >
-                <option value="">All ops statuses</option>
-                {OPS_STATUS_FILTER_OPTIONS.map((value) => (
-                  <option key={value} value={value}>
-                    {operationalStatusLabel(value)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <p className="text-xs text-gray-400 mt-2.5">
-            Showing bookings that overlap this date range
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 font-display">Bookings</h2>
+          <p className="text-gray-500 text-sm mt-1">
+            Confirmed stays and paid experiences.
           </p>
         </div>
 
-        <div className="bg-white rounded-2xl border divide-y divide-gray-50">
-          {filtered.length === 0 ? (
-            <div className="p-10 text-center text-sm text-gray-500">
-              No bookings in this section.
+        <CrmPageHeader
+          title="Bookings"
+          summary={
+            <CrmStatsBar
+              embedded
+              items={[
+                {
+                  key: "today",
+                  label: "Today",
+                  value: stats.today,
+                  tone: "green",
+                  active:
+                    Boolean(fromDate && toDate && fromDate === todayIso() && toDate === todayIso()),
+                  onClick: () => {
+                    const today = todayIso();
+                    applyMonth("");
+                    setFromDate(today);
+                    setToDate(today);
+                    setTab("all");
+                    setAttentionFilter("all");
+                  },
+                },
+                {
+                  key: "attention",
+                  label: "Needs attention",
+                  value: stats.needsAttention,
+                  tone: "amber",
+                  active: attentionFilter === "attention",
+                  onClick: () => {
+                    setFromDate("");
+                    setToDate("");
+                    setMonth("");
+                    setAttentionFilter("attention");
+                    setTab("all");
+                  },
+                },
+                {
+                  key: "unassigned",
+                  label: "Unassigned",
+                  value: stats.unassigned,
+                  tone: "default",
+                  active: attentionFilter === "unassigned",
+                  onClick: () => {
+                    setFromDate("");
+                    setToDate("");
+                    setMonth("");
+                    setAttentionFilter("unassigned");
+                    setTab("all");
+                  },
+                },
+              ]}
+            />
+          }
+        />
+
+        <CrmToolbar
+          query={query}
+          onQueryChange={setQuery}
+          tab={tab}
+          onTabChange={(next) => {
+            setTab(next);
+            setAttentionFilter("all");
+          }}
+          tabCounts={tabCounts}
+          category={category}
+          onCategoryChange={setCategory}
+          showFilters={showFilters}
+          onToggleFilters={() => setShowFilters((open) => !open)}
+          hasFilters={hasFilters || attentionFilter !== "all"}
+          onClearFilters={clearFilters}
+          month={month}
+          onMonthChange={applyMonth}
+          fromDate={fromDate}
+          onFromDateChange={applyFromDate}
+          toDate={toDate}
+          onToDateChange={applyToDate}
+          status={status}
+          onStatusChange={setStatus}
+          opsStatus={opsStatus}
+          onOpsStatusChange={setOpsStatus}
+        />
+
+        {attentionFilter !== "all" ? (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3.5 shadow-sm">
+            <p className="text-sm text-amber-950 leading-relaxed">
+              {attentionFilter === "attention"
+                ? "Bookings that need a team action."
+                : "Bookings without an assigned team member."}
+            </p>
+            <button
+              type="button"
+              onClick={() => setAttentionFilter("all")}
+              className="text-xs font-semibold text-amber-800 hover:text-amber-950 shrink-0"
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
+
+        {filtered.length === 0 ? (
+          <CrmEmptyState
+            icon={CalendarDays}
+            title="No bookings match this view"
+            description={
+              hasFilters || attentionFilter !== "all"
+                ? "Try clearing filters or switching tabs."
+                : "New bookings appear here when guests confirm or you approve an enquiry."
+            }
+          />
+        ) : (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-3 px-1 pb-2">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">
+                {filtered.length} booking{filtered.length === 1 ? "" : "s"}
+              </h3>
             </div>
-          ) : (
-            filtered.map((b) => {
-              const special = displaySpecialRequests(b);
-              return (
-                <Link
-                  key={b.id}
-                  href={hostBookingDetailPath(b)}
-                  className={cn(
-                    "p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-gray-50/80 transition-colors cursor-pointer",
-                    focusId === b.id && "bg-green-50/70 ring-1 ring-green-200"
-                  )}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="font-semibold text-gray-900">{b.guest}</div>
-                        <div className="text-sm text-gray-500 mt-1">
-                          {b.property} · {formatBookingListDates(b)}
-                        </div>
-                        <OpsListBadges booking={b} className="mt-2" />
-                        {special && (
-                          <p className="text-xs text-gray-400 mt-1 line-clamp-1">{special}</p>
-                        )}
-                        {b.dietaryNeeds && (
-                          <p className="text-xs text-amber-700/90 mt-0.5 line-clamp-1">
-                            Dietary: {b.dietaryNeeds}
-                          </p>
-                        )}
-                        <div className="text-xs text-gray-500 mt-1">
-                          Booking{" "}
-                          <span className="font-mono font-semibold text-green-800">
-                            {b.bookingReference || b.id}
-                          </span>
-                        </div>
-                        <div className="text-sm font-semibold text-green-700 mt-1">{b.total}</div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 mt-1 hidden sm:block" />
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 shrink-0 sm:hidden">
-                    <OpsListBadges booking={b} />
-                  </div>
-                </Link>
-              );
-            })
-          )}
-        </div>
+            <div className="grid gap-2.5">
+              {filtered.map((booking) => (
+                <CrmBookingCard
+                  key={booking.id}
+                  booking={booking}
+                  highlighted={focusId === booking.id}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </HostDashboardShell>
   );

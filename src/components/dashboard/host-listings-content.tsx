@@ -8,7 +8,7 @@ import { Loader2, Plus, Trash2 } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
 import { HostDirectoryBillingBanner } from "@/components/dashboard/host-directory-billing-banner";
 import { HostListingFlashDealBar } from "@/components/dashboard/host-listing-flash-deal-bar";
-import { STATUS_STYLES } from "@/lib/mock/dashboard-data";
+import { STATUS_STYLES } from "@/lib/booking/display";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { nightlyFromListing } from "@/lib/listings/submission-to-stay";

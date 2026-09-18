@@ -1,17 +1,23 @@
 import { Lock, MapPin } from "lucide-react";
 import { ListingMapEmbed } from "@/components/listing/listing-map-embed";
+import { buildLocationMapEmbedUrl } from "@/lib/listings/map-embed";
 
 /** Decorative, non-interactive map for guest listing pages. */
 export function ListingLocationPreview({
   areaLabel,
   mapEmbedUrl,
+  mapSearchQuery,
   className,
 }: {
   areaLabel: string;
   mapEmbedUrl?: string;
+  /** Full location string used to build a fallback map when no embed URL is saved. */
+  mapSearchQuery?: string;
   className?: string;
 }) {
   const label = areaLabel.trim() || "This area";
+  const resolvedMapUrl =
+    mapEmbedUrl || buildLocationMapEmbedUrl(mapSearchQuery?.trim() || label);
 
   return (
     <div
@@ -19,46 +25,16 @@ export function ListingLocationPreview({
       role="img"
       aria-label={`Approximate area — ${label}`}
     >
-      {mapEmbedUrl ? (
-        <div className="absolute inset-0 scale-[1.65]">
+      {resolvedMapUrl ? (
+        <div className="absolute inset-0 scale-[1.35]">
           <ListingMapEmbed
-            src={mapEmbedUrl}
+            src={resolvedMapUrl}
             title={`Map preview — ${label}`}
             className="h-full w-full"
           />
         </div>
       ) : (
-        <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50/80">
-          <div
-            className="absolute inset-0 opacity-[0.35]"
-            style={{
-              backgroundImage: `
-                linear-gradient(rgba(16, 185, 129, 0.08) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(16, 185, 129, 0.08) 1px, transparent 1px)
-              `,
-              backgroundSize: "28px 28px",
-            }}
-          />
-          <svg
-            className="absolute inset-0 h-full w-full text-green-300/40"
-            viewBox="0 0 400 224"
-            preserveAspectRatio="none"
-            aria-hidden="true"
-          >
-            <path
-              d="M0 140 C80 120, 120 160, 200 130 S320 100, 400 125 L400 224 L0 224 Z"
-              fill="currentColor"
-              opacity="0.25"
-            />
-            <path
-              d="M-20 170 C60 150, 140 190, 220 165 S340 140, 420 155"
-              stroke="currentColor"
-              strokeWidth="3"
-              fill="none"
-              opacity="0.5"
-            />
-          </svg>
-        </div>
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50/80" />
       )}
 
       <div

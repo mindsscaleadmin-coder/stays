@@ -34,7 +34,7 @@ export function OpsStatusBadge({ booking }: { booking: HostBookingRecord }) {
   return (
     <span
       className={cn(
-        "inline-flex text-[10px] font-bold px-2.5 py-1 rounded-full",
+        "inline-flex text-[11px] font-semibold px-2.5 py-1 rounded-full tracking-wide",
         OPS_STATUS_STYLES[status]
       )}
     >

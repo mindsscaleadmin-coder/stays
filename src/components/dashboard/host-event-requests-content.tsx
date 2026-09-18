@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/routing";
 import {
   CalendarCheck,
@@ -13,9 +14,21 @@ import {
 } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
 import { useAuth } from "@/components/providers/auth-provider";
-import { resolveHostId } from "@/lib/listings/use-listing-submissions";
+import {
+  filterHostListings,
+  resolveHostId,
+  resolveHostName,
+  useListingSubmissions,
+} from "@/lib/listings/use-listing-submissions";
 import type { EventAvailabilityStatus } from "@/lib/events/event-availability-types";
+import {
+  enquiryCategoryForRequest,
+  enquiryCategoryLabel,
+  filterEnquiriesByCategory,
+  type EnquiryCategoryFilter,
+} from "@/lib/host/enquiry-category";
 import { useHostEventRequests } from "@/lib/host/use-host-event-requests";
+import { cn } from "@/lib/utils";
 
 const STATUS_STYLES: Record<EventAvailabilityStatus, string> = {
   pending: "bg-amber-100 text-amber-800",
@@ -52,15 +65,51 @@ function formatSent(iso: string) {
   });
 }
 
-export function HostEventRequestsContent() {
+const CATEGORY_OPTIONS: EnquiryCategoryFilter[] = ["all", "event", "dining"];
+
+function parseCategoryParam(value: string | null): EnquiryCategoryFilter {
+  if (value === "event" || value === "dining") return value;
+  return "all";
+}
+
+export function HostEnquiriesContent() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const hostId = resolveHostId(user);
+  const hostName = resolveHostName(user);
+  const { all: submissions, ready: listingsReady } = useListingSubmissions({ load: true });
+  const listings = useMemo(
+    () => filterHostListings(submissions, hostId, hostName),
+    [submissions, hostId, hostName]
+  );
+  const listingsById = useMemo(
+    () =>
+      new Map(
+        listings.map((listing) => [
+          listing.id,
+          {
+            parentCategory: listing.parentCategory,
+            category: listing.category,
+            type: listing.type,
+          },
+        ])
+      ),
+    [listings]
+  );
+
   const { requests, ready, refresh } = useHostEventRequests(hostId);
 
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState<"all" | EventAvailabilityStatus>("pending");
+  const [category, setCategory] = useState<EnquiryCategoryFilter>(() =>
+    parseCategoryParam(searchParams.get("category"))
+  );
+
+  useEffect(() => {
+    setCategory(parseCategoryParam(searchParams.get("category")));
+  }, [searchParams]);
 
   function flash(text: string) {
     setMessage(text);
@@ -93,21 +142,52 @@ export function HostEventRequestsContent() {
     }
   }
 
-  const counts = useMemo(() => {
-    return {
-      all: requests.length,
-      pending: requests.filter((r) => r.status === "pending").length,
-      available: requests.filter((r) => r.status === "available").length,
-      unavailable: requests.filter((r) => r.status === "unavailable").length,
-    };
-  }, [requests]);
-
-  const visible = useMemo(
-    () => (filter === "all" ? requests : requests.filter((r) => r.status === filter)),
-    [requests, filter]
+  const categoryScoped = useMemo(
+    () => filterEnquiriesByCategory(requests, category, listingsById),
+    [requests, category, listingsById]
   );
 
-  if (!ready) {
+  const counts = useMemo(() => {
+    return {
+      all: categoryScoped.length,
+      pending: categoryScoped.filter((r) => r.status === "pending").length,
+      available: categoryScoped.filter((r) => r.status === "available").length,
+      unavailable: categoryScoped.filter((r) => r.status === "unavailable").length,
+    };
+  }, [categoryScoped]);
+
+  const categoryCounts = useMemo(() => {
+    const next: Record<EnquiryCategoryFilter, number> = {
+      all: requests.length,
+      event: filterEnquiriesByCategory(requests, "event", listingsById).length,
+      dining: filterEnquiriesByCategory(requests, "dining", listingsById).length,
+    };
+    return next;
+  }, [requests, listingsById]);
+
+  const visible = useMemo(
+    () =>
+      filter === "all"
+        ? categoryScoped
+        : categoryScoped.filter((request) => request.status === filter),
+    [categoryScoped, filter]
+  );
+
+  const pageTitle =
+    category === "dining"
+      ? "Dining enquiries"
+      : category === "event"
+        ? "Event enquiries"
+        : "Enquiries";
+
+  const pageDescription =
+    category === "dining"
+      ? "Reply to table reservation requests. Confirmed tables move to Bookings."
+      : category === "event"
+        ? "Reply to venue availability requests. Confirmed dates move to Bookings."
+        : "Reply to event and dining requests. Confirmed enquiries move to Bookings.";
+
+  if (!ready || !listingsReady) {
     return (
       <HostDashboardShell>
         <div className="flex items-center justify-center min-h-[320px]">
@@ -121,22 +201,26 @@ export function HostEventRequestsContent() {
     <HostDashboardShell>
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-bold text-gray-900 font-display">
-            Event availability requests
-          </h2>
-          <p className="text-gray-500 text-sm mt-1">
-            Guests ask you to confirm a date. Your contact details stay hidden until you mark a
-            request available — then the guest can message you directly.
-          </p>
+          <h2 className="text-xl font-bold text-gray-900 font-display">{pageTitle}</h2>
+          <p className="text-gray-500 text-sm mt-1">{pageDescription}</p>
         </div>
 
-        <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 text-sm text-blue-900">
-          Confirmed enquiries now appear on{" "}
-          <Link href="/host/bookings" className="font-semibold underline hover:text-blue-950">
-            Bookings
-          </Link>{" "}
-          with staff assignment, notes, and completion tracking. Use this page to reply to new
-          requests.
+        <div className="flex flex-wrap gap-1.5">
+          {CATEGORY_OPTIONS.map((key) => (
+            <Link
+              key={key}
+              href={key === "all" ? "/host/enquiries" : `/host/enquiries?category=${key}`}
+              className={cn(
+                "text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors",
+                category === key
+                  ? "bg-gray-900 border-gray-900 text-white shadow-sm"
+                  : "bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+              )}
+            >
+              {key === "all" ? "All" : enquiryCategoryLabel(key)}
+              {categoryCounts[key] > 0 ? ` (${categoryCounts[key]})` : ""}
+            </Link>
+          ))}
         </div>
 
         {message && (
@@ -175,7 +259,11 @@ export function HostEventRequestsContent() {
               {filter === "pending" ? "No requests waiting on you" : "Nothing here yet"}
             </p>
             <p className="text-sm text-gray-500 mt-1">
-              Availability requests from your event listings appear here.
+              {category === "dining"
+                ? "Table reservation requests from your dining listings appear here."
+                : category === "event"
+                  ? "Venue availability requests from your event listings appear here."
+                  : "Availability requests from your Events and Dining listings appear here."}
             </p>
           </div>
         ) : (
@@ -186,6 +274,9 @@ export function HostEventRequestsContent() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-sm font-bold text-gray-900">{request.listingTitle}</h3>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                        {enquiryCategoryLabel(enquiryCategoryForRequest(request, listingsById))}
+                      </span>
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_STYLES[request.status]}`}
                       >
@@ -328,3 +419,6 @@ export function HostEventRequestsContent() {
     </HostDashboardShell>
   );
 }
+
+/** @deprecated Use HostEnquiriesContent */
+export const HostEventRequestsContent = HostEnquiriesContent;

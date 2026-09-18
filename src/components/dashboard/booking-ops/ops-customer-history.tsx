@@ -2,7 +2,7 @@ import { Link } from "@/i18n/routing";
 import { ChevronRight } from "lucide-react";
 import { ordinalWithHost } from "@/lib/host/customer-history-utils";
 import type { HostGuestBookingSummary } from "@/lib/host/customer-history-types";
-import { formatBookingDate } from "@/lib/mock/dashboard-data";
+import { formatBookingDate } from "@/lib/booking/display";
 
 export function OpsCustomerHistory({
   summary,

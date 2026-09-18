@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export PATH="/Users/user/pinokio/bin/miniconda/bin:$PATH"
-cd /Users/user/Projects/farm-stays
+
+# Pinokio/miniconda Node (common on this machine)
+if [ -x "/Users/user/pinokio/bin/miniconda/bin/node" ]; then
+  export PATH="/Users/user/pinokio/bin/miniconda/bin:$PATH"
+fi
+
+cd "$(dirname "$0")/.."
 
 echo "Stopping stuck Next.js servers..."
 for p in 3000 3002 3010; do

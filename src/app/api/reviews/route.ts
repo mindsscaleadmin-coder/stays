@@ -73,6 +73,7 @@ const postSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const requestId = getRequestId(request);
   try {
     await expirePendingBookings();
     const json = await request.json();
@@ -90,6 +91,12 @@ export async function POST(request: Request) {
         (user.user_metadata?.full_name as string | undefined) ||
         user.email ||
         authorName;
+
+      const booking = await loadBookingWithListing(parsed.data.bookingId);
+      if (!booking) {
+        return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+      }
+      assertGuestOwnsBooking(booking, user.id);
     }
 
     const review = await createStayReview({
@@ -97,10 +104,10 @@ export async function POST(request: Request) {
       authorId,
       authorName,
     });
-    return NextResponse.json({ review });
+    return NextResponse.json({ review }, { headers: { "x-request-id": requestId } });
   } catch (error) {
-    if (error instanceof AuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof AuthError || error instanceof BookingAccessError) {
+      return bookingAccessResponse(error, requestId);
     }
     const err = error as Error & { code?: string };
     const status =

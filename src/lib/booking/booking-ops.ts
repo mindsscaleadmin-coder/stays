@@ -151,18 +151,14 @@ export async function refundBooking(input: {
   const percent = Math.round((amount / booking.totalPrice) * 100);
   const refundStatus: RefundStatus = percent >= 100 ? "full" : "partial";
 
-  if (
-    MANUAL_REFUND_APPROVAL &&
-    input.actor === "host" &&
-    !input.completePending
-  ) {
+  if (MANUAL_REFUND_APPROVAL && input.actor === "host") {
     throw new BookingError(
       "Refunds require admin approval. Approve from Admin → Financial → Refund approvals, or mark an offline refund as complete.",
       "INVALID_DATES"
     );
   }
 
-  if (input.completePending && booking.paymentStatus === "refund_pending" && input.actor === "host") {
+  if (input.completePending && booking.paymentStatus === "refund_pending" && input.actor === "admin") {
     return prisma.booking.update({
       where: { id: input.bookingId },
       data: {

@@ -31,8 +31,8 @@ export function OpsStaffAssign({
     null;
 
   return (
-    <OpsSectionCard title="Assigned staff">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+    <OpsSectionCard id="staff" title="Assigned staff">
+      <div className="space-y-3">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <span className="w-9 h-9 rounded-xl bg-green-50 text-green-700 flex items-center justify-center shrink-0">
             <UserCog className="w-4 h-4" />
@@ -41,9 +41,7 @@ export function OpsStaffAssign({
             <p className="text-sm font-semibold text-gray-900">
               {currentName ? `Assigned to ${currentName}` : "No staff assigned"}
             </p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Assign one team member to own this booking operationally.
-            </p>
+            <p className="text-xs text-gray-500 mt-0.5">Operational owner for this booking.</p>
           </div>
         </div>
         {!ready ? (
@@ -53,7 +51,7 @@ export function OpsStaffAssign({
             value={assignedStaffId ?? ""}
             disabled={saving}
             onChange={(e) => void handleChange(e.target.value)}
-            className="w-full sm:w-52 h-10 border border-gray-200 rounded-xl px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
+            className="w-full h-9 border border-gray-200 rounded-xl px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
           >
             <option value="">Unassigned</option>
             {activeStaff.map((member: HostStaffMember) => (

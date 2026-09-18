@@ -20,7 +20,6 @@ function parseTotalPrice(booking: GuestBookingSummary): number {
 function paymentStatusForPreview(booking: GuestBookingSummary): string {
   const raw = (booking.paymentStatus || "").toLowerCase();
   if (raw.includes("paid") && !raw.includes("unpaid")) return "paid";
-  if (booking.status === "confirmed") return "paid";
   return "unpaid";
 }
 
@@ -51,6 +50,7 @@ export async function cancelGuestBooking(input: {
       if (!res.ok) {
         return { ok: false, error: payload.error || "Could not cancel booking" };
       }
+      return { ok: true };
     } catch {
       return { ok: false, error: "Could not cancel booking" };
     }

@@ -362,12 +362,15 @@ export async function expirePendingBookings(
 
   const completed = await completeDueStays(now, { force: true });
   const flashDeals = await expireEndedFlashDeals(now);
+  const { runOperationalSync } = await import("@/lib/booking/operational-sync");
+  const operational = await runOperationalSync(now);
 
   return {
     count: expired.length,
     bookings: expired,
     completed: completed.count,
     flashDealsExpired: flashDeals,
+    operational,
   };
 }
 
@@ -392,6 +395,7 @@ export async function checkInBooking(bookingId: string) {
     data: {
       checkInStatus: "checked_in",
       checkedInAt: booking.checkedInAt ?? now,
+      checkInSource: "manual",
       auditLog: withAudit(booking.auditLog, {
         actor: "Host",
         action: "Checked in",
@@ -408,6 +412,9 @@ export async function completeBooking(bookingId: string) {
   if (booking.status !== "confirmed") {
     throw new BookingError("Only confirmed stays can be checked out", "INVALID_DATES");
   }
+  if (booking.paymentStatus !== "paid") {
+    throw new BookingError("Guest has not paid yet", "INVALID_DATES");
+  }
 
   const now = new Date();
   return prisma.booking.update({
@@ -417,6 +424,7 @@ export async function completeBooking(bookingId: string) {
       checkInStatus: "checked_out",
       checkedInAt: booking.checkedInAt ?? now,
       checkedOutAt: now,
+      checkOutSource: "manual",
       auditLog: withAudit(booking.auditLog, {
         actor: "Host",
         action: "Checked out",
@@ -434,6 +442,7 @@ export async function completeDueStays(now: Date = new Date(), opts?: { force?: 
   const candidates = await prisma.booking.findMany({
     where: {
       status: "confirmed",
+      paymentStatus: "paid",
       checkOut: { lte: now },
     },
     select: { id: true, status: true, checkOut: true },
@@ -448,6 +457,7 @@ export async function completeDueStays(now: Date = new Date(), opts?: { force?: 
       status: "completed",
       checkInStatus: "checked_out",
       checkedOutAt: now,
+      checkOutSource: "auto",
     },
   });
 

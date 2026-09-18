@@ -123,7 +123,7 @@ Post-login side effects (welcome email, audit log) go through **BullMQ + Redis**
 | `welcome-email` | `POST /api/auth/welcome` after sign-up | Worker logs / sends email |
 | `booking-confirmed` | Host accept, demo-pay, Stripe webhook | Worker notifies guest |
 | `audit-log` | Reserved for admin actions | Worker writes structured log |
-| `expire-pending` | Vercel Cron every 15m (`vercel.json`) + Compose `expire-cron` + on booking list/detail GET | Marks stale pending requests expired and refunds when paid |
+| `expire-pending` | Vercel Cron every 15m (`vercel.json`) + Compose `expire-cron` + on booking list/detail GET | Expires stale pending requests, auto-completes due stays, and runs timed check-in / check-out sync |
 
 ```bash
 # Local worker (requires REDIS_URL)

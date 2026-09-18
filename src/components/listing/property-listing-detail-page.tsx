@@ -56,6 +56,7 @@ import {
   type Stay,
 } from "@/lib/mock/data";
 import { usePublicListings } from "@/lib/listings/use-public-listings";
+import { isSharedDbEnabled } from "@/lib/shared-db";
 import { ListingReviewsSection } from "@/components/listing/listing-reviews-section";
 import { VerifiedBadge } from "@/components/ui/verified-badge";
 import { RichTextView } from "@/components/listing/rich-text-view";
@@ -382,6 +383,7 @@ export function PropertyListingDetailPage({
     category: stay.category,
   });
   const isEvent = isDirectory && !isDining;
+  const showLiveActivityMarquee = !isSharedDbEnabled();
   const directoryVariant = isDining ? "dining" : "event";
   const breadcrumbParent = stay.parentCategory?.trim() ?? "";
   const breadcrumbCategory = breadcrumbParent ? (stay.category?.trim() ?? "") : "";
@@ -1943,23 +1945,24 @@ export function PropertyListingDetailPage({
               )}
             </section>
 
-            {/* Live activity */}
-            <div className="bg-[#fbbf24] rounded-xl px-5 py-3 flex items-center gap-3 mb-5" dir="ltr">
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="w-2 h-2 bg-gray-900 rounded-full animate-pulse" />
-                <span className="text-gray-900 text-sm font-semibold">Live</span>
-              </div>
-              <div className="listing-live-marquee-wrapper" aria-label="Recent bookings">
-                <div className="listing-live-marquee-track">
-                  {[...BOOKING_ACTIVITY, ...BOOKING_ACTIVITY].map((item, index) => (
-                    <span key={`${item.name}-${index}`} className="listing-live-marquee-item text-gray-800 text-sm">
-                      <strong className="text-gray-900">{item.name}</strong> booked this property{" "}
-                      <span className="text-gray-800">— {item.time}</span>
-                    </span>
-                  ))}
+            {showLiveActivityMarquee && (
+              <div className="bg-[#fbbf24] rounded-xl px-5 py-3 flex items-center gap-3 mb-5" dir="ltr">
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="w-2 h-2 bg-gray-900 rounded-full animate-pulse" />
+                  <span className="text-gray-900 text-sm font-semibold">Live</span>
+                </div>
+                <div className="listing-live-marquee-wrapper" aria-label="Recent bookings">
+                  <div className="listing-live-marquee-track">
+                    {[...BOOKING_ACTIVITY, ...BOOKING_ACTIVITY].map((item, index) => (
+                      <span key={`${item.name}-${index}`} className="listing-live-marquee-item text-gray-800 text-sm">
+                        <strong className="text-gray-900">{item.name}</strong> booked this property{" "}
+                        <span className="text-gray-800">— {item.time}</span>
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Amenities */}
             <section id="section-amenities" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
@@ -2184,6 +2187,7 @@ export function PropertyListingDetailPage({
               </p>
               <ListingLocationPreview
                 areaLabel={stayLocation.split(",")[0]?.trim() || stayLocation}
+                mapSearchQuery={stayLocation}
                 mapEmbedUrl={mapEmbedUrl}
                 className="h-56 w-full"
               />
@@ -2278,18 +2282,29 @@ export function PropertyListingDetailPage({
 
                 <div
                   ref={datePickerRef}
-                  className="border border-gray-200 rounded-xl overflow-visible mb-3 relative divide-y divide-gray-200"
+                  className="border border-gray-200 rounded-2xl overflow-visible mb-3 relative bg-white shadow-sm"
                 >
-                  <div className="relative">
-                    <div className="grid grid-cols-2 divide-x divide-gray-200">
+                  <div className="px-4 pt-4 pb-3 border-b border-gray-100">
+                    <p className="text-sm font-semibold text-gray-900">Your stay</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Pick dates and guests to see your total
+                    </p>
+                  </div>
+
+                  <div className="relative p-4 pb-3">
+                    <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
                         onClick={() => openDatePicker("checkIn")}
-                        className={`p-3 text-start hover:bg-gray-50 transition-colors ${
-                          datePickerOpen === "checkIn" ? "bg-green-50" : ""
+                        className={`rounded-xl border p-3 text-start transition-colors ${
+                          datePickerOpen === "checkIn"
+                            ? "border-green-500 bg-green-50 ring-1 ring-green-500/30"
+                            : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                         }`}
                       >
-                        <div className="text-xs text-gray-500 mb-0.5">{t("checkIn")}</div>
+                        <div className="text-[11px] font-medium uppercase tracking-wide text-gray-500 mb-1">
+                          {t("checkIn")}
+                        </div>
                         <div
                           className={`text-sm font-semibold truncate ${
                             checkIn ? "text-gray-900" : "text-gray-400"
@@ -2301,11 +2316,15 @@ export function PropertyListingDetailPage({
                       <button
                         type="button"
                         onClick={() => openDatePicker("checkOut")}
-                        className={`p-3 text-start hover:bg-gray-50 transition-colors ${
-                          datePickerOpen === "checkOut" ? "bg-green-50" : ""
+                        className={`rounded-xl border p-3 text-start transition-colors ${
+                          datePickerOpen === "checkOut"
+                            ? "border-green-500 bg-green-50 ring-1 ring-green-500/30"
+                            : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                         }`}
                       >
-                        <div className="text-xs text-gray-500 mb-0.5">{t("checkOut")}</div>
+                        <div className="text-[11px] font-medium uppercase tracking-wide text-gray-500 mb-1">
+                          {t("checkOut")}
+                        </div>
                         <div
                           className={`text-sm font-semibold truncate ${
                             checkOut ? "text-gray-900" : "text-gray-400"
@@ -2462,33 +2481,26 @@ export function PropertyListingDetailPage({
                         </p>
                       </div>
                     )}
+
                   </div>
 
-                  {checkIn ? (
-                    <div className="px-3 py-2 text-center text-xs text-gray-600 bg-gray-50/80">
-                      {selectedNights > 0
-                        ? `${selectedNights} night${selectedNights === 1 ? "" : "s"}`
-                        : "Pick a check-out date"}
-                    </div>
-                  ) : null}
-
-                  {dateBookingHint && (
-                    <p className="px-3 py-2 text-xs text-amber-800 bg-amber-50">
-                      {dateBookingHint}
-                    </p>
-                  )}
-
-                  <div className="p-3 relative">
+                  <div className="px-4 pb-3 relative">
                     <button
                       type="button"
                       onClick={() => {
                         setDatePickerOpen(null);
                         setGuestsOpen((v) => !v);
                       }}
-                      className="w-full flex items-center justify-between gap-3 text-start hover:bg-gray-50 -m-1 p-1 rounded-lg transition-colors"
+                      className={`w-full flex items-center justify-between gap-3 rounded-xl border p-3 text-start transition-colors ${
+                        guestsOpen
+                          ? "border-green-500 bg-green-50 ring-1 ring-green-500/30"
+                          : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                      }`}
                       aria-expanded={guestsOpen}
                     >
-                      <span className="text-sm text-gray-600">{t("guestsLabel")}</span>
+                      <span className="text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                        {t("guestsLabel")}
+                      </span>
                       <span className="flex items-center gap-1.5 min-w-0">
                         <span className="text-sm font-semibold text-gray-900 truncate">
                           {guestsSummary}
@@ -2607,11 +2619,61 @@ export function PropertyListingDetailPage({
                       </div>
                     )}
                     {guestBookingHint && (
-                      <p className="mt-2 -mx-3 -mb-3 px-3 py-2 text-xs text-center text-amber-800 bg-amber-50 border-t border-amber-100 rounded-b-xl">
+                      <p className="mt-2 rounded-lg px-3 py-2 text-xs text-amber-800 bg-amber-50">
                         {guestBookingHint}
                       </p>
                     )}
                   </div>
+
+                  {checkIn && (
+                    <div className="mx-4 mb-3 rounded-lg bg-gray-50 px-3 py-2 text-center text-xs font-medium text-gray-600">
+                      {selectedNights > 0
+                        ? `${selectedNights} night${selectedNights === 1 ? "" : "s"}`
+                        : "Pick a check-out date"}
+                    </div>
+                  )}
+
+                  {dateBookingHint && (
+                    <p className="mx-4 mb-3 rounded-lg px-3 py-2 text-xs text-amber-800 bg-amber-50">
+                      {dateBookingHint}
+                    </p>
+                  )}
+
+                  {stayQuote && stayQuote.lines.length > 0 && (
+                    <div className="border-t border-gray-200 bg-gray-50 px-4 py-4 rounded-b-2xl space-y-3">
+                      <ul className="space-y-2">
+                        {stayQuote.lines.map((line, index) => {
+                          const isAccommodation =
+                            index === 0 && line.amount > 0 && selectedNights > 0;
+                          const label = isAccommodation
+                            ? `${selectedNights} night${selectedNights === 1 ? "" : "s"} × ${money(Math.round(stayQuote.nightlyAverage))}/night`
+                            : line.label;
+                          return (
+                            <li
+                              key={line.label}
+                              className="flex items-center justify-between gap-3 text-sm"
+                            >
+                              <span className="text-gray-600 leading-snug">{label}</span>
+                              <span
+                                className={`font-semibold tabular-nums shrink-0 ${
+                                  line.amount < 0 ? "text-green-700" : "text-gray-800"
+                                }`}
+                              >
+                                {line.amount < 0 ? "−" : ""}
+                                {money(Math.abs(line.amount))}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <div className="flex items-center justify-between gap-3 pt-3 border-t border-gray-200">
+                        <span className="text-sm font-semibold text-gray-900">Total</span>
+                        <span className="text-xl font-bold text-gray-900 tabular-nums">
+                          {money(stayQuote.total)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {ratedStay.reviews > 0 && (
@@ -2754,38 +2816,6 @@ export function PropertyListingDetailPage({
                       </span>
                       <span className="font-bold text-emerald-900 tabular-nums">
                         {money(stayQuote?.extrasTotal ?? extrasTotal)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {stayQuote && stayQuote.lines.length > 0 && (
-                  <div className="border border-gray-200 rounded-xl p-3 mb-3 space-y-2">
-                    <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide">
-                      Price breakdown
-                    </div>
-                    <ul className="space-y-1.5">
-                      {stayQuote.lines.map((line) => (
-                        <li
-                          key={line.label}
-                          className="flex items-center justify-between gap-2 text-sm"
-                        >
-                          <span className="text-gray-600 truncate">{line.label}</span>
-                          <span
-                            className={`font-semibold tabular-nums shrink-0 ${
-                              line.amount < 0 ? "text-green-700" : "text-gray-800"
-                            }`}
-                          >
-                            {line.amount < 0 ? "−" : ""}
-                            {money(Math.abs(line.amount))}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                      <span className="text-sm font-semibold text-gray-900">Total</span>
-                      <span className="text-base font-bold text-gray-900 tabular-nums">
-                        {money(stayQuote.total)}
                       </span>
                     </div>
                   </div>

@@ -1,6 +1,9 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { DEFAULT_CANCELLATION_POLICY_ID } from "@/lib/booking/policies";
+import {
+  DEFAULT_CANCELLATION_POLICY_ID,
+  computeUnpaidPaymentExpiresAt,
+} from "@/lib/booking/policies";
 import { BookingError } from "@/lib/booking/confirm-booking";
 import { createBookingReference } from "@/lib/booking/booking-reference";
 import { ensureExperienceSlot } from "@/lib/booking/experience-slots";
@@ -154,7 +157,7 @@ export async function confirmExperienceBooking(input: {
           status: "confirmed",
           paymentStatus: "unpaid",
           policyId: listingPolicy,
-          expiresAt: null,
+          expiresAt: computeUnpaidPaymentExpiresAt(),
           stripeSessionId: input.stripeSessionId ?? null,
           guestQuoteSnapshot: input.guestQuoteSnapshot ?? null,
           experienceSlotId: current.id,

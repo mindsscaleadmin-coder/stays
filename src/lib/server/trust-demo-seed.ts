@@ -1,3 +1,4 @@
+import { isDemoApiMode } from "@/lib/auth/booking-access";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_TRUST_ADMIN, resolveHostName } from "@/lib/admin/trust-data";
 import { getSeedListings } from "@/lib/listings/listing-seeds";
@@ -40,6 +41,7 @@ async function ensureHostUser(hostId: string) {
 /** Seed demo reviews, pending certs, and India badge catalog when shared DB is empty. */
 export async function seedTrustDemoIfEmpty(): Promise<boolean> {
   if (trustDemoSeeded) return false;
+  if (!isDemoApiMode()) return false;
 
   const reviewCount = await prisma.review.count();
   const trustSettingsRow = await prisma.trustCatalogSettings.findUnique({

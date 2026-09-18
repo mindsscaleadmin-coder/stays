@@ -6,7 +6,7 @@ import { Scale, X } from "lucide-react";
 import { BookingMessageThread } from "@/components/booking/booking-message-thread";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useAdminBookings } from "@/lib/admin/use-admin-bookings";
-import { formatBookingDate } from "@/lib/mock/dashboard-data";
+import { formatBookingDate } from "@/lib/booking/display";
 import type { HostBookingRecord } from "@/lib/host/host-booking-types";
 import { cn } from "@/lib/utils";
 

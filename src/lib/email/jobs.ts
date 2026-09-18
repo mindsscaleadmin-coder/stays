@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "./send";
+import { escapeHtml } from "@/lib/email/escape-html";
 import { buildGuestInvoiceHtml, buildGuestInvoiceText } from "./guest-receipt";
 import {
   estimateGuestQuoteSnapshot,
@@ -18,12 +19,13 @@ export async function deliverWelcomeEmail(input: {
   email: string;
   fullName?: string;
 }) {
-  const name = input.fullName?.trim() || "there";
+  const name = escapeHtml(input.fullName?.trim() || "there");
+  const listingsUrl = escapeHtml(`${appUrl()}/listings`);
   return sendEmail({
     to: input.email,
     subject: "Welcome to Farm Stays",
-    text: `Hi ${name},\n\nYour account is ready. Browse stays at ${appUrl()}/listings\n`,
-    html: `<p>Hi ${name},</p><p>Your account is ready.</p><p><a href="${appUrl()}/listings">Browse stays</a></p>`,
+    text: `Hi ${input.fullName?.trim() || "there"},\n\nYour account is ready. Browse stays at ${appUrl()}/listings\n`,
+    html: `<p>Hi ${name},</p><p>Your account is ready.</p><p><a href="${listingsUrl}">Browse stays</a></p>`,
   });
 }
 

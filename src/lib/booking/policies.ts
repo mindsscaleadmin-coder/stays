@@ -83,6 +83,11 @@ export function computePendingExpiresAt(
   return new Date(createdAt.getTime() + hours * 60 * 60 * 1000);
 }
 
+/** Deadline for guests to complete payment on instant-confirmed unpaid bookings. */
+export function computeUnpaidPaymentExpiresAt(createdAt: Date = new Date()): Date {
+  return computePendingExpiresAt(createdAt, PENDING_RESPONSE_HOURS);
+}
+
 export function isPendingExpired(
   expiresAt: Date | string | null | undefined,
   now: Date = new Date()

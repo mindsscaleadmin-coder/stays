@@ -20,7 +20,7 @@ import {
 } from "@/lib/host/host-daily-ops";
 import { OpsListBadges } from "@/components/dashboard/booking-ops/ops-list-badges";
 import { hostBookingDetailPath } from "@/lib/host/host-ops-adapter";
-import { formatBookingDate } from "@/lib/mock/dashboard-data";
+import { formatBookingDate } from "@/lib/booking/display";
 import type { HostBookingRecord } from "@/lib/host/host-booking-types";
 import {
   formatNextSevenDaysMeta,
@@ -184,9 +184,17 @@ export function HostDailyOpsPanel() {
         <section className="bg-white rounded-2xl border p-5 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <h4 className="text-sm font-semibold text-gray-900">Who’s on the property today</h4>
-            <Link href="/host/calendar" className="text-xs font-semibold text-green-700 hover:underline">
-              Calendar
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link
+                href="/host/check-in-out"
+                className="text-xs font-semibold text-green-700 hover:underline"
+              >
+                Check-in / out
+              </Link>
+              <Link href="/host/calendar" className="text-xs font-semibold text-green-700 hover:underline">
+                Calendar
+              </Link>
+            </div>
           </div>
           {ops.arrivals.length > 0 ? (
             <div className="space-y-2">

@@ -3,16 +3,24 @@ import { logger } from "@/lib/observability/logger";
 
 const SLOW_QUERY_MS = 200;
 /** Bump after `prisma generate` so the Next.dev singleton picks up new Booking fields. */
-const PRISMA_CLIENT_REV = 6;
+const PRISMA_CLIENT_REV = 8;
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
   prismaClientRev?: number;
 };
 
-function bookingHasCheckInStatus(): boolean {
+function bookingModelHasField(fieldName: string): boolean {
   const model = Prisma.dmmf.datamodel.models.find((m) => m.name === "Booking");
-  return Boolean(model?.fields.some((f) => f.name === "checkInStatus"));
+  return Boolean(model?.fields.some((f) => f.name === fieldName));
+}
+
+function bookingHasRequiredFields(): boolean {
+  return (
+    bookingModelHasField("checkInStatus") &&
+    bookingModelHasField("guestQuoteSnapshot") &&
+    bookingModelHasField("financialSnapshot")
+  );
 }
 
 function createPrismaClient() {
@@ -39,18 +47,22 @@ function createPrismaClient() {
   return client;
 }
 
-if (
+const staleSingleton =
   process.env.NODE_ENV !== "production" &&
   globalForPrisma.prisma &&
-  globalForPrisma.prismaClientRev !== PRISMA_CLIENT_REV
-) {
-  void globalForPrisma.prisma.$disconnect();
+  (globalForPrisma.prismaClientRev !== PRISMA_CLIENT_REV || !bookingHasRequiredFields());
+
+if (staleSingleton) {
+  void globalForPrisma.prisma?.$disconnect();
   globalForPrisma.prisma = undefined;
 }
 
-if (!bookingHasCheckInStatus()) {
-  logger.warn("prisma_client_missing_checkin_fields", {
-    hint: "Restart npm run dev after prisma generate",
+if (!bookingHasRequiredFields()) {
+  logger.warn("prisma_client_missing_booking_fields", {
+    hint: "Run npm run dev:clean after prisma generate",
+    hasCheckInStatus: bookingModelHasField("checkInStatus"),
+    hasGuestQuoteSnapshot: bookingModelHasField("guestQuoteSnapshot"),
+    hasFinancialSnapshot: bookingModelHasField("financialSnapshot"),
   });
 }
 

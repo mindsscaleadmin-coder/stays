@@ -83,7 +83,7 @@ export function GetVerifiedContent() {
   }
 
   return (
-    <DashboardShell title="Guest" subtitle="Your account" navItems={GUEST_NAV}>
+    <DashboardShell title="Guest" subtitle="Your account" tone="client" navItems={GUEST_NAV}>
       <div className="max-w-lg">
         <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.06)] p-6 space-y-5">
           <div className="flex items-start gap-3">

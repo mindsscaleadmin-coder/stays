@@ -1,3 +1,5 @@
+import type { OperationalSettings } from "@/lib/host/operational-settings-types";
+
 export interface SupportedLanguage {
   code: string;
   label: string;
@@ -102,6 +104,8 @@ export interface PlatformConfig {
   features: PlatformFeatureToggles;
   integrations: IntegrationConfig;
   security: SecuritySettings;
+  /** Platform-wide defaults for timed auto check-in / check-out. */
+  operational: OperationalSettings;
   updatedAt: string;
 }
 

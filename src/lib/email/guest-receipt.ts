@@ -1,5 +1,6 @@
 import { formatMoney } from "@/lib/currency";
 import type { GuestQuoteSnapshot } from "@/lib/booking/guest-quote-snapshot";
+import { escapeHtml } from "@/lib/email/escape-html";
 
 export type GuestInvoiceEmailInput = {
   bookingReference: string;
@@ -58,7 +59,12 @@ export function buildGuestInvoiceText(input: GuestInvoiceEmailInput): string {
 
 export function buildGuestInvoiceHtml(input: GuestInvoiceEmailInput): string {
   const { quote } = input;
-  const taxLabel = quote.taxLabel;
+  const taxLabel = escapeHtml(quote.taxLabel);
+  const bookingReference = escapeHtml(input.bookingReference);
+  const guestName = escapeHtml(input.guestName);
+  const propertyTitle = escapeHtml(input.propertyTitle);
+  const tripsUrl = escapeHtml(input.tripsUrl);
+  const stayDates = escapeHtml(formatStayDates(input.checkIn, input.checkOut));
   const taxRow =
     quote.taxAmount > 0
       ? `<tr>
@@ -72,13 +78,13 @@ export function buildGuestInvoiceHtml(input: GuestInvoiceEmailInput): string {
 <body style="margin:0;padding:24px;background:#111827;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="max-width:480px;margin:0 auto;background:#1f2937;border-radius:16px;padding:28px;color:#e5e7eb;">
     <p style="margin:0 0 4px;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#6b7280;">Invoice</p>
-    <h1 style="margin:0 0 24px;font-size:28px;font-weight:700;color:#f9fafb;">${input.bookingReference}</h1>
+    <h1 style="margin:0 0 24px;font-size:28px;font-weight:700;color:#f9fafb;">${bookingReference}</h1>
 
     <table style="width:100%;border-collapse:collapse;margin-bottom:24px;font-size:14px;">
       <tr><td style="padding:4px 0;color:#9ca3af;width:110px;">Issued</td><td style="padding:4px 0;color:#e5e7eb;">${formatInvoiceDate(input.issuedAt)}</td></tr>
-      <tr><td style="padding:4px 0;color:#9ca3af;">Guest</td><td style="padding:4px 0;color:#e5e7eb;">${input.guestName}</td></tr>
-      <tr><td style="padding:4px 0;color:#9ca3af;">Property</td><td style="padding:4px 0;color:#e5e7eb;">${input.propertyTitle}</td></tr>
-      <tr><td style="padding:4px 0;color:#9ca3af;">Stay dates</td><td style="padding:4px 0;color:#e5e7eb;">${formatStayDates(input.checkIn, input.checkOut)} · ${input.guestCount} guest${input.guestCount === 1 ? "" : "s"}</td></tr>
+      <tr><td style="padding:4px 0;color:#9ca3af;">Guest</td><td style="padding:4px 0;color:#e5e7eb;">${guestName}</td></tr>
+      <tr><td style="padding:4px 0;color:#9ca3af;">Property</td><td style="padding:4px 0;color:#e5e7eb;">${propertyTitle}</td></tr>
+      <tr><td style="padding:4px 0;color:#9ca3af;">Stay dates</td><td style="padding:4px 0;color:#e5e7eb;">${stayDates} · ${input.guestCount} guest${input.guestCount === 1 ? "" : "s"}</td></tr>
     </table>
 
     <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
@@ -96,9 +102,9 @@ export function buildGuestInvoiceHtml(input: GuestInvoiceEmailInput): string {
       </tr>
     </table>
 
-    <p style="margin:24px 0 4px;font-size:12px;color:#6b7280;">Farm Stays · Booking reference ${input.bookingReference}</p>
+    <p style="margin:24px 0 4px;font-size:12px;color:#6b7280;">Farm Stays · Booking reference ${bookingReference}</p>
     <p style="margin:0 0 20px;font-size:12px;color:#6b7280;">Keep this email as your receipt for this booking.</p>
-    <a href="${input.tripsUrl}" style="display:inline-block;background:#15803d;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 20px;border-radius:10px;">View your trips</a>
+    <a href="${tripsUrl}" style="display:inline-block;background:#15803d;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 20px;border-radius:10px;">View your trips</a>
   </div>
 </body>
 </html>`;

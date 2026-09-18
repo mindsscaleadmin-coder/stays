@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
   assertBookingParticipant,
+  BookingAccessError,
   isDemoApiMode,
 } from "@/lib/auth/booking-access";
 import { getSessionUser } from "@/lib/auth/session";
@@ -42,7 +43,7 @@ export async function GET(
       { headers: { "x-request-id": requestId } }
     );
   } catch (error) {
-    if (error instanceof AuthError) {
+    if (error instanceof AuthError || error instanceof BookingAccessError) {
       return bookingAccessResponse(error, requestId);
     }
     throw error;

@@ -6,7 +6,7 @@ import {
 } from "@/lib/host/operational-status";
 import type { HostBookingRecord } from "@/lib/host/host-booking-types";
 import type { OperationalStatus } from "@/lib/host/host-ops-types";
-import { formatBookingDate } from "@/lib/mock/dashboard-data";
+import { formatBookingDate } from "@/lib/booking/display";
 
 export function resolveBookingOperationalStatus(
   booking: HostBookingRecord

@@ -17,7 +17,7 @@ import { resolveHostId } from "@/lib/listings/host-listings-utils";
 import { useHostNotifications } from "@/lib/host/use-host-notifications";
 import { useHostBookings } from "@/lib/host/use-host-bookings";
 import { expiryLabel } from "@/lib/host/host-daily-ops";
-import { formatBookingDate } from "@/lib/mock/dashboard-data";
+import { formatBookingDate } from "@/lib/booking/display";
 import { alertDestination } from "@/lib/host/notification-destinations";
 import type {
   HostNotificationAlert,

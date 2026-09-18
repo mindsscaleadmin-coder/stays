@@ -19,7 +19,7 @@ import {
   setDemoUser,
   updateDemoUser,
 } from "@/lib/auth/demo-auth";
-import { isValidAdminInviteCode } from "@/lib/auth/admin-invite";
+import { verifyAdminInviteViaApi } from "@/lib/admin/staff-api";
 import { canAccessAdmin, canBook, canManageListings } from "@/lib/auth/roles";
 import type { GuestUser } from "@/lib/auth/types";
 import {
@@ -447,7 +447,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       fullName: string;
       inviteCode: string;
     }) => {
-      if (!isValidAdminInviteCode(input.inviteCode)) {
+      if (!(await verifyAdminInviteViaApi(input.inviteCode))) {
         return { error: "Invalid admin invite code." };
       }
 

@@ -129,6 +129,8 @@ type BookingRow = {
   checkInStatus: string;
   checkedInAt: Date | null;
   checkedOutAt: Date | null;
+  checkInSource: string | null;
+  checkOutSource: string | null;
   disputeStatus: string;
   disputeSummary: string | null;
   disputeGuestClaim: string | null;
@@ -282,6 +284,14 @@ export function toHostBookingRecord(
     checkInStatus: mapCheckInStatus(row.checkInStatus),
     checkedInAt: row.checkedInAt?.toISOString(),
     checkedOutAt: row.checkedOutAt?.toISOString(),
+    checkInSource:
+      row.checkInSource === "auto" || row.checkInSource === "manual"
+        ? row.checkInSource
+        : undefined,
+    checkOutSource:
+      row.checkOutSource === "auto" || row.checkOutSource === "manual"
+        ? row.checkOutSource
+        : undefined,
     refundStatus: mapRefundStatusFromRow(row),
     refundAmount:
       row.refundAmount != null

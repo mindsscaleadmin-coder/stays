@@ -53,16 +53,5 @@ export async function resolveListingHostForBooking(
     };
   }
 
-  if (snapshot?.hostId) {
-    return {
-      hostId: snapshot.hostId,
-      hostName: snapshot.hostName || "Host",
-      title: snapshot.title || listingId,
-      instantBook: snapshot.instantBook,
-      maxGuests: snapshot.maxGuests,
-      pricePerNight: snapshot.pricePerNight,
-    };
-  }
-
   return null;
 }

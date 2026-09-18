@@ -51,16 +51,14 @@ export function OpsPrivateNotes({
 
   return (
     <OpsSectionCard title="Private notes">
-      <p className="text-xs text-gray-500 mb-3">
-        Visible only to you and your staff. Guests cannot see these notes.
-      </p>
+      <p className="text-xs text-gray-500 mb-2">Private to your team.</p>
       <textarea
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        rows={4}
+        rows={3}
         maxLength={4000}
         placeholder="VIP table request, arrival instructions, internal reminders…"
-        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-y min-h-[96px] focus:outline-none focus:ring-2 focus:ring-green-500"
+        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-y min-h-[76px] focus:outline-none focus:ring-2 focus:ring-green-500"
       />
       <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-gray-400">
         <span>{draft.length}/4000</span>

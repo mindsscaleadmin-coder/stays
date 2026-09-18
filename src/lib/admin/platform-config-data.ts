@@ -9,6 +9,8 @@ import type {
   SecuritySettings,
   ServiceRegion,
 } from "./platform-config-types";
+import { DEFAULT_OPERATIONAL_SETTINGS } from "@/lib/host/operational-settings-data";
+import type { OperationalSettings } from "@/lib/host/operational-settings-types";
 
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
 const STORAGE_KEY = "farm-stays-platform-config";
@@ -152,6 +154,7 @@ export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
     adminIpWhitelist: ["203.0.113.10", "198.51.100.42"],
     ipWhitelistEnabled: false,
   },
+  operational: { ...DEFAULT_OPERATIONAL_SETTINGS },
   updatedAt: new Date().toISOString(),
 };
 
@@ -234,6 +237,13 @@ function mergeSecurity(parsed: Partial<SecuritySettings> | undefined): SecurityS
   };
 }
 
+function mergeOperational(parsed: Partial<OperationalSettings> | undefined): OperationalSettings {
+  return {
+    ...DEFAULT_OPERATIONAL_SETTINGS,
+    ...parsed,
+  };
+}
+
 export function mergePlatformConfig(parsed: Partial<PlatformConfig> | null | undefined): PlatformConfig {
   if (!parsed) return DEFAULT_PLATFORM_CONFIG;
   return {
@@ -241,6 +251,7 @@ export function mergePlatformConfig(parsed: Partial<PlatformConfig> | null | und
     features: mergeFeatures(parsed.features),
     integrations: mergeIntegrations(parsed.integrations),
     security: mergeSecurity(parsed.security),
+    operational: mergeOperational(parsed.operational),
     updatedAt: parsed.updatedAt ?? DEFAULT_PLATFORM_CONFIG.updatedAt,
   };
 }

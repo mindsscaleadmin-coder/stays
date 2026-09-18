@@ -72,6 +72,15 @@ export async function fetchAdminStaffByEmailFromApi(
   return inflight;
 }
 
+export async function verifyAdminInviteViaApi(inviteCode: string): Promise<boolean> {
+  const res = await fetch("/api/auth/verify-admin-invite", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ inviteCode }),
+  });
+  return res.ok;
+}
+
 export async function claimAdminViaApi(inviteCode: string): Promise<boolean> {
   const res = await fetch("/api/auth/claim-admin", {
     method: "POST",

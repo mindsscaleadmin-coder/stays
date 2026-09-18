@@ -1,6 +1,7 @@
 import { importBlockedDatesFromIcal } from "@/lib/host/ical-utils";
 
 const BLOCKED_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
+const MAX_REDIRECTS = 5;
 
 function isPrivateHostname(hostname: string): boolean {
   if (BLOCKED_HOSTS.has(hostname)) return true;
@@ -31,21 +32,38 @@ export function assertPublicHttpsCalendarUrl(raw: string): URL {
   return parsed;
 }
 
+function resolveRedirectUrl(current: URL, location: string): URL {
+  return assertPublicHttpsCalendarUrl(new URL(location, current).toString());
+}
+
 export async function fetchExternalIcalDates(rawUrl: string): Promise<string[]> {
-  const url = assertPublicHttpsCalendarUrl(rawUrl);
+  let url = assertPublicHttpsCalendarUrl(rawUrl);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8_000);
   try {
-    const res = await fetch(url.toString(), {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: { Accept: "text/calendar, text/plain, */*" },
-      cache: "no-store",
-    });
-    if (!res.ok) throw new Error(`Calendar returned ${res.status}`);
-    const text = await res.text();
-    if (text.length > 1_000_000) throw new Error("Calendar file is too large");
-    return importBlockedDatesFromIcal(text);
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const res = await fetch(url.toString(), {
+        signal: controller.signal,
+        redirect: "manual",
+        headers: { Accept: "text/calendar, text/plain, */*" },
+        cache: "no-store",
+      });
+
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("location");
+        if (!location) {
+          throw new Error("Calendar redirect missing location");
+        }
+        url = resolveRedirectUrl(url, location);
+        continue;
+      }
+
+      if (!res.ok) throw new Error(`Calendar returned ${res.status}`);
+      const text = await res.text();
+      if (text.length > 1_000_000) throw new Error("Calendar file is too large");
+      return importBlockedDatesFromIcal(text);
+    }
+    throw new Error("Calendar URL redirected too many times");
   } finally {
     clearTimeout(timer);
   }

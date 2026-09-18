@@ -1,5 +1,5 @@
 import { setRequestLocale } from "next-intl/server";
-import { HostEventRequestsContent } from "@/components/dashboard/host-event-requests-content";
+import { redirect } from "@/i18n/routing";
 
 export default async function HostEventRequestsPage({
   params,
@@ -8,5 +8,5 @@ export default async function HostEventRequestsPage({
 }) {
   const { locale } = await params;
   setRequestLocale(locale);
-  return <HostEventRequestsContent />;
+  redirect({ href: "/host/enquiries", locale });
 }

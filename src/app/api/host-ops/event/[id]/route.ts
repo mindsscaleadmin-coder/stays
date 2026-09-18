@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { actingHostId } from "@/lib/auth/guards";
 import { hostDataErrorResponse, requireHostSelfOrAdmin } from "@/lib/auth/listing-access";
+import { BookingAccessError } from "@/lib/auth/booking-access";
 import { AuthError } from "@/lib/auth/session";
 import { withBookingAuth } from "@/lib/auth/with-booking-auth";
 import { getEventAvailabilityRequest } from "@/lib/server/event-availability-repo";
@@ -20,7 +21,7 @@ function opsErrorResponse(error: unknown, requestId: string) {
     const status = error.message === "Invalid staff assignment" ? 400 : 403;
     return NextResponse.json({ error: error.message }, { status, headers: { "x-request-id": requestId } });
   }
-  if (error instanceof AuthError) {
+  if (error instanceof AuthError || error instanceof BookingAccessError) {
     return hostDataErrorResponse(error, requestId);
   }
   throw error;

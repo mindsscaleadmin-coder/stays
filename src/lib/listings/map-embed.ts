@@ -46,3 +46,18 @@ export function parseMapEmbedUrl(input: string): string {
 export function isValidMapEmbedUrl(url: string): boolean {
   return Boolean(parseMapEmbedUrl(url));
 }
+
+/** Guest-safe area preview when the host has not pasted an embed URL. */
+export function buildLocationMapEmbedUrl(query: string, zoom = 12): string {
+  const q = query.trim();
+  if (!q) return "";
+
+  const params = new URLSearchParams({
+    q,
+    hl: "en",
+    z: String(zoom),
+    output: "embed",
+  });
+
+  return `https://maps.google.com/maps?${params.toString()}`;
+}

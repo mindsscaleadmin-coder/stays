@@ -2,6 +2,7 @@ import type { HostBooking, HostBookingStatus } from "@/lib/mock/dashboard-data";
 import type { EventAvailabilityStatus } from "@/lib/events/event-availability-types";
 import type { HostBookingCategory } from "@/lib/host/booking-category";
 import type { HostOpsSourceType, OperationalStatus } from "@/lib/host/host-ops-types";
+import type { CheckInOutSource } from "@/lib/host/operational-settings-types";
 
 export type CheckInOutStatus = "pending" | "checked_in" | "checked_out";
 export type RefundStatus = "none" | "pending" | "partial" | "full";
@@ -50,6 +51,8 @@ export interface HostBookingRecord extends HostBooking {
   checkInStatus: CheckInOutStatus;
   checkedInAt?: string;
   checkedOutAt?: string;
+  checkInSource?: CheckInOutSource;
+  checkOutSource?: CheckInOutSource;
   refundStatus: RefundStatus;
   refundAmount?: string;
   cancellationReason?: string;

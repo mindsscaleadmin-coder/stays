@@ -290,12 +290,6 @@ export function calculateStayQuote(input: StayQuoteInput): StayQuote | null {
   if (experiences > 0) {
     lines.push({ label: "Experiences", amount: experiences });
   }
-  if (taxAmount > 0) {
-    lines.push({
-      label: `${settings.taxLabel} (${taxPct}%, included)`,
-      amount: taxAmount,
-    });
-  }
 
   return {
     nights,

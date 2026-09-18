@@ -5,6 +5,7 @@ import { DashboardShell } from "./dashboard-shell";
 import { HOST_NAV } from "@/lib/host/host-nav";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useHostPublicProfile } from "@/lib/host/use-host-public-profile";
+import { useHostStaffAccess } from "@/lib/host/use-host-staff-access";
 import { resolveHostId } from "@/lib/listings/host-listings-utils";
 
 const HostShellMountedContext = createContext(false);
@@ -27,17 +28,29 @@ export function HostDashboardShell({ children }: { children: ReactNode }) {
 }
 
 function HostDashboardShellChrome({ children }: { children: ReactNode }) {
-  const navItems = useMemo(() => HOST_NAV, []);
   const { user } = useAuth();
+  const { filterNavItems, ready, roleLabel, isOwner } = useHostStaffAccess();
   const hostId = resolveHostId(user);
   const { data: profile } = useHostPublicProfile(hostId, user?.fullName ?? "");
   const companyName = profile?.companyName?.trim();
 
+  const navItems = useMemo(() => {
+    if (!ready) return HOST_NAV;
+    return filterNavItems(HOST_NAV);
+  }, [filterNavItems, ready]);
+
+  const subtitle = isOwner
+    ? "Manage your properties"
+    : roleLabel
+      ? `${roleLabel} · Team access`
+      : "Team access";
+
   return (
     <DashboardShell
       title={companyName || "Host"}
-      subtitle="Manage your properties"
+      subtitle={subtitle}
       brandLogo={profile?.logoUrl || null}
+      tone="host"
       navItems={navItems}
     >
       {children}
