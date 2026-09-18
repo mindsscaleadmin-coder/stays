@@ -13,6 +13,9 @@ import { quoteCartTotal } from "@/lib/guest/cart-quote";
 import { useCartPricing } from "@/lib/guest/use-cart-pricing";
 import { formatMoney } from "@/lib/currency";
 import { isDataImageUrl } from "@/lib/utils";
+import { CheckoutCancellationNotice } from "@/components/booking/checkout-cancellation-notice";
+import { getCheckoutCancellationPolicyCopy } from "@/lib/booking/policies";
+import { getSubmissionById } from "@/lib/listings/submission-data";
 
 export function CartCheckoutContent() {
   const { user, loading } = useAuth();
@@ -37,6 +40,24 @@ export function CartCheckoutContent() {
   const quoteById = useMemo(
     () => new Map(quotes.map((q) => [q.lineId, q])),
     [quotes]
+  );
+  const cancellationPolicies = useMemo(
+    () =>
+      lines.map((line) => {
+        const quote = quoteById.get(line.id);
+        const copy = getCheckoutCancellationPolicyCopy({
+          policyId: getSubmissionById(line.listingId)?.cancellationPolicyId,
+          checkIn: line.checkIn,
+          totalPrice: quote?.total ?? 0,
+        });
+        return {
+          listingTitle: line.title,
+          label: copy.label,
+          description: copy.description,
+          refundPreview: copy.refundPreview,
+        };
+      }),
+    [lines, quoteById]
   );
 
   if (loading || !user) {
@@ -127,6 +148,12 @@ export function CartCheckoutContent() {
                   {formatMoney(total, { currency })}
                 </span>
               </div>
+
+              {cancellationPolicies.length > 0 && (
+                <div className="mb-4">
+                  <CheckoutCancellationNotice policies={cancellationPolicies} />
+                </div>
+              )}
 
               <button
                 type="button"

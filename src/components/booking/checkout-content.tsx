@@ -24,10 +24,11 @@ import { computeExperienceQuote } from "@/lib/booking/compute-experience-quote";
 import { extractInclusiveTax } from "@/lib/tax/inclusive-tax";
 import {
   DEFAULT_CANCELLATION_POLICY_ID,
-  evaluateCancellationRefund,
   getCancellationRule,
+  getCheckoutCancellationPolicyCopy,
   type CancellationPolicyId,
 } from "@/lib/booking/policies";
+import { CheckoutCancellationNotice } from "@/components/booking/checkout-cancellation-notice";
 import { normalizeExperienceSessions } from "@/lib/booking/experience-session-types";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
 import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
@@ -56,15 +57,6 @@ type Props = {
   experienceIds: string[];
   extraIds: string[];
 };
-
-function CheckoutCancellationNotice({ summary }: { summary: string }) {
-  return (
-    <p className="text-xs text-gray-600 leading-relaxed">
-      <span className="font-medium text-gray-800">Cancellation: </span>
-      {summary}
-    </p>
-  );
-}
 
 export function CheckoutContent({
   listingId,
@@ -263,34 +255,28 @@ export function CheckoutContent({
     return { quote, session, currency };
   }, [asExperience, pricing, sessionKey, guests, countryPricing.currency]);
 
-  const stayCancellationSummary = useMemo(() => {
-    if (!checkIn || !checkOut || nights < 1) return null;
+  const stayCancellationPolicies = useMemo(() => {
+    if (!checkIn || !checkOut || nights < 1) return [];
     const total = quotePreview?.total ?? 0;
-    if (total <= 0) return null;
-    return evaluateCancellationRefund({
+    if (total <= 0) return [];
+    const copy = getCheckoutCancellationPolicyCopy({
       policyId: cancellationPolicyId,
       checkIn,
       totalPrice: total,
-      paymentStatus: "paid",
-    }).summary;
-  }, [
-    cancellationPolicyId,
-    checkIn,
-    checkOut,
-    nights,
-    quotePreview?.total,
-  ]);
+    });
+    return [copy];
+  }, [cancellationPolicyId, checkIn, checkOut, nights, quotePreview?.total]);
 
-  const experienceCancellationSummary = useMemo(() => {
-    if (!experienceDate || !experienceQuote) return null;
+  const experienceCancellationPolicies = useMemo(() => {
+    if (!experienceDate || !experienceQuote) return [];
     const total = experienceQuote.quote.total;
-    if (total <= 0) return null;
-    return evaluateCancellationRefund({
+    if (total <= 0) return [];
+    const copy = getCheckoutCancellationPolicyCopy({
       policyId: cancellationPolicyId,
       checkIn: experienceDate,
       totalPrice: total,
-      paymentStatus: "paid",
-    }).summary;
+    });
+    return [copy];
   }, [cancellationPolicyId, experienceDate, experienceQuote]);
 
   async function handlePay() {
@@ -511,8 +497,8 @@ export function CheckoutContent({
               {error}
             </p>
           )}
-          {experienceCancellationSummary && (
-            <CheckoutCancellationNotice summary={experienceCancellationSummary} />
+          {experienceCancellationPolicies.length > 0 && (
+            <CheckoutCancellationNotice policies={experienceCancellationPolicies} />
           )}
           <button
             type="button"
@@ -649,9 +635,9 @@ export function CheckoutContent({
                 </div>
               )}
 
-              {stayCancellationSummary && (
+              {stayCancellationPolicies.length > 0 && (
                 <div className="mb-4">
-                  <CheckoutCancellationNotice summary={stayCancellationSummary} />
+                  <CheckoutCancellationNotice policies={stayCancellationPolicies} />
                 </div>
               )}
 
@@ -683,9 +669,9 @@ export function CheckoutContent({
         </div>
       </div>
       <div className="lg:hidden fixed bottom-0 inset-x-0 z-50 border-t border-gray-200 bg-white/95 backdrop-blur-md px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        {stayCancellationSummary && (
+        {stayCancellationPolicies.length > 0 && (
           <div className="mb-2.5">
-            <CheckoutCancellationNotice summary={stayCancellationSummary} />
+            <CheckoutCancellationNotice policies={stayCancellationPolicies} />
           </div>
         )}
         <div className="flex items-center gap-3">

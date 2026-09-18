@@ -199,3 +199,29 @@ export function refundStatusFromBand(
   if (band === "partial") return "partial";
   return "none";
 }
+
+/** Guest-facing checkout copy: restate policy terms plus optional refund preview. */
+export function getCheckoutCancellationPolicyCopy(input: {
+  policyId?: string | null;
+  checkIn?: string;
+  totalPrice?: number;
+}) {
+  const rule = getCancellationRule(input.policyId);
+  const totalPrice = input.totalPrice ?? 0;
+  const refundPreview =
+    input.checkIn && totalPrice > 0
+      ? evaluateCancellationRefund({
+          policyId: rule.id,
+          checkIn: input.checkIn,
+          totalPrice,
+          paymentStatus: "paid",
+        }).summary
+      : null;
+
+  return {
+    policyId: rule.id,
+    label: rule.label,
+    description: rule.shortDescription,
+    refundPreview,
+  };
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CANCELLATION_POLICY_ID,
   evaluateCancellationRefund,
+  getCheckoutCancellationPolicyCopy,
   getCancellationRule,
   isPendingExpired,
   computePendingExpiresAt,
@@ -98,6 +99,19 @@ describe("evaluateCancellationRefund", () => {
       now: new Date("2026-09-10T12:00:00"), // 21 days out
     });
     expect(result.refundPercent).toBe(100);
+  });
+});
+
+describe("getCheckoutCancellationPolicyCopy", () => {
+  it("restates policy terms and includes refund preview", () => {
+    const copy = getCheckoutCancellationPolicyCopy({
+      policyId: "moderate",
+      checkIn: "2030-10-01",
+      totalPrice: 1000,
+    });
+    expect(copy.label).toBe("Moderate");
+    expect(copy.description).toContain("14 days");
+    expect(copy.refundPreview).toMatch(/refund/i);
   });
 });
 

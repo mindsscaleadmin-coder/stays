@@ -13,6 +13,9 @@ import { quoteCartLine, quoteCartTotal } from "@/lib/guest/cart-quote";
 import { useCartPricing } from "@/lib/guest/use-cart-pricing";
 import { formatMoney } from "@/lib/currency";
 import { resolveCatalogListingHost } from "@/lib/listings/catalog-listing-hosts";
+import { CheckoutCancellationNotice } from "@/components/booking/checkout-cancellation-notice";
+import { getCheckoutCancellationPolicyCopy } from "@/lib/booking/policies";
+import { getSubmissionById } from "@/lib/listings/submission-data";
 
 function onlyDigits(value: string) {
   return value.replace(/\D/g, "");
@@ -92,6 +95,28 @@ export function CartPaymentContent() {
   const { quotes, total, currency } = useMemo(
     () => quoteCartTotal(lines, pricingByListing),
     [lines, pricingByListing]
+  );
+  const quoteById = useMemo(
+    () => new Map(quotes.map((q) => [q.lineId, q])),
+    [quotes]
+  );
+  const cancellationPolicies = useMemo(
+    () =>
+      lines.map((line) => {
+        const quote = quoteById.get(line.id);
+        const copy = getCheckoutCancellationPolicyCopy({
+          policyId: getSubmissionById(line.listingId)?.cancellationPolicyId,
+          checkIn: line.checkIn,
+          totalPrice: quote?.total ?? 0,
+        });
+        return {
+          listingTitle: line.title,
+          label: copy.label,
+          description: copy.description,
+          refundPreview: copy.refundPreview,
+        };
+      }),
+    [lines, quoteById]
   );
 
   async function handlePay() {
@@ -321,6 +346,12 @@ export function CartPaymentContent() {
                 <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-3">
                   {error}
                 </p>
+              )}
+
+              {cancellationPolicies.length > 0 && (
+                <div className="mb-4">
+                  <CheckoutCancellationNotice policies={cancellationPolicies} />
+                </div>
               )}
 
               <button
