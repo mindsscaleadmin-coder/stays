@@ -100,5 +100,9 @@ export function searchDestinations(
   }
 
   hits.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
-  return hits.slice(0, limit).map(({ rank: _rank, ...hit }) => hit);
+  return hits.slice(0, limit).map((hit) => {
+    const { rank, ...rest } = hit;
+    void rank;
+    return rest;
+  });
 }

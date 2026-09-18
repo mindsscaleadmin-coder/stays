@@ -1,6 +1,5 @@
 import type { TaxonomyData } from "@/lib/admin/taxonomy-types";
 import {
-  DEFAULT_CUSTOM_ITEMS,
   findPropertyTab,
   isExcludedFromListingForm,
   isFilterEnabled,

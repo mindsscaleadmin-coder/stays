@@ -23,7 +23,6 @@ import {
   Clock,
   Shield,
   Headphones,
-  Award,
   Lock,
   ChevronDown,
   Info,
@@ -42,7 +41,6 @@ import {
   LayoutGrid,
   Minus,
   Plus,
-  X,
   Waves,
   Baby,
   Link2,
@@ -818,13 +816,6 @@ export function PropertyListingDetailPage({
       if (adding) scrollToCalculator();
       return adding ? [...prev, id] : prev.filter((x) => x !== id);
     });
-  }
-
-  function toIsoDate(d: Date): string {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
   }
 
   function openDatePicker(which: "checkIn" | "checkOut") {

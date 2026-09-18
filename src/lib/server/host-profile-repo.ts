@@ -7,8 +7,6 @@ import { isHostDirectoryPublic } from "@/lib/host/directory-billing";
 import { eventsDirectoryIsFree } from "@/lib/admin/events-subscription";
 import { getFinancialSettingsFromDb } from "@/lib/server/platform-catalog-repo";
 import { mergeHostProfileSubscriptionFields } from "@/lib/host/merge-host-profile-fields";
-import { isEventsSubscriptionActive } from "@/lib/host/events-subscription";
-
 function parsePayload(raw: string): Omit<HostPublicProfile, "hostId"> {
   return JSON.parse(raw) as Omit<HostPublicProfile, "hostId">;
 }
@@ -99,18 +97,19 @@ export async function saveHostProfile(
     ...mergeHostProfileSubscriptionFields(input, stored),
   };
 
-  const { hostId: _, ...payload } = next;
+  const { hostId: profileHostId, ...payload } = next;
   await prisma.hostProfile.upsert({
-    where: { hostId },
-    create: { hostId, payload: JSON.stringify(payload) },
+    where: { hostId: profileHostId },
+    create: { hostId: profileHostId, payload: JSON.stringify(payload) },
     update: { payload: JSON.stringify(payload) },
   });
 
-  await syncListingInstantBook(hostId);
+  await syncListingInstantBook(profileHostId);
   return next;
 }
 
-export async function isHostInstantBookEnabled(_hostId: string): Promise<boolean> {
+export async function isHostInstantBookEnabled(hostId: string): Promise<boolean> {
+  void hostId;
   return true;
 }
 

@@ -9,7 +9,6 @@ import {
   CalendarDays,
   Loader2,
   MapPin,
-  TrendingDown,
   TrendingUp,
   Users,
   Wallet,

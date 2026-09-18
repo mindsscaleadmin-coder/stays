@@ -663,7 +663,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const updated = updateDemoUser(updates);
       if (updated) {
         if ("avatarUrl" in updates && !updates.avatarUrl) {
-          const { avatarUrl: _, ...rest } = updated;
+          const { avatarUrl, ...rest } = updated;
+          void avatarUrl;
           setDemoUser(rest);
           setUser(rest);
         } else {

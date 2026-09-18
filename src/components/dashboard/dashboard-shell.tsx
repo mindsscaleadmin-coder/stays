@@ -527,7 +527,6 @@ function DashboardShellInner({
       )}
     >
       <DashboardSidebarColumn
-        pathname={pathname}
         title={title}
         subtitle={subtitle}
         brandLogo={brandLogo}
@@ -547,7 +546,6 @@ function DashboardShellInner({
 }
 
 const DashboardSidebarColumn = memo(function DashboardSidebarColumn({
-  pathname: _pathname,
   title,
   subtitle,
   brandLogo,
@@ -559,7 +557,6 @@ const DashboardSidebarColumn = memo(function DashboardSidebarColumn({
   sidebarOpen,
   onCloseSidebar,
 }: {
-  pathname: string;
   title: string;
   subtitle?: string;
   brandLogo?: string | null;

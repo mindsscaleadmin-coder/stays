@@ -2,10 +2,7 @@
 
 import { useMemo } from "react";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
-import {
-  extraFilterMatchesScope,
-  getExtraFiltersForListingTab,
-} from "@/lib/admin/extra-filter-scope";
+import { getExtraFiltersForListingTab } from "@/lib/admin/extra-filter-scope";
 import {
   inferExtraTabListingSection,
   isFilterEnabled,
@@ -142,7 +139,7 @@ export function useListingAdvancedFilterRows(
 
   return useMemo(
     () => buildListingAdvancedFilterRows(data, values, placement, options),
-    [data, values, placement, options?.excludeBedType]
+    [data, values, placement, options]
   );
 }
 

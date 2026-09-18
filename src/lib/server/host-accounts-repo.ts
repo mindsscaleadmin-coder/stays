@@ -168,7 +168,6 @@ async function resolveTaxForRow(row: LedgerBooking, currency: string, cache: Pri
     return { taxAmount: guest.taxAmount, taxLabel: guest.taxLabel };
   }
   const pricing = await pricingForListing(row.listingId, cache);
-  const meta = parseListingMeta(row.listing.payload);
   const estimate = estimateGuestQuoteSnapshot({
     totalPrice: row.totalPrice,
     currency,
@@ -441,7 +440,12 @@ export async function getHostAccountsData(hostId: string): Promise<HostAccountsD
       method: stored.payoutAccount?.method ?? "bank",
       status: "paid" as const,
     })),
-    transactions: txs.map(({ hostId: _h, hostName: _n, ...tx }) => tx),
+    transactions: txs.map((tx) => {
+      const { hostId, hostName, ...rest } = tx;
+      void hostId;
+      void hostName;
+      return rest;
+    }),
     invoices: history.map((p) => ({
       id: `inv-${p.id}`,
       invoiceNumber: p.id.toUpperCase(),

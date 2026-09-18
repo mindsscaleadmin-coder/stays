@@ -102,7 +102,6 @@ const AdminSidebar = memo(function AdminSidebar({
 
   return (
     <DashboardSidebarColumn
-      pathname={pathname}
       title={title}
       subtitle={subtitle}
       tone="admin"

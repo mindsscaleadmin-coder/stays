@@ -13,7 +13,7 @@ import {
   User,
   BadgeCheck,
 } from "lucide-react";
-import { useTranslations, useLocale } from "next-intl";
+import { useTranslations } from "next-intl";
 import { useCountry } from "@/components/providers/country-provider";
 import { useAuth } from "@/components/providers/auth-provider";
 import { ListPropertyLink } from "@/components/auth/list-property-link";

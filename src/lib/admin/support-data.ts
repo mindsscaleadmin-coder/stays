@@ -223,8 +223,10 @@ function syncDisputeTickets(tickets: SupportTicketRecord[]): SupportTicketRecord
           hostName: booking.hostName,
         };
         // Avoid bumping updatedAt when nothing changed — that caused a write/sync/fetch loop.
-        const { updatedAt: _a, ...before } = t;
-        const { updatedAt: _b, ...after } = patched;
+        const { updatedAt: beforeUpdatedAt, ...before } = t;
+        const { updatedAt: afterUpdatedAt, ...after } = patched;
+        void beforeUpdatedAt;
+        void afterUpdatedAt;
         if (JSON.stringify(before) === JSON.stringify(after)) return t;
         return { ...patched, updatedAt: new Date().toISOString() };
       });

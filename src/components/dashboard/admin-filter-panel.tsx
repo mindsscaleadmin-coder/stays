@@ -1005,7 +1005,6 @@ function ItemCrud({
   const needsCategory = Boolean(categoryOptions?.length) && Boolean(categoryLabel);
   const needsTag = Boolean(tagLabel);
   const hasParents = (parentOptions?.length ?? 0) > 0;
-  const hasCategories = (categoryOptions?.length ?? 0) > 0;
   const hasTags = (tagOptions?.length ?? 0) > 0;
 
   useEffect(() => {

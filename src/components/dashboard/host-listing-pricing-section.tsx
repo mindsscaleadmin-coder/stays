@@ -289,11 +289,6 @@ export function HostListingPricingSection({
     }
   }, [rooms, initialRoomId, selectedRoomId]);
 
-  const selectedRoom = useMemo(
-    () => rooms.find((r) => r.id === selectedRoomId) ?? null,
-    [rooms, selectedRoomId]
-  );
-
   const countryConfig = useMemo(
     () => resolveCountryPricingConfig(taxonomy.countries, selectedListing?.country),
     [taxonomy.countries, selectedListing?.country]

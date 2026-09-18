@@ -32,7 +32,6 @@ export function useAdminTrust() {
   );
   const [reviews, setReviews] = useState<FlatHostReview[]>(() => loadAllReviewsFlat());
   const [ready, setReady] = useState(false);
-  const [tick, setTick] = useState(0);
   const shared = shouldUseSharedTrust();
 
   const refresh = useCallback(async () => {
@@ -51,7 +50,6 @@ export function useAdminTrust() {
       setPendingCerts(loadPendingCertifications());
       setReviews(loadAllReviewsFlat());
     }
-    setTick((t) => t + 1);
   }, [shared]);
 
   useEffect(() => {
@@ -132,7 +130,7 @@ export function useAdminTrust() {
       }
     }
     reviewFarmCertification(hostId, certId, status, note);
-    setTick((t) => t + 1);
+    await refresh();
   }
 
   async function moderateReview(
@@ -151,8 +149,7 @@ export function useAdminTrust() {
       }
     }
     moderateHostReview(hostId, reviewId, action, reason);
-    setReviews(loadAllReviewsFlat());
-    setTick((t) => t + 1);
+    await refresh();
   }
 
   return {

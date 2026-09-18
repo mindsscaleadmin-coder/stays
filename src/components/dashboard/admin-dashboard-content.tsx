@@ -1,7 +1,7 @@
 "use client";
 
 import { type ComponentType } from "react";
-import { Link } from "@/i18n/routing";
+import { Link, useRouter } from "@/i18n/routing";
 import {
   Building2,
   Users,
@@ -75,6 +75,7 @@ function OverviewCard({
 }
 
 export function AdminDashboardContent() {
+  const router = useRouter();
   const { user, signOut } = useAuth();
   const { users } = useAdminUsers();
   const pendingListings = usePendingListingBadgeCount();
@@ -159,7 +160,7 @@ export function AdminDashboardContent() {
           </div>
           <button
             type="button"
-            onClick={() => signOut().then(() => (window.location.href = "/admin/login"))}
+            onClick={() => signOut().then(() => router.replace("/admin/login"))}
             className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 shrink-0"
           >
             <LogOut className="w-4 h-4" />

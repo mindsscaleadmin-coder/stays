@@ -6,7 +6,6 @@ import {
   isArrivalDay,
   isDepartureDay,
 } from "@/lib/booking/operational-time";
-import type { OperationalSettings } from "@/lib/host/operational-settings-types";
 import { loadOperationalSettingsByHostIds } from "@/lib/server/host-operational-settings-repo";
 
 export async function autoCheckInDueArrivals(now: Date = new Date()) {

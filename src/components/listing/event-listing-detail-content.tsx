@@ -135,7 +135,6 @@ function useHostProfile(hostId?: string) {
 export function EventListingDetailContent({
   stay,
   description,
-  highlights,
   amenities,
   features,
   spaces,
@@ -613,7 +612,7 @@ export function EventListingDetailContent({
                 return (
                   <article
                     key={spaceKey(space)}
-                    aria-pressed={isSelected}
+                    data-selected={isSelected ? "true" : undefined}
                     className={cn(
                       "group overflow-hidden rounded-2xl border bg-white shadow-sm transition-all duration-300",
                       isSelected

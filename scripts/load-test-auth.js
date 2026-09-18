@@ -38,7 +38,7 @@ function virtualIp(vu, iter) {
   return `${a}.${b}.${c}.${d}`;
 }
 
-export default function () {
+export default function loadTestAuth() {
   const email = `loadtest-${__VU}-${__ITER}@example.com`;
   const ip = virtualIp(__VU, __ITER);
 

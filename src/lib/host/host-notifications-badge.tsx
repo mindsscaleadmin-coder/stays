@@ -14,7 +14,7 @@ import {
   countHostOverviewAnnouncements,
 } from "@/lib/host/host-overview-announcement-count";
 
-function countBadgeItems(hostId: string | undefined, hostName?: string) {
+function countBadgeItems(hostId: string | undefined) {
   const unread = hostId
     ? loadHostNotifications(hostId).alerts.filter((alert) => !alert.read).length
     : 0;
@@ -24,7 +24,7 @@ function countBadgeItems(hostId: string | undefined, hostName?: string) {
 
 async function countAllBadgeItems(hostId: string | undefined, hostName?: string) {
   const announcements = await countHostOverviewAnnouncements(hostId, hostName);
-  return countBadgeItems(hostId, hostName) + announcements;
+  return countBadgeItems(hostId) + announcements;
 }
 
 export function HostNotificationsBadge() {

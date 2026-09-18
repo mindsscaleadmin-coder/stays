@@ -15,7 +15,7 @@ import {
   Ban,
   Camera,
 } from "lucide-react";
-import { useTranslations, useLocale } from "next-intl";
+import { useTranslations } from "next-intl";
 import { useAuth } from "@/components/providers/auth-provider";
 import { getInitials } from "@/lib/auth/types";
 import { FAVORITES_SYNC_EVENT, GUEST_BOOKINGS, getFavoriteIds } from "@/lib/mock/guest-data";
@@ -122,7 +122,6 @@ function formatMessageWhen(iso: string): string {
 
 export function AccountContent() {
   const t = useTranslations("account");
-  const locale = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading, signOut, updateProfile, isDemo } = useAuth();
@@ -282,6 +281,7 @@ export function AccountContent() {
   }, [liveBookings, isDemo, user?.id]);
 
   const messageThreads = useMemo(() => {
+    void messagesTick;
     return bookings
       .map((b) => {
         const messages = loadBookingMessages(b.id);

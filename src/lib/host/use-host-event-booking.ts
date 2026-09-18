@@ -65,17 +65,14 @@ export function eventRequestFromLocal(
 ): HostBookingRecord {
   let parentCategory: string | undefined;
   let category: string | undefined;
-  let type = "";
   if (listingPayload) {
     try {
       const parsed = JSON.parse(listingPayload) as {
         parentCategory?: string;
         category?: string;
-        type?: string;
       };
       parentCategory = parsed.parentCategory;
       category = parsed.category;
-      type = parsed.type ?? "";
     } catch {
       // ignore
     }

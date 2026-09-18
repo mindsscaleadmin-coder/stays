@@ -7,7 +7,6 @@ import { getListingFeatureIcon } from "@/lib/listings/listing-feature-icons";
 import { DEFAULT_LISTING_FEATURE_ICON_ROWS } from "@/lib/listings/listing-feature-icons";
 import type {
   ListingGuestReview,
-  ListingRatingCategory,
   ListingSettings,
   ResolvedListingFeatureIcon,
 } from "./listing-settings-types";
@@ -165,7 +164,11 @@ export function resolveRatingCategories(
 export function resolveGuestReviews(
   settings: ListingSettings = loadListingSettings()
 ): Omit<ListingGuestReview, "enabled">[] {
-  return getEnabledGuestReviews(settings).map(({ enabled: _e, ...rest }) => rest);
+  return getEnabledGuestReviews(settings).map((review) => {
+    const { enabled, ...rest } = review;
+    void enabled;
+    return rest;
+  });
 }
 
 export function resolveHighlightLabels(

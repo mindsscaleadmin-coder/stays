@@ -370,7 +370,8 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
         const tab = prev.mainTabs.find((t) => t.id === id);
         if (!tab || tab.builtIn || isDefaultPropertyTab(id)) return prev;
         deleted = true;
-        const { [id]: _, ...restCustom } = prev.customItems;
+        const restCustom = { ...prev.customItems };
+        delete restCustom[id];
         return {
           ...prev,
           mainTabs: prev.mainTabs.filter((t) => t.id !== id),

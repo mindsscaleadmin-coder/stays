@@ -29,7 +29,6 @@ export function HostEventBookingDetailContent({ requestId }: { requestId: string
   const {
     view: opsView,
     saving: opsSaving,
-    error: opsError,
     patch: patchOps,
     refresh: refreshOps,
   } = useHostOps("event_request", id, hostId);

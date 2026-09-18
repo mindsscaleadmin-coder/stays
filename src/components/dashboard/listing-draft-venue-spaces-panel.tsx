@@ -4,7 +4,6 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { Building2, Plus, Trash2 } from "lucide-react";
 import {
   DraftRoomPhotosEditor,
-  MAX_ROOM_PHOTOS,
   type DraftRoomPhoto,
 } from "@/components/dashboard/listing-draft-rooms-panel";
 import { VenueDetailsFields } from "@/components/dashboard/host-venue-listing-sections";

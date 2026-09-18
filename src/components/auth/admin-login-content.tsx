@@ -33,8 +33,8 @@ export function AdminLoginContent() {
       setError(result.error);
       return;
     }
-    // Hard navigate so auth state (and cleared impersonation) is fully applied.
-    window.location.href = "/admin";
+    // Full navigation so auth state (and cleared impersonation) is fully applied.
+    router.replace("/admin");
   }
 
   if (loading) {

@@ -1,10 +1,6 @@
 import { HOST_LISTINGS } from "@/lib/mock/dashboard-data";
 import type { CountryPricingConfig } from "@/lib/admin/country-utils";
-import type {
-  ExtraCharge,
-  ListingPricingSettings,
-  SeasonalPrice,
-} from "./host-pricing-types";
+import type { ListingPricingSettings } from "./host-pricing-types";
 import { normalizeExtraChargeBilling } from "./host-pricing-types";
 import { emitSyncEvent } from "@/lib/emit-sync-event";
 import { LAUNCH_CURRENCY, LAUNCH_TAX_LABEL, LAUNCH_TAX_PCT } from "@/lib/tax/launch-market";

@@ -12,34 +12,6 @@ import {
 } from "./platform-analytics-data";
 import type { PlatformAnalyticsSnapshot } from "./platform-analytics-types";
 
-const EMPTY_SNAPSHOT: PlatformAnalyticsSnapshot = {
-  kpis: {
-    totalBookings: 0,
-    totalRevenue: 0,
-    activeHosts: 0,
-    activeListings: 0,
-    bookingsChangePct: 0,
-    revenueChangePct: 0,
-    hostsChangePct: 0,
-    listingsChangePct: 0,
-    lastUpdated: new Date().toISOString(),
-  },
-  monthlyTrends: [],
-  regionalByState: [],
-  regionalByDistrict: [],
-  topHosts: [],
-  underperformingHosts: [],
-  churn: {
-    inactiveHosts: 0,
-    churnedHosts: 0,
-    churnRatePct: 0,
-    hostGrowthPct: 0,
-    listingGrowthPct: 0,
-    inactiveHostRows: [],
-  },
-  bookingStatusBreakdown: [],
-};
-
 let pullInflight: Promise<void> | null = null;
 let pulledAt = 0;
 
@@ -68,7 +40,7 @@ export function useAdminPlatformAnalytics(countryFilter = "") {
   const [snapshot, setSnapshot] = useState<PlatformAnalyticsSnapshot>(() =>
     computePlatformAnalytics({ country: countryFilter || undefined })
   );
-  const [ready, setReady] = useState(true);
+  const [ready] = useState(true);
   const [availableCountries, setAvailableCountries] = useState<string[]>(() =>
     listAnalyticsCountries()
   );

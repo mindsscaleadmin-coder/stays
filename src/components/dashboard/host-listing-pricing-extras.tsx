@@ -168,7 +168,6 @@ export function HostListingPricingExtras({
   onSave,
   isExperience = false,
   hostId,
-  currencySymbol,
   lockTogglesOff = false,
 }: {
   settings: ListingPricingSettings;
@@ -193,7 +192,6 @@ export function HostListingPricingExtras({
   const {
     items: savedExtras,
     add: addSavedExtra,
-    remove: removeSavedExtra,
   } = useHostExtraLibrary(hostId);
 
   const [newSeason, setNewSeason] = useState({ name: "", startDate: "", endDate: "", price: "" });

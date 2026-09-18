@@ -7,7 +7,6 @@ import {
   Mail,
   MapPin,
   ArrowRight,
-  Star,
   Shield,
   CheckCircle,
   Headphones,

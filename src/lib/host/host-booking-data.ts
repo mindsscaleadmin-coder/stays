@@ -472,10 +472,7 @@ export function getHostInstantBookEnabled(): boolean {
   return true;
 }
 
-export function setHostInstantBookEnabled(
-  _enabled: boolean,
-  _opts?: { silent?: boolean }
-): void {
+export function setHostInstantBookEnabled(): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(INSTANT_BOOK_KEY, "true");
 }

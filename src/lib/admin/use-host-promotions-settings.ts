@@ -6,8 +6,6 @@ import {
   loadHostPromotionsSettings,
   resetHostPromotionsSettings,
   saveHostPromotionsSettings,
-  updateHostPromotionsSettings,
-  updatePromotionPackage,
 } from "./host-promotions-settings-data";
 import {
   fetchPromotionCatalogFromApi,

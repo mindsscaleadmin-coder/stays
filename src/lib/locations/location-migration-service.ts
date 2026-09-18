@@ -355,7 +355,6 @@ function buildGeoPlan(taxonomy: TaxonomyData, defaultCountryCode?: string): Omit
     });
   }
 
-  const countryByTaxonomyId = new Map(countries.map((c) => [c.legacyTaxonomyId, c]));
   const stateByTaxonomyId = new Map<string, PlannedLocation>();
 
   for (const country of countries) {

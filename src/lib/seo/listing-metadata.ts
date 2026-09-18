@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import type { Stay } from "@/lib/mock/data";
 import { isDiningListing } from "@/lib/booking/is-dining-listing";
-import { isEventListing } from "@/lib/booking/is-event-listing";
 import { submissionGallery } from "@/lib/listings/submission-to-stay";
 import type { SubmittedListing } from "@/lib/listings/submission-types";
 import { absoluteUrl, DEFAULT_DESCRIPTION, SITE_NAME } from "./site";

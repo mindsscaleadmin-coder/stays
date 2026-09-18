@@ -86,7 +86,7 @@ export function HomePageContent() {
     requestLocation,
   } = useGuestLocation();
   const cms = useCmsSettings();
-  const { settings: homeSettings } = useHomePageSettings();
+  useHomePageSettings();
   const [heroImage, setHeroImage] = useState(HERO_BG);
   const heroUnoptimized = isDataImageUrl(heroImage) || heroImage === HERO_BG;
 

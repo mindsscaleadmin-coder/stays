@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { Link } from "@/i18n/routing";
 import {
   Building2,
@@ -700,7 +701,14 @@ export function DiningSameHostSection({
           >
             <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-gray-100">
               {item.img ? (
-                <img src={item.img} alt="" className="h-full w-full object-cover" />
+                <Image
+                  src={item.img}
+                  alt=""
+                  width={56}
+                  height={56}
+                  unoptimized
+                  className="h-full w-full object-cover"
+                />
               ) : null}
             </div>
             <div className="min-w-0">

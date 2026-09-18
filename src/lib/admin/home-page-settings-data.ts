@@ -1,8 +1,4 @@
-import type {
-  AnnouncementBarItem,
-  HomePageBanner,
-  HomePageSettings,
-} from "./home-page-settings-types";
+import type { AnnouncementBarItem, HomePageSettings } from "./home-page-settings-types";
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
 
 const STORAGE_KEY = "farm-stays-home-page-settings";

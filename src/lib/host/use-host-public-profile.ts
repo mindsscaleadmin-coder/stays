@@ -15,7 +15,7 @@ import type { HostPublicProfile } from "./host-profile-types";
 
 const INSTANT_BOOK_KEY = "farm-stays-host-instant-book-enabled";
 
-function syncInstantBookLocal(_profile: HostPublicProfile) {
+function syncInstantBookLocal() {
   if (typeof window === "undefined") return;
   localStorage.setItem(INSTANT_BOOK_KEY, "true");
 }
@@ -75,7 +75,7 @@ async function refreshHostProfileShared(
   const inflight = (async () => {
     const fromApi = await fetchHostProfileFromApi(hostId);
     const profile = mergeProfile(hostId, fallbackName, fromApi);
-    syncInstantBookLocal(profile);
+    syncInstantBookLocal();
     broadcastHostProfile(hostId, profile);
     return profile;
   })().finally(() => {
@@ -158,7 +158,7 @@ export function useHostPublicProfile(
   }, [hostId, fallbackName, shared, applyLocal]);
 
   async function persist(next: HostPublicProfile) {
-    syncInstantBookLocal(next);
+    syncInstantBookLocal();
     const savedLocal = saveHostPublicProfile(next.hostId, next);
     setData(savedLocal);
     broadcastHostProfile(next.hostId, savedLocal);
@@ -179,7 +179,7 @@ export function useHostPublicProfile(
         saveHostPublicProfile(id, merged);
         setData(merged);
         broadcastHostProfile(id, merged);
-        syncInstantBookLocal(merged);
+        syncInstantBookLocal();
       } catch {
         // keep the local write — sidebar already updated
       }

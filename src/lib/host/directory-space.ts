@@ -13,7 +13,6 @@ import {
   formatSubscriptionExpiry,
   isDirectoryComboActive,
   isDirectorySubscriptionActive,
-  isEventsSubscriptionActive,
 } from "./events-subscription";
 
 export interface DirectorySpaceStatus {

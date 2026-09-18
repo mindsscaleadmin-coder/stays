@@ -7,9 +7,8 @@ import {
   listSupportTickets,
   updateTicketStatusInDb,
 } from "@/lib/server/support-tickets-repo";
-import { requireSessionUser, AuthError } from "@/lib/auth/session";
-import { getUserRoles, isDemoApiMode, BookingAccessError } from "@/lib/auth/booking-access";
-import { canAccessAdmin } from "@/lib/auth/roles";
+import { AuthError } from "@/lib/auth/session";
+import { BookingAccessError } from "@/lib/auth/booking-access";
 import { hostDataErrorResponse } from "@/lib/auth/listing-access";
 import { requireAdmin } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";

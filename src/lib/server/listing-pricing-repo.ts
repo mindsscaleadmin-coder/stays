@@ -64,7 +64,8 @@ function mergeStored(
 }
 
 function persistablePayload(settings: ListingPricingSettings): string {
-  const { listingId: _listingId, ...rest } = settings;
+  const { listingId, ...rest } = settings;
+  void listingId;
   return JSON.stringify(rest);
 }
 
@@ -150,7 +151,8 @@ export async function saveListingPricing(
   if (!listing) throw new Error("Listing not found");
 
   const toStore = disableExpiredFlashDeal({ listingId, ...rest });
-  const { listingId: _id, ...payload } = toStore;
+  const { listingId: storedListingId, ...payload } = toStore;
+  void storedListingId;
   await prisma.listingPricing.upsert({
     where: { listingId },
     create: { listingId, payload: JSON.stringify(payload) },

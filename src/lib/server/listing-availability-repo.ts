@@ -111,7 +111,8 @@ export async function saveListingAvailability(
       icalFeeds: settings.icalFeeds ?? [],
       icalImportedDates: settings.icalImportedDates ?? [],
     };
-    const { listingId: _id, ...rest } = next;
+    const { listingId: storedListingId, ...rest } = next;
+    void storedListingId;
 
     await tx.listingAvailabilityMeta.upsert({
       where: { listingId },

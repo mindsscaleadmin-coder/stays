@@ -137,51 +137,6 @@ function parentNavItem(data: TaxonomyData, parent: { id: string; name: string })
   };
 }
 
-function destinationsNav(data: TaxonomyData): HeaderNavItem | null {
-  if (!tabEnabled(data, "country") && !tabEnabled(data, "state") && !tabEnabled(data, "district")) {
-    return null;
-  }
-  const countries = filterActiveCountries(data.countries);
-  const groups: NavGroup[] = [];
-
-  for (const country of countries.slice(0, 4)) {
-    const states = tabEnabled(data, "state")
-      ? data.states.filter((s) => s.enabled !== false && s.countryId === country.id)
-      : [];
-    // Keep Destinations comparable to other mega menus: country → states (not a district dump).
-    const links: NavLink[] =
-      states.length > 0
-        ? states.slice(0, 12).map((state) => ({
-            label: state.name,
-            href: listingsHref({ country: country.name, state: state.name, q: state.name }),
-          }))
-        : [
-            {
-              label: country.name,
-              href: listingsHref({ country: country.name }),
-            },
-          ];
-    if (links.length > 0) {
-      groups.push({
-        title: country.name,
-        href: listingsHref({ country: country.name }),
-        img: imageForName(country.name, DESTINATIONS),
-        links,
-      });
-    }
-  }
-
-  if (groups.length === 0) return null;
-
-  return {
-    id: "destinations",
-    label: "Destinations",
-    href: "/destinations",
-    img: imageForName("Al Ain", DESTINATIONS),
-    groups,
-  };
-}
-
 /** Header / mega-menu items from the live Filter taxonomy. */
 export function buildHeaderNav(data: TaxonomyData): HeaderNavItem[] {
   if (!tabEnabled(data, "parent")) return [];

@@ -15,7 +15,7 @@ export const options = {
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:3000";
 
-export default function () {
+export default function loadTest() {
   const pages = ["/", "/en", "/listings", "/en/listing/1", "/en/search"];
 
   for (const path of pages) {
