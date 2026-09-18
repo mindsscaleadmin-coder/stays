@@ -6,6 +6,7 @@
     "dev": "bash scripts/dev.sh",
     "dev:clean": "rm -rf .next && bash scripts/dev.sh",
     "build": "next build",
+    "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
