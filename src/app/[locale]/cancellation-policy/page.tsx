@@ -1,5 +1,13 @@
+import type { Metadata } from "next";
 import { setRequestLocale } from "next-intl/server";
 import { SiteInfoPage } from "@/components/layout/site-info-page";
+import { publicPageMetadata } from "@/lib/seo/site";
+
+export const metadata: Metadata = publicPageMetadata({
+  title: "Cancellation policy",
+  description: "Cancellation and refund policy for bookings on Greenfield Farm Stays.",
+  path: "/cancellation-policy",
+});
 
 export default async function CancellationPolicyPage({
   params,

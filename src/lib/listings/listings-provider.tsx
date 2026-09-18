@@ -31,7 +31,12 @@ export function useListingSubmissions(options?: { load?: boolean }) {
   return ctx;
 }
 
-export function useHostSubmissions(hostId?: string, hostName?: string) {
-  const { all } = useListingSubmissions({ load: true });
+export function useHostSubmissions(
+  hostId?: string,
+  hostName?: string,
+  options?: { load?: boolean }
+) {
+  const load = options?.load ?? false;
+  const { all } = useListingSubmissions({ load });
   return filterHostListings(all, hostId ?? "", hostName);
 }

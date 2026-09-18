@@ -14,6 +14,7 @@ import {
 } from "@/lib/listings/relabel-listings";
 import type { ListingSearchFilters } from "@/lib/listings/match-listing";
 import { createPropertyReference } from "@/lib/listings/property-reference";
+import { assertDirectoryListingCapacity } from "@/lib/server/directory-space-enforcement";
 import {
   LISTINGS_QUERY_HARD_CAP,
   PUBLIC_LISTINGS_DEFAULT_PAGE_SIZE,
@@ -295,14 +296,15 @@ export async function getListing(id: string): Promise<SubmittedListing | null> {
 
 export async function createListing(input: SubmitListingInput): Promise<SubmittedListing> {
   await ensureHostUser(input.hostId, input.hostName);
+  await assertDirectoryListingCapacity(input);
   const id = `L-${Date.now().toString(36).toUpperCase()}`;
-  const listing: SubmittedListing = {
+  const listing: SubmittedListing = normalizeSubmittedListing({
     ...input,
     id,
     propertyReference: createPropertyReference(),
     status: "pending",
     submittedAt: new Date().toISOString(),
-  };
+  });
   await prisma.listing.create({
     data: {
       id,

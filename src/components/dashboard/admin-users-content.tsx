@@ -16,7 +16,6 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import { AdminStaffAccessPanel } from "./admin-staff-access-panel";
 import { useAdminUsers } from "@/lib/admin/use-admin-users";
 import { useAdminStaffAccess } from "@/lib/admin/use-admin-staff-access";
@@ -446,8 +445,7 @@ export function AdminUsersContent() {
   }
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
+          <div className="space-y-6">
         <div>
           <h2 className="text-xl font-bold text-gray-900 font-display">Users & Access</h2>
           <p className="text-gray-500 text-sm mt-1">
@@ -729,6 +727,6 @@ export function AdminUsersContent() {
           </>
         )}
       </div>
-    </AdminDashboardShell>
+    
   );
 }

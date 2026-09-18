@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useState } from "react";
+import { ProfileAlertDot } from "@/components/ui/profile-alert-dot";
 import {
   BOOKING_CART_SYNC_EVENT,
   getCartCount,
 } from "@/lib/guest/booking-cart";
+import { useCartProfileNotice } from "@/lib/guest/use-guest-profile-notices";
 
-export function GuestCartBadge() {
+export function useCartCount() {
   const [count, setCount] = useState<number | null>(null);
 
   useLayoutEffect(() => {
@@ -29,6 +31,12 @@ export function GuestCartBadge() {
     };
   }, []);
 
+  return count;
+}
+
+export function GuestCartBadge() {
+  const count = useCartCount();
+
   if (count === null || count <= 0) return null;
 
   return (
@@ -38,5 +46,21 @@ export function GuestCartBadge() {
     >
       {count > 9 ? "9+" : count}
     </span>
+  );
+}
+
+export function GuestCartProfileDot() {
+  const { visible, pulseKey } = useCartProfileNotice();
+
+  if (!visible) return null;
+
+  return (
+    <ProfileAlertDot
+      position="bottom"
+      pingClassName="bg-green-600"
+      dotClassName="bg-green-700"
+      pulseKey={pulseKey}
+      label="Added to cart"
+    />
   );
 }

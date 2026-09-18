@@ -8,6 +8,11 @@ import {
 import { BookingError } from "@/lib/booking/confirm-booking";
 import type { QuotedBookingListing } from "@/lib/booking/create-quoted-booking";
 import type { BookingQuote } from "@/lib/booking/compute-quote";
+import {
+  buildGuestQuoteSnapshotFromBookingQuote,
+  serializeGuestQuoteSnapshot,
+} from "@/lib/booking/guest-quote-snapshot";
+import { LAUNCH_TAX_LABEL, LAUNCH_TAX_PCT } from "@/lib/tax/launch-market";
 import { resolveListingHostForBooking } from "@/lib/server/resolve-listing-host";
 import { getListingPricing } from "@/lib/server/listing-pricing-repo";
 import { prisma } from "@/lib/prisma";
@@ -76,6 +81,14 @@ export async function createQuotedExperienceBooking(
     });
   }
 
+  const guestSnapshot = serializeGuestQuoteSnapshot(
+    buildGuestQuoteSnapshotFromBookingQuote(
+      quote,
+      pricing?.taxLabel ?? LAUNCH_TAX_LABEL,
+      pricing?.taxPct ?? LAUNCH_TAX_PCT
+    )
+  );
+
   const booking = await confirmExperienceBooking({
     listingId: input.listingId,
     guestId: input.guestId,
@@ -84,6 +97,7 @@ export async function createQuotedExperienceBooking(
     guestCount: input.guestCount,
     totalPrice: quote.total,
     session,
+    guestQuoteSnapshot: guestSnapshot,
   });
 
   return { booking, quote, session };

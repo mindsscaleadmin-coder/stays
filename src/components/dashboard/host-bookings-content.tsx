@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/routing";
 import { CalendarRange, ChevronRight, Loader2, X, Zap } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
-import { formatBookingDate, STATUS_STYLES } from "@/lib/mock/dashboard-data";
+import { OpsListBadges } from "@/components/dashboard/booking-ops/ops-list-badges";
 import { useHostBookings } from "@/lib/host/use-host-bookings";
 import type { BookingTimelineTab } from "@/lib/host/host-booking-types";
 import {
@@ -14,7 +14,22 @@ import {
   getBookingTimeline,
   timelineTabLabel,
 } from "@/lib/host/host-booking-utils";
+import { hostBookingDetailPath } from "@/lib/host/host-ops-adapter";
+import {
+  filterBookingsByOperationalStatus,
+  formatBookingListDates,
+} from "@/lib/host/host-booking-list-utils";
+import { operationalStatusLabel } from "@/lib/host/operational-status";
+import type { OperationalStatus } from "@/lib/host/host-ops-types";
 import { cn } from "@/lib/utils";
+
+const OPS_STATUS_FILTER_OPTIONS: OperationalStatus[] = [
+  "confirmed",
+  "upcoming",
+  "in_progress",
+  "completed",
+  "cancelled",
+];
 
 const TABS: BookingTimelineTab[] = ["upcoming", "ongoing", "past", "all"];
 
@@ -60,6 +75,7 @@ export function HostBookingsContent() {
   const [toDate, setToDate] = useState("");
   const [month, setMonth] = useState("");
   const [status, setStatus] = useState<string>("");
+  const [opsStatus, setOpsStatus] = useState<OperationalStatus | "">("");
 
   const tabCounts = useMemo(() => {
     const counts = { upcoming: 0, ongoing: 0, past: 0, all: bookings.length };
@@ -73,11 +89,12 @@ export function HostBookingsContent() {
   const filtered = useMemo(() => {
     let list = filterBookingsByTab(bookings, tab);
     if (status) list = list.filter((b) => b.status === status);
+    list = filterBookingsByOperationalStatus(list, opsStatus);
     if (fromDate || toDate) list = list.filter((b) => bookingInDateRange(b, fromDate, toDate));
     return list;
-  }, [bookings, tab, status, fromDate, toDate]);
+  }, [bookings, tab, status, opsStatus, fromDate, toDate]);
 
-  const hasFilters = Boolean(fromDate || toDate || month || status);
+  const hasFilters = Boolean(fromDate || toDate || month || status || opsStatus);
 
   function applyMonth(value: string) {
     setMonth(value);
@@ -106,6 +123,7 @@ export function HostBookingsContent() {
     setToDate("");
     setMonth("");
     setStatus("");
+    setOpsStatus("");
   }
 
   if (!ready) {
@@ -125,7 +143,8 @@ export function HostBookingsContent() {
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">Bookings</h2>
             <p className="text-gray-500 text-sm mt-1">
-              Confirmed stays, check-in/out, and cancellations.
+              Stays, experiences, and confirmed dining/event enquiries — operational status, staff,
+              and guest details in one place.
             </p>
           </div>
         </div>
@@ -218,7 +237,7 @@ export function HostBookingsContent() {
               />
             </label>
             <label className="block w-[9.5rem] space-y-1">
-              <span className="text-xs font-medium text-gray-600">Status</span>
+              <span className="text-xs font-medium text-gray-600">Booking status</span>
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
@@ -230,9 +249,24 @@ export function HostBookingsContent() {
                 <option value="cancelled">Cancelled</option>
               </select>
             </label>
+            <label className="block w-[9.5rem] space-y-1">
+              <span className="text-xs font-medium text-gray-600">Ops status</span>
+              <select
+                value={opsStatus}
+                onChange={(e) => setOpsStatus(e.target.value as OperationalStatus | "")}
+                className="w-full h-9 border border-gray-200 rounded-lg px-2.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              >
+                <option value="">All ops statuses</option>
+                {OPS_STATUS_FILTER_OPTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {operationalStatusLabel(value)}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
           <p className="text-xs text-gray-400 mt-2.5">
-            Showing stays that overlap this range
+            Showing bookings that overlap this date range
           </p>
         </div>
 
@@ -247,7 +281,7 @@ export function HostBookingsContent() {
               return (
                 <Link
                   key={b.id}
-                  href={`/host/bookings/${b.id}`}
+                  href={hostBookingDetailPath(b)}
                   className={cn(
                     "p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-gray-50/80 transition-colors cursor-pointer",
                     focusId === b.id && "bg-green-50/70 ring-1 ring-green-200"
@@ -258,9 +292,9 @@ export function HostBookingsContent() {
                       <div>
                         <div className="font-semibold text-gray-900">{b.guest}</div>
                         <div className="text-sm text-gray-500 mt-1">
-                          {b.property} · {formatBookingDate(b.checkIn)} →{" "}
-                          {formatBookingDate(b.checkOut)} · {b.guests} guests
+                          {b.property} · {formatBookingListDates(b)}
                         </div>
+                        <OpsListBadges booking={b} className="mt-2" />
                         {special && (
                           <p className="text-xs text-gray-400 mt-1 line-clamp-1">{special}</p>
                         )}
@@ -280,17 +314,8 @@ export function HostBookingsContent() {
                       <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 mt-1 hidden sm:block" />
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${STATUS_STYLES[b.status]}`}
-                    >
-                      {b.status}
-                    </span>
-                    {b.checkInStatus === "checked_in" && b.status === "confirmed" && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                        Checked in
-                      </span>
-                    )}
+                  <div className="flex flex-wrap items-center gap-2 shrink-0 sm:hidden">
+                    <OpsListBadges booking={b} />
                   </div>
                 </Link>
               );

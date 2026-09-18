@@ -7,7 +7,7 @@ import { Worker } from "bullmq";
 import IORedis from "ioredis";
 import { QUEUE_NAME } from "../src/lib/queue/client";
 import { logger } from "../src/lib/queue/worker-logger";
-import { deliverBookingConfirmedEmail, deliverWelcomeEmail } from "../src/lib/email/jobs";
+import { deliverInvoiceEmail, deliverWelcomeEmail } from "../src/lib/email/jobs";
 
 const redisUrl = process.env.REDIS_URL;
 if (!redisUrl) {
@@ -34,7 +34,7 @@ async function handleWelcomeEmail(data: {
 }
 
 async function handleBookingConfirmed(data: { bookingId: string; guestId: string }) {
-  const result = await deliverBookingConfirmedEmail(data.bookingId);
+  const result = await deliverInvoiceEmail(data.bookingId);
   logger.info("booking_confirmed_handled", {
     bookingId: data.bookingId,
     guestId: data.guestId,

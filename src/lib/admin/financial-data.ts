@@ -369,6 +369,15 @@ export function computeFinancialReport(
   const platformRevenue = transactions.reduce((sum, tx) => sum + tx.platformFee, 0);
   const hostEarnings = transactions.reduce((sum, tx) => sum + tx.netEarnings, 0);
   const taxCollected = transactions.reduce((sum, tx) => sum + tx.taxAmount, 0);
+  const stripeFeesTotal = transactions.reduce(
+    (sum, tx) => sum + (tx.stripeProcessingFee ?? 0),
+    0
+  );
+  const payoutTransferCosts = payouts.reduce(
+    (sum, p) => sum + ((p as { transferFee?: number }).transferFee ?? 0),
+    0
+  );
+  const truePlatformMargin = platformRevenue - stripeFeesTotal - payoutTransferCosts;
   const outstandingPayouts = payouts
     .filter((p) => p.adminStatus === "pending_review" || p.adminStatus === "approved" || p.adminStatus === "held")
     .filter((p) => p.sourceStatus !== "paid")
@@ -381,6 +390,9 @@ export function computeFinancialReport(
     platformRevenue,
     hostEarnings,
     taxCollected,
+    stripeFeesTotal,
+    payoutTransferCosts,
+    truePlatformMargin,
     outstandingPayouts,
     pendingRefunds,
     currency,

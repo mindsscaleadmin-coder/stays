@@ -42,36 +42,42 @@ const STORAGE_KEY = "farm-stays-trust-admin";
 export const TRUST_ADMIN_SYNC_EVENT = "farm-stays-trust-admin-updated";
 
 const HOST_NAMES: Record<string, string> = {
-  "seed-host-4": "Ahmed Al Farsi",
-  "seed-host-5": "Sara Khan",
+  "seed-host-4": "Rajesh Kumar",
+  "seed-host-5": "Priya Sharma",
   "demo-host": "Demo Host",
-  "U-001": "Ahmed Al Farsi",
+  "U-001": "Rajesh Kumar",
   "U-003": "Khalid Al Mazrouei",
 };
 
 export const DEFAULT_TRUST_BADGES: TrustBadgeDefinition[] = [
   {
     id: "cert-organic",
-    label: "Organic certified",
-    description: "Verified organic farming practices.",
+    label: "Organic certified (NPOP)",
+    description: "Verified under India's National Programme for Organic Production.",
+    enabled: true,
+  },
+  {
+    id: "cert-fssai",
+    label: "FSSAI registered",
+    description: "Food safety registration for on-site dining and farm kitchens.",
+    enabled: true,
+  },
+  {
+    id: "cert-gst",
+    label: "GST registered",
+    description: "Valid GSTIN for invoicing and tax compliance.",
     enabled: true,
   },
   {
     id: "cert-eco",
     label: "Eco-tourism registered",
-    description: "Registered with national eco-tourism programme.",
-    enabled: true,
-  },
-  {
-    id: "cert-halal",
-    label: "Halal food service",
-    description: "Kitchen and dining meet halal standards.",
+    description: "Recognised by state or national eco-tourism programmes.",
     enabled: true,
   },
   {
     id: "cert-sustainable",
     label: "Sustainable agriculture",
-    description: "Water conservation and low-impact farming.",
+    description: "Water conservation and low-impact farming practices.",
     enabled: true,
   },
 ];

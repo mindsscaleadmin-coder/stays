@@ -10,6 +10,9 @@ export type CancellationPolicyId =
   | "strict"
   | "non-refundable";
 
+/** Default policy for new listings and missing policyId fallbacks. */
+export const DEFAULT_CANCELLATION_POLICY_ID: CancellationPolicyId = "moderate";
+
 export type CancellationPolicyRule = {
   id: CancellationPolicyId;
   label: string;
@@ -66,7 +69,11 @@ export function getCancellationRule(
   policyId?: string | null
 ): CancellationPolicyRule {
   const found = CANCELLATION_MATRIX.find((p) => p.id === policyId);
-  return found ?? CANCELLATION_MATRIX[0];
+  if (found) return found;
+  return (
+    CANCELLATION_MATRIX.find((p) => p.id === DEFAULT_CANCELLATION_POLICY_ID) ??
+    CANCELLATION_MATRIX[0]
+  );
 }
 
 export function computePendingExpiresAt(

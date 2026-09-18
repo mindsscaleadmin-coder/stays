@@ -1,12 +1,12 @@
 import { computeHostBookingMetrics, resolveBookingHost } from "@/lib/admin/booking-oversight-utils";
 import { resolveAdminHosts } from "@/lib/admin/host-helpers";
-import { loadAllUsers } from "@/lib/admin/user-data";
+import { loadAllUsers, USERS_SYNC_EVENT } from "@/lib/admin/user-data";
 import type { AdminUserRecord } from "@/lib/admin/user-types";
 import { BASE_CURRENCY, locationMatchesCountry } from "@/lib/currency";
-import { loadHostBookings } from "@/lib/host/host-booking-data";
+import { HOST_BOOKINGS_SYNC_EVENT, loadHostBookings } from "@/lib/host/host-booking-data";
 import type { HostBookingRecord } from "@/lib/host/host-booking-types";
 import { loadHostReviews } from "@/lib/host/host-reviews-data";
-import { loadAllSubmissions } from "@/lib/listings/submission-data";
+import { LISTINGS_SYNC_EVENT, loadAllSubmissions } from "@/lib/listings/submission-data";
 import type { SubmittedListing } from "@/lib/listings/submission-types";
 import type {
   BookingStatusSlice,
@@ -469,6 +469,10 @@ export function listAnalyticsCountries(): string[] {
 export function computePlatformAnalytics(
   options: PlatformAnalyticsOptions = {}
 ): PlatformAnalyticsSnapshot {
+  const country = options.country ?? "";
+  const cached = analyticsCache.get(country);
+  if (cached) return cached;
+
   const rawBookings = loadHostBookings().map(resolveBookingHost);
   const rawListings = loadAllSubmissions();
   const rawHosts = loadAllUsers();
@@ -481,7 +485,7 @@ export function computePlatformAnalytics(
   const monthlyTrends = computeMonthlyTrends(bookings, hosts, listings);
   const { top, under } = computeHostPerformance(bookings, listings, hosts);
 
-  return {
+  const snapshot: PlatformAnalyticsSnapshot = {
     kpis: computeKpis(bookings, listings, hosts, monthlyTrends),
     monthlyTrends,
     regionalByState: computeRegional(bookings, listings, "state"),
@@ -491,6 +495,21 @@ export function computePlatformAnalytics(
     churn: computeChurn(bookings, hosts, listings),
     bookingStatusBreakdown: computeStatusBreakdown(bookings),
   };
+  analyticsCache.set(country, snapshot);
+  return snapshot;
+}
+
+const analyticsCache = new Map<string, PlatformAnalyticsSnapshot>();
+
+export function invalidatePlatformAnalyticsCache() {
+  analyticsCache.clear();
+}
+
+if (typeof window !== "undefined") {
+  const invalidate = () => invalidatePlatformAnalyticsCache();
+  window.addEventListener(HOST_BOOKINGS_SYNC_EVENT, invalidate);
+  window.addEventListener(LISTINGS_SYNC_EVENT, invalidate);
+  window.addEventListener(USERS_SYNC_EVENT, invalidate);
 }
 
 export function formatPlatformMoney(amount: number, currency = BASE_CURRENCY): string {

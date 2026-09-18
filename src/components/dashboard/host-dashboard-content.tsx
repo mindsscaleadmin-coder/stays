@@ -1,7 +1,7 @@
 "use client";
 
 import { Link } from "@/i18n/routing";
-import { Building2, Calendar, CreditCard, Plus, Star } from "lucide-react";
+import { Building2, Calendar, CreditCard, Star } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { HostDashboardShell } from "./host-dashboard-shell";
 import { useHostVerification } from "@/lib/host/use-host-verification";
@@ -11,6 +11,9 @@ import { VerifiedBadge } from "@/components/ui/verified-badge";
 import { HostAnalyticsPanelView } from "./host-analytics-content";
 import { HostDailyOpsPanel } from "./host-daily-ops-panel";
 import { HostOverviewAnnouncements } from "./host-overview-announcements";
+import { HostDirectoryBillingBanner } from "./host-directory-billing-banner";
+import { useHostPublicProfile } from "@/lib/host/use-host-public-profile";
+import { resolveHostName } from "@/lib/listings/use-listing-submissions";
 import { cn, formatPrice } from "@/lib/utils";
 import { emptyOverview } from "@/lib/host/compute-host-analytics";
 import type { HostOverviewStats } from "@/lib/host/host-analytics-types";
@@ -67,6 +70,8 @@ function overviewCards(stats: HostOverviewStats) {
 export function HostDashboardContent() {
   const { user } = useAuth();
   const hostId = resolveHostId(user);
+  const hostName = resolveHostName(user);
+  const { data: hostProfile } = useHostPublicProfile(hostId ?? undefined, hostName);
   const { request, ready } = useHostVerification(user?.id);
   const { data, ready: analyticsReady } = useHostAnalytics(hostId);
   const stats = data?.overview ?? emptyOverview();
@@ -75,20 +80,14 @@ export function HostDashboardContent() {
   return (
     <HostDashboardShell>
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 font-display">Host Dashboard</h2>
-            <p className="text-gray-500 text-sm mt-1">
-              Today’s guests and what still needs a listing to go live.
-            </p>
-          </div>
-          <Link
-            href="/host/new-listing"
-            className="inline-flex items-center gap-2 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
-          >
-            <Plus className="w-4 h-4" /> Add New Listing
-          </Link>
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 font-display">Host Dashboard</h2>
+          <p className="text-gray-500 text-sm mt-1">
+            Today’s guests and what still needs a listing to go live.
+          </p>
         </div>
+
+        {hostId ? <HostDirectoryBillingBanner hostId={hostId} profile={hostProfile} /> : null}
 
         <HostOverviewAnnouncements hostId={hostId} hostName={user?.fullName} />
 

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { BookingError } from "@/lib/booking/confirm-booking";
 import { maybeStripeRefund } from "@/lib/booking/lifecycle";
 import { refundStatusFromBand } from "@/lib/booking/policies";
+import { MANUAL_REFUND_APPROVAL } from "@/lib/booking/refund-governance";
 import { withAudit } from "@/lib/booking/booking-audit";
 import type { DisputeStatus, RefundStatus } from "@/lib/host/host-booking-types";
 
@@ -150,6 +151,17 @@ export async function refundBooking(input: {
   const percent = Math.round((amount / booking.totalPrice) * 100);
   const refundStatus: RefundStatus = percent >= 100 ? "full" : "partial";
 
+  if (
+    MANUAL_REFUND_APPROVAL &&
+    input.actor === "host" &&
+    !input.completePending
+  ) {
+    throw new BookingError(
+      "Refunds require admin approval. Approve from Admin → Financial → Refund approvals, or mark an offline refund as complete.",
+      "INVALID_DATES"
+    );
+  }
+
   if (input.completePending && booking.paymentStatus === "refund_pending" && input.actor === "host") {
     return prisma.booking.update({
       where: { id: input.bookingId },
@@ -196,6 +208,33 @@ export async function refundBooking(input: {
         ]
           .filter(Boolean)
           .join(" — "),
+      }),
+    },
+  });
+}
+
+/** Admin declined a queued policy refund — booking stays cancelled, no Stripe refund. */
+export async function rejectPendingRefund(input: {
+  bookingId: string;
+  actor: string;
+  reason?: string;
+}) {
+  const booking = await prisma.booking.findUnique({ where: { id: input.bookingId } });
+  if (!booking) throw new BookingError("Booking not found", "NOT_FOUND");
+  if (booking.paymentStatus !== "refund_pending") {
+    throw new BookingError("No pending refund on this booking", "INVALID_DATES");
+  }
+
+  const note = input.reason?.trim() || "Admin declined refund";
+
+  return prisma.booking.update({
+    where: { id: input.bookingId },
+    data: {
+      paymentStatus: "paid",
+      auditLog: withAudit(booking.auditLog, {
+        actor: input.actor,
+        action: "Refund rejected",
+        detail: note,
       }),
     },
   });

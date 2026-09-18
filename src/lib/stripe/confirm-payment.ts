@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { BookingError } from "@/lib/booking/confirm-booking";
 import { markBookingPaid } from "@/lib/booking/mark-paid";
+import { captureBookingFinancials } from "@/lib/booking/capture-booking-financials";
 import { enqueueBookingConfirmedJob } from "@/lib/queue/enqueue";
 import { getStripe, isStripeConfigured } from "@/lib/stripe/server";
 
@@ -56,6 +57,16 @@ export async function confirmPaidFromStripe(input: {
     select: { id: true, paymentStatus: true, guestId: true, stripeSessionId: true },
   });
 
+  const sessionBookingTotals = new Map<string, number>();
+  const siblingRows = await prisma.booking.findMany({
+    where: { id: { in: siblings.map((s) => s.id) } },
+    select: { id: true, totalPrice: true },
+  });
+  for (const row of siblingRows) {
+    sessionBookingTotals.set(row.id, row.totalPrice);
+  }
+  const sessionTotal = siblingRows.reduce((sum, row) => sum + row.totalPrice, 0);
+
   let paid = booking;
   for (const row of siblings) {
     if (row.stripeSessionId !== session.id) {
@@ -69,9 +80,23 @@ export async function confirmPaidFromStripe(input: {
       continue;
     }
     const next = await markBookingPaid(row.id);
+    await captureBookingFinancials(next.id, {
+      stripeSessionId: session.id,
+      sessionBookingTotals:
+        sessionTotal > 0 ? sessionBookingTotals : undefined,
+    });
     void enqueueBookingConfirmedJob({ bookingId: next.id, guestId: next.guestId });
     if (next.id === booking.id) paid = next;
   }
 
-  return paid.paymentStatus === "paid" ? paid : markBookingPaid(booking.id);
+  if (paid.paymentStatus !== "paid") {
+    const next = await markBookingPaid(booking.id);
+    await captureBookingFinancials(next.id, {
+      stripeSessionId: session.id,
+      sessionBookingTotals:
+        sessionTotal > 0 ? sessionBookingTotals : undefined,
+    });
+    return next;
+  }
+  return paid;
 }

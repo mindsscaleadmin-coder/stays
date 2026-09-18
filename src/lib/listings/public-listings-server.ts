@@ -13,7 +13,9 @@ import type { SubmittedListing } from "./submission-types";
 import type { ListingPricingSettings } from "@/lib/host/host-pricing-types";
 import type { ListingSearchFilters } from "./match-listing";
 import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
-import { listEventSubscribedHostIds } from "@/lib/server/host-profile-repo";
+import { isDiningListing } from "@/lib/booking/is-dining-listing";
+import { isEventListing } from "@/lib/booking/is-event-listing";
+import { listDiningSubscribedHostIds, listEventSubscribedHostIds } from "@/lib/server/host-profile-repo";
 import { getFinancialSettingsFromDb } from "@/lib/server/platform-catalog-repo";
 import { eventsDirectoryIsFree } from "@/lib/admin/events-subscription";
 import {
@@ -29,13 +31,15 @@ import {
  */
 export function listingVisibleOnPublicCatalog(
   listing: { hostId?: string; parentCategory?: string; type?: string; category?: string },
-  subscribed: Set<string>,
-  freeDirectory = false
+  subscribedEvents: Set<string>,
+  subscribedDining: Set<string>
 ): boolean {
   if (!isDirectoryListing(listing)) return true;
-  if (freeDirectory) return true;
   const hostId = listing.hostId?.trim();
-  return Boolean(hostId && subscribed.has(hostId));
+  if (!hostId) return false;
+  if (isEventListing(listing)) return subscribedEvents.has(hostId);
+  if (isDiningListing(listing)) return subscribedDining.has(hostId);
+  return subscribedEvents.has(hostId) || subscribedDining.has(hostId);
 }
 
 /** Reads the admin setting that decides whether Event listings are gated. */
@@ -107,12 +111,10 @@ export async function getPublicStaysFromStore(
     { page, pageSize }
   );
   const approved = await attachPublicListingMeta(result.listings);
-  const freeDirectory = await eventsDirectoryFreeForPublicCatalog();
-  const subscribed = freeDirectory
-    ? new Set<string>()
-    : new Set(await listEventSubscribedHostIds());
+  const subscribedEvents = new Set(await listEventSubscribedHostIds());
+  const subscribedDining = new Set(await listDiningSubscribedHostIds());
   const visible = approved.filter((listing) =>
-    listingVisibleOnPublicCatalog(listing, subscribed, freeDirectory)
+    listingVisibleOnPublicCatalog(listing, subscribedEvents, subscribedDining)
   );
   const pricingById = await getListingPricingMap(visible.map((l) => l.id));
   const stays = visible.map((listing) =>
@@ -133,6 +135,25 @@ export async function getPublicStayById(id: string): Promise<Stay | null> {
 }
 
 /** Approved listing + pricing for the public detail page (photos, rooms, copy). */
+export type PublicListingSitemapEntry = {
+  id: string;
+  updatedAt?: string;
+};
+
+/** Approved, publicly visible listings for sitemap generation. */
+export async function getPublicListingSitemapEntries(): Promise<PublicListingSitemapEntry[]> {
+  await seedListingsIfEmpty(getSeedListings());
+  const result = await searchListingsPage({ status: "approved" }, { unlimited: true });
+  const subscribedEvents = new Set(await listEventSubscribedHostIds());
+  const subscribedDining = new Set(await listDiningSubscribedHostIds());
+  return result.listings
+    .filter((listing) => listingVisibleOnPublicCatalog(listing, subscribedEvents, subscribedDining))
+    .map((listing) => ({
+      id: listing.id,
+      updatedAt: listing.statusUpdatedAt ?? listing.submittedAt,
+    }));
+}
+
 export async function getApprovedListingDetail(id: string): Promise<{
   stay: Stay;
   listing: SubmittedListing;
@@ -143,11 +164,11 @@ export async function getApprovedListingDetail(id: string): Promise<{
     const listing = await getListing(id);
     if (!listing || listing.status !== "approved") return null;
     if (isDirectoryListing(listing)) {
-      const freeDirectory = await eventsDirectoryFreeForPublicCatalog();
-      const subscribed = freeDirectory
-        ? new Set<string>()
-        : new Set(await listEventSubscribedHostIds());
-      if (!listingVisibleOnPublicCatalog(listing, subscribed, freeDirectory)) return null;
+      const subscribedEvents = new Set(await listEventSubscribedHostIds());
+      const subscribedDining = new Set(await listDiningSubscribedHostIds());
+      if (!listingVisibleOnPublicCatalog(listing, subscribedEvents, subscribedDining)) {
+        return null;
+      }
     }
     const [withMeta] = await attachPublicListingMeta([listing]);
     const pricingById = await getListingPricingMap([listing.id]);

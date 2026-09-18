@@ -44,7 +44,7 @@ export function computeBookingQuote(input: BookingQuoteInput): BookingQuote {
   );
   const extrasTotal = Math.max(0, Math.min(Number(input.extrasTotal) || 0, 50_000));
   const taxAmount = Math.max(0, Math.min(Number(input.taxAmount) || 0, 100_000));
-  const total = accommodation + experiencesTotal + extrasTotal + taxAmount;
+  const total = accommodation + experiencesTotal + extrasTotal;
   const currency = normalizeCurrency(input.currency || BASE_CURRENCY);
 
   const lines: { label: string; amount: number }[] = [
@@ -60,7 +60,7 @@ export function computeBookingQuote(input: BookingQuoteInput): BookingQuote {
     lines.push({ label: "Extras", amount: extrasTotal });
   }
   if (taxAmount > 0) {
-    lines.push({ label: "Tax / fees", amount: taxAmount });
+    lines.push({ label: "Tax / fees (included)", amount: taxAmount });
   }
 
   return {

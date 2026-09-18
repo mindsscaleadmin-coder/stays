@@ -1,6 +1,12 @@
+import type { Metadata } from "next";
 import { setRequestLocale } from "next-intl/server";
 import { ListingDetailContent } from "@/components/listing/listing-detail-content";
 import { SubmissionListingLoader } from "@/components/listing/submission-listing-loader";
+import { ListingJsonLd } from "@/components/seo/listing-json-ld";
+import {
+  buildListingMetadata,
+  buildListingNotFoundMetadata,
+} from "@/lib/seo/listing-metadata";
 import {
   resolveFeatureIcons,
   resolveHighlightLabels,
@@ -13,6 +19,17 @@ import {
 import { readGuestPartyFromFilters } from "@/lib/listings/guest-capacity";
 
 export const revalidate = 60;
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const detail = await getApprovedListingDetail(id);
+  if (!detail) return buildListingNotFoundMetadata();
+  return buildListingMetadata(detail.listing, detail.stay);
+}
 
 export default async function ListingPage({
   params,
@@ -48,7 +65,9 @@ export default async function ListingPage({
   });
 
   return (
-    <ListingDetailContent
+    <>
+      <ListingJsonLd listing={listing} stay={stay} />
+      <ListingDetailContent
       stay={stay}
       galleryPhotos={submissionGalleryPhotos(listing)}
       description={listing.description}
@@ -59,6 +78,7 @@ export default async function ListingPage({
       livestockCrops={listing.livestockCrops}
       houseRules={listing.houseRules}
       mapEmbedUrl={listing.mapEmbedUrl || undefined}
+      nearbyPlaces={listing.nearbyPlaces ?? []}
       rooms={rooms}
       guestParty={readGuestPartyFromFilters(listing.customFilters, stay.guests)}
       amenities={[...(listing.amenities ?? []), ...(listing.advancedFilters ?? [])]}
@@ -73,5 +93,6 @@ export default async function ListingPage({
       licenseNumber={listing.licenseNumber}
       groupSizeMin={listing.groupSizeMin}
     />
+    </>
   );
 }

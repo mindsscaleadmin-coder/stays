@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { setRequestLocale } from "next-intl/server";
+import { publicPageMetadata } from "@/lib/seo/site";
 import { SearchResultsContent } from "@/components/search/search-results-content";
 import type { SortOption } from "@/lib/listings/public-listings";
 import { getPublicStaysFromStore } from "@/lib/listings/public-listings-server";
@@ -9,6 +11,13 @@ import {
 } from "@/lib/listings/listings-pagination";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = publicPageMetadata({
+  title: "Browse listings",
+  description:
+    "Search farm stays, homestays, dining, events, and experiences. Filter by location, price, and guest count.",
+  path: "/listings",
+});
 
 function parseSortOption(sort?: string): SortOption {
   if (

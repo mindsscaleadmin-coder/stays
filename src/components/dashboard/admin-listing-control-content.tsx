@@ -9,7 +9,6 @@ import {
   RotateCcw,
   Settings2,
 } from "lucide-react";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import { ActiveListingPanel } from "./active-listing-panel";
 import { PendingListingReviewPanel } from "./pending-listing-review-panel";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -413,18 +412,16 @@ export function AdminListingControlContent() {
 
   if (!ready) {
     return (
-      <AdminDashboardShell>
-        <div className="flex flex-col items-center justify-center min-h-[320px] gap-3">
+              <div className="flex flex-col items-center justify-center min-h-[320px] gap-3">
           <Loader2 className="w-8 h-8 animate-spin text-green-600" />
           <p className="text-sm text-gray-500">Loading listings…</p>
         </div>
-      </AdminDashboardShell>
+      
     );
   }
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
+          <div className="space-y-6">
         <div>
           <h2 className="text-xl font-bold text-gray-900 font-display">Listing Control</h2>
           <p className="text-gray-500 text-sm mt-1">
@@ -518,6 +515,6 @@ export function AdminListingControlContent() {
 
         {activeTab === "quality" && <QualityRulesSection />}
       </div>
-    </AdminDashboardShell>
+    
   );
 }

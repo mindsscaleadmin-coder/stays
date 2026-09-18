@@ -4,6 +4,12 @@ import { ensureListingForBooking } from "@/lib/booking/ensure-listing";
 import { resolveListingHostForBooking } from "@/lib/server/resolve-listing-host";
 import { prisma } from "@/lib/prisma";
 import type { BookingQuote } from "@/lib/booking/compute-quote";
+import {
+  buildGuestQuoteSnapshotFromBookingQuote,
+  serializeGuestQuoteSnapshot,
+} from "@/lib/booking/guest-quote-snapshot";
+import { getListingPricing } from "@/lib/server/listing-pricing-repo";
+import { defaultForListing } from "@/lib/host/host-pricing-data";
 
 export type QuotedBookingListing = {
   id: string;
@@ -79,6 +85,12 @@ export async function createQuotedBooking(input: CreateQuotedBookingInput): Prom
     });
   }
 
+  const pricing =
+    (await getListingPricing(input.listingId)) ?? defaultForListing(input.listingId);
+  const guestSnapshot = serializeGuestQuoteSnapshot(
+    buildGuestQuoteSnapshotFromBookingQuote(quote, pricing.taxLabel, pricing.taxPct)
+  );
+
   const booking = await confirmBooking({
     listingId: input.listingId,
     guestId: input.guestId,
@@ -86,6 +98,7 @@ export async function createQuotedBooking(input: CreateQuotedBookingInput): Prom
     checkOut: new Date(`${input.checkOut}T12:00:00`),
     guestCount: input.guestCount,
     totalPrice: quote.total,
+    guestQuoteSnapshot: guestSnapshot,
   });
 
   return { booking, quote };

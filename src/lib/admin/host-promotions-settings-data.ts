@@ -53,7 +53,10 @@ export function mergeHostPromotionsSettings(
   return {
     pageTitle: raw?.pageTitle?.trim() || DEFAULT_HOST_PROMOTIONS_SETTINGS.pageTitle,
     pageSubtitle: raw?.pageSubtitle?.trim() || DEFAULT_HOST_PROMOTIONS_SETTINGS.pageSubtitle,
-    currency: "AED",
+    currency:
+      raw?.currency === "AED" || raw?.currency === "INR"
+        ? raw.currency
+        : DEFAULT_HOST_PROMOTIONS_SETTINGS.currency,
     promotionsEnabled: raw?.promotionsEnabled !== false,
     packages: Array.from(byKey.values()).sort((a, b) => {
       if (a.kind !== b.kind) return a.kind === "trending" ? -1 : 1;

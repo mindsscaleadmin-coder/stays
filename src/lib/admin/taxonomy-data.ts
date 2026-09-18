@@ -908,6 +908,15 @@ export function loadTaxonomy(): TaxonomyData {
 export function saveTaxonomy(data: TaxonomyData): void {
   if (typeof window === "undefined") return;
   const normalized = normalizeTaxonomy(data);
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const existing = normalizeTaxonomy(JSON.parse(raw) as TaxonomyData);
+      if (JSON.stringify(existing) === JSON.stringify(normalized)) return;
+    }
+  } catch {
+    // proceed with write
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
   emitSyncCustomEvent(TAXONOMY_SYNC_EVENT);
 }

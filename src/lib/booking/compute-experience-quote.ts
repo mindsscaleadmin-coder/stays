@@ -1,6 +1,7 @@
 import type { ExperienceSessionTemplate } from "@/lib/booking/experience-session-types";
 import type { BookingQuote } from "@/lib/booking/compute-quote";
-import { BASE_CURRENCY, normalizeCurrency } from "@/lib/currency";
+import { normalizeCurrency } from "@/lib/currency";
+import { LAUNCH_CURRENCY, LAUNCH_TAX_LABEL } from "@/lib/tax/launch-market";
 
 export function computeExperienceQuote(input: {
   session: ExperienceSessionTemplate;
@@ -15,10 +16,11 @@ export function computeExperienceQuote(input: {
       ? Math.max(0, input.session.price)
       : Math.max(0, input.session.price) * guests;
   const taxPct = Math.max(0, input.taxPct ?? 0);
-  const taxAmount = Math.round(accommodation * (taxPct / 100) * 100) / 100;
-  const total = Math.round((accommodation + taxAmount) * 100) / 100;
-  const currency = normalizeCurrency(input.currency || BASE_CURRENCY);
-  const taxLabel = input.taxLabel ?? "VAT";
+  const total = Math.round(accommodation * 100) / 100;
+  const taxAmount =
+    taxPct > 0 ? Math.round((total * taxPct) / (100 + taxPct) * 100) / 100 : 0;
+  const currency = normalizeCurrency(input.currency || LAUNCH_CURRENCY);
+  const taxLabel = input.taxLabel ?? LAUNCH_TAX_LABEL;
 
   const lines: { label: string; amount: number }[] = [
     {
@@ -30,7 +32,7 @@ export function computeExperienceQuote(input: {
     },
   ];
   if (taxAmount > 0) {
-    lines.push({ label: `${taxLabel} (${taxPct}%)`, amount: taxAmount });
+    lines.push({ label: `${taxLabel} (${taxPct}%, included)`, amount: taxAmount });
   }
 
   return {

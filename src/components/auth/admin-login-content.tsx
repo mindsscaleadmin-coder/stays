@@ -62,9 +62,8 @@ export function AdminLoginContent() {
         <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg px-3 py-2 space-y-1">
           <p>{t("demoMode")}</p>
           <p>
-            Seed Super Admin <code className="font-mono">admin@greenfield.ae</code> can use any
-            password until one is set. Sub-admin / Support need a password from Users → Staff
-            access.
+            Use the Super Admin email configured for this environment. Sub-admin / Support need a
+            password set under Users → Staff access.
           </p>
         </div>
       )}
@@ -83,7 +82,7 @@ export function AdminLoginContent() {
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="admin@greenfield.ae"
+          placeholder="you@gmail.com"
           autoComplete="email"
         />
         <AdminAuthInput

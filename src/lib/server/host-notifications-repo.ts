@@ -37,18 +37,27 @@ function parsePayload(raw: string): StoredNotifications | null {
   }
 }
 
+const DEMO_ALERT_IDS = new Set(["n-1", "n-2", "n-3", "n-4"]);
+
+function withoutDemoAlerts(alerts: HostNotificationAlert[]): HostNotificationAlert[] {
+  return alerts.filter((alert) => !DEMO_ALERT_IDS.has(alert.id));
+}
+
 function merge(
   hostId: string,
   stored: StoredNotifications | null
 ): HostNotificationsData {
   const defaults = defaultHostNotifications(hostId);
   if (!stored) return defaults;
+  const alerts = withoutDemoAlerts(
+    Array.isArray(stored.alerts) ? stored.alerts : defaults.alerts
+  );
   return {
     ...defaults,
     ...stored,
     hostId,
     prefs: { ...defaults.prefs, ...stored.prefs },
-    alerts: Array.isArray(stored.alerts) ? stored.alerts : defaults.alerts,
+    alerts,
   };
 }
 

@@ -3,6 +3,7 @@
 import { Plus, Sparkles, Trash2 } from "lucide-react";
 import {
   DiningChipSelect,
+  DiningCollapsibleCard,
   DiningFormCard,
   DiningFormSection,
   DiningYesNoField,
@@ -32,6 +33,62 @@ function inputClassName(compact?: boolean) {
   return compact
     ? "mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
     : "mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500";
+}
+
+function summarizeOpeningHours(openingHours: DayHours[] = []) {
+  const rows = WEEKDAYS.map((day) => openingHours.find((item) => item.day === day.key)).filter(
+    Boolean
+  ) as DayHours[];
+  const closedCount = rows.filter((row) => row.closed).length;
+  const withHours = rows.filter((row) => {
+    if (row.closed) return false;
+    return getDayPeriods(row).some((period) => period.open?.trim() || period.close?.trim());
+  }).length;
+
+  if (withHours === 0 && closedCount === 0) {
+    return { headline: "Weekly schedule not set", detail: "Expand to add breakfast, lunch, brunch, and dinner hours." };
+  }
+
+  const openLabels = WEEKDAYS.filter((day) => {
+    const row = openingHours.find((item) => item.day === day.key);
+    return row && !row.closed;
+  }).map((day) => day.short);
+
+  return {
+    headline:
+      withHours > 0
+        ? `${withHours} open day${withHours === 1 ? "" : "s"}${closedCount > 0 ? ` · ${closedCount} closed` : ""}`
+        : `${closedCount} day${closedCount === 1 ? "" : "s"} marked closed`,
+    detail: (
+      <div className="flex flex-wrap gap-1.5">
+        {WEEKDAYS.map((day) => {
+          const row = openingHours.find((item) => item.day === day.key);
+          const closed = Boolean(row?.closed);
+          const hasHours =
+            row &&
+            !closed &&
+            getDayPeriods(row).some((period) => period.open?.trim() || period.close?.trim());
+          return (
+            <span
+              key={day.key}
+              className={
+                closed
+                  ? "rounded-full bg-gray-100 px-2 py-0.5 text-2xs font-semibold text-gray-400"
+                  : hasHours
+                    ? "rounded-full bg-green-50 px-2 py-0.5 text-2xs font-semibold text-green-800 ring-1 ring-inset ring-green-200/80"
+                    : "rounded-full bg-white px-2 py-0.5 text-2xs font-semibold text-gray-500 ring-1 ring-inset ring-gray-200"
+              }
+            >
+              {day.short}
+            </span>
+          );
+        })}
+        {openLabels.length > 0 ? (
+          <span className="text-gray-400">· {openLabels.join(", ")}</span>
+        ) : null}
+      </div>
+    ),
+  };
 }
 
 function CurrencyInput({
@@ -174,31 +231,11 @@ export function DiningDetailsFields({
     });
   }
 
-  return (
-    <div className="space-y-10 border-t border-gray-100 pt-8">
-      <DiningFormSection
-        number={1}
-        title="Basic listing information"
-        tier="required"
-        description="One-line summary for the listing header. Cuisine, setting, and food style are selected in Search filters above."
-      >
-        <DiningFormCard>
-          <label className="block">
-            <span className="text-sm font-medium text-gray-700">Short description</span>
-            <input
-              type="text"
-              value={value.shortDescription ?? ""}
-              onChange={(e) => patch({ shortDescription: e.target.value })}
-              placeholder="Italian · Fine dining · rooftop terrace"
-              maxLength={160}
-              className={inputClassName()}
-            />
-          </label>
-        </DiningFormCard>
-      </DiningFormSection>
+  const openingHoursSummary = summarizeOpeningHours(value.openingHours);
 
+  return (
+    <div className="space-y-0">
       <DiningFormSection
-        number={2}
         title="Seating & capacity"
         tier="required"
         description="Help guests understand how many people you can host and where they can sit."
@@ -284,7 +321,6 @@ export function DiningDetailsFields({
       </DiningFormSection>
 
       <DiningFormSection
-        number={3}
         title="Dining experience"
         tier="recommended"
         description="Choose who this venue works best for. Atmosphere and setting are covered in Search filters above."
@@ -299,12 +335,16 @@ export function DiningDetailsFields({
       </DiningFormSection>
 
       <DiningFormSection
-        number={4}
         title="Opening hours"
         tier="required"
         description="Set regular weekly hours by meal service. Leave a row blank if that service is not offered."
       >
-        <DiningFormCard>
+        <DiningCollapsibleCard
+          summary={openingHoursSummary.headline}
+          summaryDetail={openingHoursSummary.detail}
+          expandLabel="Edit hours"
+          collapseLabel="Minimize"
+        >
           <div className="space-y-3">
             {WEEKDAYS.map((day) => {
               const row = (value.openingHours ?? []).find((item) => item.day === day.key);
@@ -313,7 +353,7 @@ export function DiningDetailsFields({
               return (
                 <div
                   key={day.key}
-                  className="rounded-lg border border-gray-100 bg-white p-3 space-y-3"
+                  className="border-b border-gray-100 pb-4 space-y-3 last:border-b-0"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-semibold text-gray-900">{day.label}</p>
@@ -391,11 +431,10 @@ export function DiningDetailsFields({
               />
             </label>
           </div>
-        </DiningFormCard>
+        </DiningCollapsibleCard>
       </DiningFormSection>
 
       <DiningFormSection
-        number={5}
         title="Menu"
         tier="recommended"
         description="Featured dishes plus a menu link or PDF are enough. You don't need to enter every item."
@@ -427,7 +466,7 @@ export function DiningDetailsFields({
               </button>
             </div>
             {(value.featuredDishes ?? []).map((dish, index) => (
-              <div key={index} className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
+              <div key={index} className="border-b border-gray-100 pb-4 space-y-3 last:border-b-0">
                 <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_7rem_auto] gap-2">
                   <input
                     type="text"
@@ -519,7 +558,7 @@ export function DiningDetailsFields({
           <div className="space-y-3 pt-2 border-t border-gray-100">
             <p className="text-sm font-semibold text-gray-900">Full menu sections</p>
             {(value.menuSections ?? []).map((section, sectionIndex) => (
-              <div key={sectionIndex} className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
+              <div key={sectionIndex} className="border-b border-gray-100 pb-4 space-y-3 last:border-b-0">
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -600,7 +639,6 @@ export function DiningDetailsFields({
       </DiningFormSection>
 
       <DiningFormSection
-        number={6}
         title="Pricing"
         tier="required"
         description="Indicative only — guests are not charged through this platform."
@@ -721,7 +759,6 @@ export function DiningDetailsFields({
       </DiningFormSection>
 
       <DiningFormSection
-        number={7}
         title="Reservation / enquiry information"
         tier="required"
         description="Guests send requests through our platform. Contact details are shared only after you confirm."
@@ -850,7 +887,6 @@ export function DiningDetailsFields({
       </DiningFormSection>
 
       <DiningFormSection
-        number={8}
         title="Location"
         tier="recommended"
         description="Directions for guests. Country, city, map, and parking options are set above."
@@ -890,7 +926,6 @@ export function DiningDetailsFields({
       </DiningFormSection>
 
       <DiningFormSection
-        number={9}
         title="Dining policies"
         tier="recommended"
         description="Structured policies are easier for guests to scan than long free-text blocks."
@@ -1069,7 +1104,6 @@ export function DiningDetailsFields({
       </DiningFormSection>
 
       <DiningFormSection
-        number={10}
         title="Contact & social information"
         tier="optional"
         description="Private contact details used after a reservation is confirmed — not shown on the public listing."
@@ -1109,7 +1143,6 @@ export function DiningDetailsFields({
       </DiningFormSection>
 
       <DiningFormSection
-        number={11}
         title="SEO information"
         tier="optional"
         description="Optional overrides. If left blank, we generate these from your listing name, cuisine, and location."
@@ -1160,11 +1193,11 @@ export function DiningDetailsFields({
         </DiningFormCard>
       </DiningFormSection>
 
-      <div className="rounded-xl border border-green-200 bg-green-50/50 p-4 text-sm text-green-950">
-        Guests check availability and send reservation requests through our platform only.
-        After you confirm, contact details are shared with the guest — not shown on the public
-        listing beforehand.
-      </div>
+      <p className="pt-2 text-sm text-gray-600">
+        Guests check availability and send reservation requests through our platform only. After you
+        confirm, contact details are shared with the guest — not shown on the public listing
+        beforehand.
+      </p>
     </div>
   );
 }

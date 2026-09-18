@@ -1,4 +1,7 @@
 import { prisma } from "@/lib/prisma";
+import { resolveHostBookingCategory } from "@/lib/host/booking-category";
+import { eventRequestToHostBookingRecord } from "@/lib/host/host-ops-adapter";
+import type { HostBookingRecord } from "@/lib/host/host-booking-types";
 import { getHostProfile } from "@/lib/server/host-profile-repo";
 import {
   isContactUnlocked,
@@ -165,6 +168,84 @@ export async function getEventAvailabilityRequest(
 ): Promise<EventAvailabilityRequest | null> {
   const row = await prisma.eventAvailabilityRequest.findUnique({ where: { id } });
   return row ? mapRow(row) : null;
+}
+
+function parseListingLocation(payload: string): string {
+  try {
+    const parsed = JSON.parse(payload) as {
+      district?: string;
+      state?: string;
+      city?: string;
+    };
+    return [parsed.city, parsed.district, parsed.state].filter(Boolean).join(", ");
+  } catch {
+    return "";
+  }
+}
+
+export async function getEventAvailabilityRequestForHost(
+  id: string
+): Promise<{ request: EventAvailabilityRequest; booking: HostBookingRecord } | null> {
+  const row = await prisma.eventAvailabilityRequest.findUnique({
+    where: { id },
+    include: {
+      listing: {
+        select: {
+          parentCategory: true,
+          category: true,
+          payload: true,
+          propertyReference: true,
+        },
+      },
+    },
+  });
+  if (!row) return null;
+
+  const request = mapRow(row);
+  const category = resolveHostBookingCategory({
+    parentCategory: row.listing.parentCategory,
+    category: row.listing.category,
+    payload: row.listing.payload,
+  });
+
+  return {
+    request,
+    booking: eventRequestToHostBookingRecord(request, category, {
+      propertyLocation: parseListingLocation(row.listing.payload),
+      propertyReference: row.listing.propertyReference,
+    }),
+  };
+}
+
+/** Confirmed (`available`) dining/event enquiries for the unified host ops list. */
+export async function listHostEventOpsBookings(hostId: string): Promise<HostBookingRecord[]> {
+  const rows = await prisma.eventAvailabilityRequest.findMany({
+    where: { hostId, status: "available" },
+    include: {
+      listing: {
+        select: {
+          parentCategory: true,
+          category: true,
+          payload: true,
+          propertyReference: true,
+        },
+      },
+    },
+    orderBy: [{ eventDate: "asc" }, { createdAt: "desc" }],
+  });
+
+  return rows.map((row) => {
+    const request = mapRow(row);
+    const category = resolveHostBookingCategory({
+      parentCategory: row.listing.parentCategory,
+      category: row.listing.category,
+      payload: row.listing.payload,
+    });
+    return eventRequestToHostBookingRecord(request, category, {
+      propertyLocation: parseListingLocation(row.listing.payload),
+      propertyReference: row.listing.propertyReference,
+    });
+  });
 }
 
 export async function respondToEventAvailabilityRequest(

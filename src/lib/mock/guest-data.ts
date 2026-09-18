@@ -35,17 +35,40 @@ export const GUEST_BOOKINGS = [
   },
 ];
 
+import { pushFavoritesProfileNotice } from "@/lib/guest/guest-profile-notice-events";
+
 export const FAVORITES_KEY = "farm-stays-favorites";
+export const FAVORITES_SYNC_EVENT = "farm-stays-favorites-updated";
 
 export function getFavoriteIds(): string[] {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? "[]");
+    const raw = JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? "[]");
+    return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : [];
   } catch {
     return [];
   }
 }
 
 export function setFavoriteIds(ids: string[]): void {
+  if (typeof window === "undefined") return;
   localStorage.setItem(FAVORITES_KEY, JSON.stringify(ids));
+  window.dispatchEvent(new Event(FAVORITES_SYNC_EVENT));
+}
+
+export function toggleFavoriteId(listingId: string): boolean {
+  const ids = getFavoriteIds();
+  const saved = ids.includes(listingId);
+  const next = saved ? ids.filter((id) => id !== listingId) : [...ids, listingId];
+  setFavoriteIds(next);
+  if (!saved) pushFavoritesProfileNotice();
+  return !saved;
+}
+
+export function isFavoriteId(listingId: string): boolean {
+  return getFavoriteIds().includes(listingId);
+}
+
+export function getFavoriteCount(): number {
+  return getFavoriteIds().length;
 }

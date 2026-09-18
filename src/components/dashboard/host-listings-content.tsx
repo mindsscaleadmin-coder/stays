@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Link } from "@/i18n/routing";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
+import { HostDirectoryBillingBanner } from "@/components/dashboard/host-directory-billing-banner";
 import { HostListingFlashDealBar } from "@/components/dashboard/host-listing-flash-deal-bar";
 import { STATUS_STYLES } from "@/lib/mock/dashboard-data";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -23,9 +24,19 @@ import type {
   SubmittedListing,
 } from "@/lib/listings/submission-types";
 import { useHostPublicProfile } from "@/lib/host/use-host-public-profile";
-import { isEventsSubscriptionActive, formatSubscriptionExpiry } from "@/lib/host/events-subscription";
+import {
+  directorySubscriptionExpiry,
+  formatSubscriptionExpiry,
+  isDirectorySubscriptionActive,
+} from "@/lib/host/events-subscription";
 import { useEventsSubscriptionSettings } from "@/lib/host/use-events-subscription-settings";
-import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
+import { formatEventsPlanFee } from "@/lib/admin/events-subscription";
+import { isDiningListing } from "@/lib/booking/is-dining-listing";
+import { isEventListing } from "@/lib/booking/is-event-listing";
+import {
+  formatDirectorySpaceCap,
+  getDirectorySpaceStatus,
+} from "@/lib/host/directory-space";
 import { getListingMode } from "@/lib/listings/listing-mode";
 import { cn } from "@/lib/utils";
 
@@ -68,22 +79,54 @@ export function HostListingsContent() {
   }, [hostSubmissions]);
 
   const { data: hostProfile } = useHostPublicProfile(hostId ?? undefined, hostName);
-  const eventsSubActive = isEventsSubscriptionActive(hostProfile?.eventsSubscriptionExpiresAt);
   const {
     freeDuringLaunch: eventsFree,
     planForListingCount,
+    comboOffer,
+    eventsPlans,
+    diningPlans,
   } = useEventsSubscriptionSettings();
-  const directoryListingCount = hostSubmissions.filter((l) =>
-    isDirectoryListing({
-      parentCategory: l.parentCategory,
-      type: l.type,
-      category: l.category,
-    })
-  ).length;
-  const hasDirectoryListings = directoryListingCount > 0;
-  const directoryPlan = hasDirectoryListings
-    ? planForListingCount(directoryListingCount)
-    : null;
+
+  const countDirectoryListings = (vertical: "events" | "dining") =>
+    hostSubmissions.filter((listing) => {
+      const input = {
+        parentCategory: listing.parentCategory,
+        type: listing.type,
+        category: listing.category,
+      };
+      return vertical === "dining" ? isDiningListing(input) : isEventListing(input);
+    }).length;
+
+  const eventsListingCount = countDirectoryListings("events");
+  const diningListingCount = countDirectoryListings("dining");
+  const hasDirectoryListings = eventsListingCount + diningListingCount > 0;
+  const eventsSubActive = isDirectorySubscriptionActive("events", hostProfile, eventsFree);
+  const diningSubActive = isDirectorySubscriptionActive("dining", hostProfile, eventsFree);
+  const eventsPlan =
+    eventsListingCount > 0 ? planForListingCount(eventsListingCount, "events") : null;
+  const diningPlan =
+    diningListingCount > 0 ? planForListingCount(diningListingCount, "dining") : null;
+  const subscriptionSettings = {
+    freeDuringLaunch: eventsFree,
+    eventsPlans,
+    diningPlans,
+    comboOffer: comboOffer ?? undefined,
+    yearlyFeeAed: 0,
+  };
+  const eventsSpace = getDirectorySpaceStatus(
+    "events",
+    eventsListingCount,
+    hostProfile,
+    subscriptionSettings,
+    eventsFree
+  );
+  const diningSpace = getDirectorySpaceStatus(
+    "dining",
+    diningListingCount,
+    hostProfile,
+    subscriptionSettings,
+    eventsFree
+  );
 
   const parentOrder = useMemo(() => {
     const names = taxonomy.parents.map((p) => p.name.trim()).filter(Boolean);
@@ -168,6 +211,8 @@ export function HostListingsContent() {
   return (
     <HostDashboardShell>
       <div className="space-y-6">
+        {hostId ? <HostDirectoryBillingBanner hostId={hostId} profile={hostProfile} /> : null}
+
         {shared && (
           <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
             Changes sync to every host and admin signed in — not just this browser.
@@ -200,44 +245,102 @@ export function HostListingsContent() {
 
         {hasDirectoryListings && (
           <div
-            className={`text-sm rounded-xl px-4 py-3 border ${
-              eventsFree || eventsSubActive
+            className={`text-sm rounded-xl px-4 py-3 border space-y-2 ${
+              eventsFree || (eventsSubActive && diningSubActive)
                 ? "bg-green-50 border-green-200 text-green-900"
                 : "bg-amber-50 border-amber-200 text-amber-950"
             }`}
           >
             {eventsFree ? (
-              <>
-                Listing event and dining venues is <strong>free during launch</strong> —
-                approved listings go live in the public directory straight away. Guests send you
-                availability requests and you deal with them directly, with no booking fees.
-                {directoryPlan ? (
-                  <>
-                    {" "}
-                    When launch pricing starts, {directoryListingCount}{" "}
-                    {directoryListingCount === 1 ? "listing" : "listings"} falls under{" "}
-                    <strong>{directoryPlan.name}</strong> at AED{" "}
-                    {directoryPlan.yearlyFeeAed.toLocaleString()}/year.
-                  </>
-                ) : null}
-              </>
-            ) : eventsSubActive ? (
-              `Directory subscription is active until ${formatSubscriptionExpiry(hostProfile?.eventsSubscriptionExpiresAt)}. Guests contact you directly — no booking fees.`
+              <p>
+                Events and Dining directory listings are <strong>free during launch</strong> —
+                approved listings go live straight away. Guests enquire directly; there are no
+                booking fees on directory listings.
+              </p>
             ) : (
-              <>
-                Event and dining listings stay off the public directory until your yearly
-                subscription is recorded.
-                {directoryPlan ? (
+              <p>
+                Events and Dining use <strong>separate yearly subscriptions</strong>. Each vertical
+                only counts its own listings toward tier capacity.
+              </p>
+            )}
+
+            {eventsListingCount > 0 && (
+              <p>
+                <strong>Events</strong> ({eventsListingCount}{" "}
+                {eventsListingCount === 1 ? "venue" : "venues"}) —{" "}
+                {eventsFree ? (
                   <>
-                    {" "}
-                    Your {directoryListingCount}{" "}
-                    {directoryListingCount === 1 ? "listing" : "listings"} falls under{" "}
-                    <strong>{directoryPlan.name}</strong> — AED{" "}
-                    {directoryPlan.yearlyFeeAed.toLocaleString()}/year.
+                    free now
+                    {eventsPlan ? (
+                      <>
+                        ; paid tier later: <strong>{eventsPlan.name}</strong> at{" "}
+                        {formatEventsPlanFee(eventsPlan.yearlyFeeAed)}/year
+                      </>
+                    ) : null}
                   </>
-                ) : null}{" "}
-                Featured and Trending boosts are available after that.
-              </>
+                ) : eventsSubActive ? (
+                  <>
+                    active until {formatSubscriptionExpiry(directorySubscriptionExpiry("events", hostProfile))}
+                    {" · "}
+                    spaces {eventsSpace.used}/{eventsSpace.cap ?? "∞"}
+                  </>
+                ) : (
+                  <>
+                    needs subscription
+                    {eventsPlan ? (
+                      <>
+                        {" "}
+                        (<strong>{eventsPlan.name}</strong> —{" "}
+                        {formatEventsPlanFee(eventsPlan.yearlyFeeAed)}/year)
+                      </>
+                    ) : null}
+                  </>
+                )}
+              </p>
+            )}
+
+            {diningListingCount > 0 && (
+              <p>
+                <strong>Dining</strong> ({diningListingCount}{" "}
+                {diningListingCount === 1 ? "outlet" : "outlets"}) —{" "}
+                {eventsFree ? (
+                  <>
+                    free now
+                    {diningPlan ? (
+                      <>
+                        ; paid tier later: <strong>{diningPlan.name}</strong> at{" "}
+                        {formatEventsPlanFee(diningPlan.yearlyFeeAed)}/year
+                      </>
+                    ) : null}
+                  </>
+                ) : diningSubActive ? (
+                  <>
+                    active until {formatSubscriptionExpiry(directorySubscriptionExpiry("dining", hostProfile))}
+                    {" · "}
+                    spaces {diningSpace.used}/{diningSpace.cap ?? "∞"}
+                  </>
+                ) : (
+                  <>
+                    needs subscription
+                    {diningPlan ? (
+                      <>
+                        {" "}
+                        (<strong>{diningPlan.name}</strong> —{" "}
+                        {formatEventsPlanFee(diningPlan.yearlyFeeAed)}/year)
+                      </>
+                    ) : null}
+                  </>
+                )}
+              </p>
+            )}
+
+            {!eventsFree && comboOffer?.enabled && comboOffer.active && (
+              <p className="text-xs text-amber-900">
+                <strong>Combo offer:</strong> {comboOffer.name} —{" "}
+                {formatEventsPlanFee(comboOffer.yearlyFeeAed)}/year for{" "}
+                {formatDirectorySpaceCap(comboOffer.eventsSpaces, "events")} +{" "}
+                {formatDirectorySpaceCap(comboOffer.diningSpaces, "dining")}.
+              </p>
             )}
           </div>
         )}

@@ -35,8 +35,23 @@ export async function POST(request: Request) {
     ) {
       const session = event.data.object as {
         id?: string;
-        metadata?: { bookingId?: string; bookingIds?: string; promotionId?: string };
+        metadata?: {
+          bookingId?: string;
+          bookingIds?: string;
+          promotionId?: string;
+          directorySubscriptionHostId?: string;
+          directorySubscriptionPlanId?: string;
+        };
       };
+      if (session.metadata?.directorySubscriptionHostId && session.metadata?.directorySubscriptionPlanId) {
+        const { activateDirectorySubscriptionFromPayment } = await import(
+          "@/lib/server/activate-directory-subscription"
+        );
+        await activateDirectorySubscriptionFromPayment({
+          hostId: session.metadata.directorySubscriptionHostId,
+          planId: session.metadata.directorySubscriptionPlanId,
+        });
+      }
       if (session.metadata?.promotionId) {
         const { activatePromotionInDb } = await import("@/lib/listings/promotions-repo");
         await activatePromotionInDb(session.metadata.promotionId, session.id ?? "");

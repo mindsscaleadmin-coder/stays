@@ -101,15 +101,18 @@ function useAdminStaffAccessState() {
 
   const homePath = staff ? firstAllowedAdminPath(staff) : "/admin/login";
 
-  return {
-    staff,
-    ready,
-    roleLabel: staff ? STAFF_ROLE_LABELS[staff.role] : null,
-    isSuperAdmin: staff?.role === "admin",
-    can,
-    canAccessPath,
-    homePath,
-  };
+  return useMemo(
+    () => ({
+      staff,
+      ready,
+      roleLabel: staff ? STAFF_ROLE_LABELS[staff.role] : null,
+      isSuperAdmin: staff?.role === "admin",
+      can,
+      canAccessPath,
+      homePath,
+    }),
+    [staff, ready, can, canAccessPath, homePath]
+  );
 }
 
 type AdminStaffAccessValue = ReturnType<typeof useAdminStaffAccessState>;

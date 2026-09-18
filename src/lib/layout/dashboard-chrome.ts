@@ -29,3 +29,18 @@ export function isDashboardChromePath(pathname: string): boolean {
     path.startsWith("/account/")
   );
 }
+
+/** Authenticated admin dashboard routes (not login/signup). */
+export function isAdminDashboardPath(pathname: string): boolean {
+  const raw = pathname.split("?")[0] || "";
+  const path = raw.replace(/^\/(en)(?=\/|$)/, "") || "/";
+  if (
+    path === "/admin/login" ||
+    path === "/admin/signup" ||
+    path === "/admin/forgot-password" ||
+    path === "/admin/reset-password"
+  ) {
+    return false;
+  }
+  return path === "/admin" || path.startsWith("/admin/");
+}

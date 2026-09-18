@@ -18,9 +18,13 @@ function countBadgeItems(hostId: string | undefined, hostName?: string) {
   const unread = hostId
     ? loadHostNotifications(hostId).alerts.filter((alert) => !alert.read).length
     : 0;
-  const announcements = countHostOverviewAnnouncements(hostId, hostName);
   const pending = loadHostBookings().filter((booking) => booking.status === "pending").length;
-  return unread + announcements + pending;
+  return unread + pending;
+}
+
+async function countAllBadgeItems(hostId: string | undefined, hostName?: string) {
+  const announcements = await countHostOverviewAnnouncements(hostId, hostName);
+  return countBadgeItems(hostId, hostName) + announcements;
 }
 
 export function HostNotificationsBadge() {
@@ -30,7 +34,7 @@ export function HostNotificationsBadge() {
   const [count, setCount] = useState<number | null>(null);
 
   useLayoutEffect(() => {
-    setCount(countBadgeItems(hostId, user?.fullName));
+    void countAllBadgeItems(hostId, user?.fullName).then(setCount);
   }, [hostId, user?.fullName]);
 
   useEffect(() => {
@@ -47,7 +51,7 @@ export function HostNotificationsBadge() {
       const unread = hostId
         ? loadHostNotifications(hostId).alerts.filter((alert) => !alert.read).length
         : 0;
-      const announcements = countHostOverviewAnnouncements(hostId, user?.fullName);
+      const announcements = await countHostOverviewAnnouncements(hostId, user?.fullName);
       if (!cancelled) setCount(unread + announcements + pending);
     }
 

@@ -7,7 +7,7 @@ import type {
 } from "./host-pricing-types";
 import { normalizeExtraChargeBilling } from "./host-pricing-types";
 import { emitSyncEvent } from "@/lib/emit-sync-event";
-import { BASE_CURRENCY } from "@/lib/currency";
+import { LAUNCH_CURRENCY, LAUNCH_TAX_LABEL, LAUNCH_TAX_PCT } from "@/lib/tax/launch-market";
 
 const STORAGE_KEY = "farm-stays-host-pricing";
 export const HOST_PRICING_SYNC_EVENT = "farm-stays-host-pricing-updated";
@@ -20,7 +20,7 @@ export function defaultForListing(
   return {
     listingId,
     basePrice: Math.max(0, seed?.basePrice ?? 0),
-    currency: country?.currency ?? BASE_CURRENCY,
+    currency: country?.currency ?? LAUNCH_CURRENCY,
     weekendPrice: null,
     monthlyPrice: null,
     roomPrices: [],
@@ -40,8 +40,8 @@ export function defaultForListing(
     seasonalEnabled: true,
     discountsEnabled: true,
     extraChargesEnabled: true,
-    taxPct: country?.taxPct ?? 5,
-    taxLabel: country?.taxLabel ?? "VAT",
+    taxPct: country?.taxPct ?? LAUNCH_TAX_PCT,
+    taxLabel: country?.taxLabel ?? LAUNCH_TAX_LABEL,
     sessions: [],
   };
 }

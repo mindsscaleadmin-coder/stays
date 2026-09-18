@@ -31,7 +31,7 @@ export function useAdminTrust() {
     loadPendingCertifications()
   );
   const [reviews, setReviews] = useState<FlatHostReview[]>(() => loadAllReviewsFlat());
-  const [ready, setReady] = useState(true);
+  const [ready, setReady] = useState(false);
   const [tick, setTick] = useState(0);
   const shared = shouldUseSharedTrust();
 
@@ -157,6 +157,7 @@ export function useAdminTrust() {
 
   return {
     ready,
+    shared,
     settings,
     reviews: reviewsFlat,
     hostFlags,

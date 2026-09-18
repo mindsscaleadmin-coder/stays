@@ -7,6 +7,7 @@ import {
   aggregateAllTransactions,
   computeFinancialReport,
   FINANCIAL_SYNC_EVENT,
+  listFinancialHosts,
   loadFinancialSettings,
   reviewRefundRequest,
   saveFinancialSettings,
@@ -128,7 +129,9 @@ export function useAdminFinancial() {
 
   return {
     ready,
+    shared,
     settings: viewSettings,
+    financialHosts: ledger?.hosts ?? listFinancialHosts(),
     transactions,
     payouts,
     report,

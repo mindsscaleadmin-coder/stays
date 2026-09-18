@@ -118,8 +118,10 @@ export function useAdminAlerts() {
 
   return {
     ready,
+    shared,
     alerts,
     settings: state.settings,
+    dismissedCount: state.dismissedSourceKeys.length,
     unreadCount,
     criticalCount,
     refresh: refreshRemote,

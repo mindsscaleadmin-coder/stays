@@ -9,7 +9,6 @@ import {
   Power,
   ReceiptText,
   Trash2,
-  Users,
 } from "lucide-react";
 import { Link } from "@/i18n/routing";
 import { useHostExtraLibrary } from "@/lib/host/use-host-extra-library";
@@ -204,6 +203,7 @@ export function HostListingPricingExtras({
     billing: "per_stay" as ExtraChargeBilling,
     saveToLibrary: true,
   });
+  const [showCustomFeeForm, setShowCustomFeeForm] = useState(false);
 
   function addSeasonalPrice(input: Omit<SeasonalPrice, "id">) {
     onSave({
@@ -281,6 +281,7 @@ export function HostListingPricingExtras({
       libraryId,
     });
     setNewCharge({ label: "", amount: "", billing: "per_stay", saveToLibrary: true });
+    setShowCustomFeeForm(false);
   }
 
   function findCommonExtra(key: string, label: string) {
@@ -368,6 +369,11 @@ export function HostListingPricingExtras({
   function billingLabel(charge: ExtraCharge) {
     return EXTRA_CHARGE_BILLING_LABELS[normalizeExtraChargeBilling(charge)];
   }
+
+  const libraryExtras = savedExtras.filter(
+    (item) =>
+      !COMMON_STAY_EXTRAS.some((c) => c.label.toLowerCase() === item.label.toLowerCase())
+  );
 
   return (
     <>
@@ -601,29 +607,13 @@ export function HostListingPricingExtras({
               <ReceiptText className="w-4 h-4" />
             </span>
             <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-display text-sm font-semibold text-gray-900">Extra charges</h3>
-                {allowExtraCharges && extraChargesEnabled && (
-                  <span className="text-[11px] font-medium text-green-800 bg-green-50 border border-green-100 px-2 py-0.5 rounded-md">
-                    {settings.extraCharges.length} active
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-gray-500 mt-1 max-w-xl leading-relaxed">
-                Set Extra bed with breakfast in one click, or add other optional fees.
+              <h3 className="font-display text-sm font-semibold text-gray-900">Extra charges</h3>
+              <p className="text-xs text-gray-500 mt-1 max-w-lg leading-relaxed">
+                Optional fees guests can add when they book this listing.
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {allowExtraCharges && (
-              <Link
-                href="/host/extra-charges"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-green-800 border border-gray-200 hover:border-green-200 hover:bg-green-50 px-2.5 py-1.5 rounded-lg transition-colors"
-              >
-                Manage library
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </Link>
-            )}
             {allowExtraCharges && (
               <SectionToggle
                 enabled={extraChargesEnabled}
@@ -641,42 +631,65 @@ export function HostListingPricingExtras({
           </p>
         ) : !extraChargesEnabled ? (
           <p className="text-sm text-gray-500">
-            Turn on to apply optional fees and guest surcharges for this listing.
+            Turn on to apply optional fees for this listing.
           </p>
         ) : (
-          <>
-            {!isExperience && (
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/80">
-                  <p className="text-sm font-semibold text-gray-900">Extra bed & breakfast</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">
-                    Turn on and set the nightly price — no library needed
-                  </p>
-                </div>
-                <ul className="divide-y divide-gray-100">
+          <div className="rounded-xl border border-gray-200 overflow-hidden divide-y divide-gray-100">
+            <div className="px-4 py-4 sm:px-5 bg-gray-50/50">
+              <p className="text-sm font-semibold text-gray-900">On this listing</p>
+              {settings.extraCharges.length === 0 ? (
+                <p className="text-sm text-gray-500 mt-2">No fees added yet.</p>
+              ) : (
+                <ul className="mt-3 space-y-2">
+                  {settings.extraCharges.map((ec) => (
+                    <li
+                      key={ec.id}
+                      className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 group"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-900 truncate">{ec.label}</p>
+                        <p className="text-[11px] text-gray-500">{billingLabel(ec)}</p>
+                      </div>
+                      <span className="text-sm font-semibold text-gray-900 tabular-nums shrink-0">
+                        {settings.currency} {ec.amount}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeExtraCharge(ec.id)}
+                        className="p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 shrink-0"
+                        aria-label={`Remove ${ec.label}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="px-4 py-4 sm:px-5 space-y-4">
+              <p className="text-sm font-semibold text-gray-900">Add a fee</p>
+
+              {!isExperience && (
+                <ul className="space-y-2">
                   {COMMON_STAY_EXTRAS.map((item) => {
                     const active = findCommonExtra(item.key, item.label);
                     const enabled = Boolean(active);
                     return (
                       <li
                         key={item.key}
-                        className={`flex flex-wrap items-center gap-3 px-4 py-3.5 ${
-                          item.key === "extra-bed-breakfast" ? "bg-green-50/40" : ""
+                        className={`flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2.5 ${
+                          enabled ? "border-green-200 bg-green-50/40" : "border-gray-200 bg-white"
                         }`}
                       >
-                        <label className="inline-flex items-center gap-3 flex-1 min-w-[200px] cursor-pointer">
+                        <label className="inline-flex items-center gap-2.5 flex-1 min-w-[12rem] cursor-pointer">
                           <input
                             type="checkbox"
                             checked={enabled}
                             onChange={(e) => setCommonExtraEnabled(item, e.target.checked)}
-                            className="rounded border-gray-300 text-green-600 focus:ring-green-500 w-4 h-4"
+                            className="rounded border-gray-300 text-green-600 focus:ring-green-500 w-4 h-4 shrink-0"
                           />
-                          <span>
-                            <span className="block text-sm font-semibold text-gray-900">
-                              {item.label}
-                            </span>
-                            <span className="block text-[11px] text-gray-500">{item.hint}</span>
-                          </span>
+                          <span className="text-sm font-medium text-gray-900">{item.label}</span>
                         </label>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="text-xs text-gray-500">{settings.currency}</span>
@@ -688,10 +701,11 @@ export function HostListingPricingExtras({
                             onFocus={() => {
                               if (!enabled) setCommonExtraEnabled(item, true);
                             }}
-                            className="w-24 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm font-semibold tabular-nums focus:outline-none focus:ring-2 focus:ring-green-500"
+                            disabled={!enabled}
+                            className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm font-semibold tabular-nums focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-50 disabled:text-gray-400"
                             aria-label={`${item.label} price`}
                           />
-                          <span className="text-[11px] text-gray-400 w-20 text-end leading-tight">
+                          <span className="text-[11px] text-gray-400">
                             {EXTRA_CHARGE_BILLING_LABELS[item.billing].replace(/^Per /i, "/ ")}
                           </span>
                         </div>
@@ -699,271 +713,138 @@ export function HostListingPricingExtras({
                     );
                   })}
                 </ul>
-              </div>
-            )}
+              )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/80">
-                  <p className="text-xs font-semibold text-gray-800 tracking-wide uppercase">
-                    Other saved extras
-                  </p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">Custom fees from your library</p>
-                </div>
-                <div className="p-2">
-                  {savedExtras.filter(
-                    (item) =>
-                      !COMMON_STAY_EXTRAS.some(
-                        (c) => c.label.toLowerCase() === item.label.toLowerCase()
-                      )
-                  ).length === 0 ? (
-                    <div className="px-3 py-6 text-center">
-                      <p className="text-sm text-gray-500">No other saved extras</p>
-                      <Link
-                        href="/host/extra-charges"
-                        className="inline-flex items-center gap-1 mt-2 text-xs font-semibold text-green-700 hover:text-green-800"
-                      >
-                        Add custom extras
-                        <ArrowUpRight className="w-3.5 h-3.5" />
-                      </Link>
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-gray-50">
-                      {savedExtras
-                        .filter(
-                          (item) =>
-                            !COMMON_STAY_EXTRAS.some(
-                              (c) => c.label.toLowerCase() === item.label.toLowerCase()
-                            )
-                        )
-                        .map((item) => {
-                          const onListing = settings.extraCharges.some(
-                            (c) => c.libraryId === item.id
-                          );
-                          return (
-                            <li
-                              key={item.id}
-                              className="flex items-center gap-2 px-2 py-2.5 hover:bg-gray-50/80 rounded-lg group"
-                            >
-                              <label className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={onListing}
-                                  onChange={() => toggleLibraryOnListing(item.id)}
-                                  className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-                                />
-                                <span className="min-w-0">
-                                  <span className="block text-sm font-medium text-gray-900 truncate">
-                                    {item.label}
-                                  </span>
-                                  <span className="block text-[11px] text-gray-500">
-                                    {EXTRA_CHARGE_BILLING_LABELS[item.billing]}
-                                  </span>
-                                </span>
-                              </label>
-                              <span className="text-sm font-semibold text-gray-800 tabular-nums shrink-0">
-                                {settings.currency} {item.amount}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (onListing) {
-                                    const linked = settings.extraCharges.find(
-                                      (c) => c.libraryId === item.id
-                                    );
-                                    if (linked) removeExtraCharge(linked.id);
-                                  }
-                                  removeSavedExtra(item.id);
-                                }}
-                                className="p-1.5 rounded-md text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-600 hover:bg-red-50 transition-opacity"
-                                aria-label={`Delete ${item.label}`}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </li>
-                          );
-                        })}
-                    </ul>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/80">
-                  <p className="text-xs font-semibold text-gray-800 tracking-wide uppercase">
-                    Active on this listing
-                  </p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">
-                    Fees guests will see for this property
-                  </p>
-                </div>
-                <div className="p-2 min-h-[120px]">
-                  {settings.extraCharges.length === 0 ? (
-                    <div className="px-3 py-8 text-center">
-                      <p className="text-sm text-gray-500">None selected</p>
-                      <p className="text-[11px] text-gray-400 mt-1">
-                        Use Extra bed & breakfast above, or add a custom charge
-                      </p>
-                    </div>
-                  ) : (
-                    <ul className="divide-y divide-gray-50">
-                      {settings.extraCharges.map((ec) => (
-                        <li
-                          key={ec.id}
-                          className="flex items-center gap-3 px-2 py-2.5 hover:bg-gray-50/80 rounded-lg group"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-medium text-gray-900 truncate">{ec.label}</p>
-                              <span
-                                className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded ${
-                                  ec.catalogId?.startsWith("common:")
-                                    ? "bg-green-50 text-green-700"
-                                    : ec.libraryId
-                                      ? "bg-slate-100 text-slate-600"
-                                      : "bg-gray-100 text-gray-600"
-                                }`}
-                              >
-                                {ec.catalogId?.startsWith("common:")
-                                  ? "Stay extra"
-                                  : ec.libraryId
-                                    ? "Library"
-                                    : "One-off"}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-gray-500 mt-0.5">{billingLabel(ec)}</p>
-                          </div>
-                          <span className="text-sm font-semibold text-gray-800 tabular-nums shrink-0">
-                            {settings.currency} {ec.amount}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => removeExtraCharge(ec.id)}
-                            className="p-1.5 rounded-md text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-600 hover:bg-red-50 transition-opacity"
-                            aria-label="Remove"
+              {libraryExtras.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-gray-500">Saved fees</p>
+                  <ul className="space-y-1.5">
+                    {libraryExtras.map((item) => {
+                      const onListing = settings.extraCharges.some((c) => c.libraryId === item.id);
+                      return (
+                        <li key={item.id}>
+                          <label
+                            className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 cursor-pointer ${
+                              onListing
+                                ? "border-green-200 bg-green-50/40"
+                                : "border-gray-200 bg-white hover:bg-gray-50/80"
+                            }`}
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                            <input
+                              type="checkbox"
+                              checked={onListing}
+                              onChange={() => toggleLibraryOnListing(item.id)}
+                              className="rounded border-gray-300 text-green-600 focus:ring-green-500 shrink-0"
+                            />
+                            <span className="flex-1 min-w-0 text-sm text-gray-900 truncate">
+                              {item.label}
+                            </span>
+                            <span className="text-sm font-semibold text-gray-800 tabular-nums shrink-0">
+                              {settings.currency} {item.amount}
+                            </span>
+                          </label>
                         </li>
-                      ))}
-                    </ul>
-                  )}
+                      );
+                    })}
+                  </ul>
                 </div>
-              </div>
+              )}
+
+              {showCustomFeeForm ? (
+                <form onSubmit={handleAddCharge} className="space-y-3 rounded-lg border border-gray-200 bg-gray-50/50 p-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block sm:col-span-2">
+                      <span className={labelClass}>Name</span>
+                      <input
+                        value={newCharge.label}
+                        onChange={(e) => setNewCharge((p) => ({ ...p, label: e.target.value }))}
+                        placeholder="e.g. Airport transfer"
+                        required
+                        className={fieldClass}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={labelClass}>Amount ({settings.currency})</span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={newCharge.amount}
+                        onChange={(e) => setNewCharge((p) => ({ ...p, amount: e.target.value }))}
+                        placeholder="0"
+                        required
+                        className={fieldClass}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className={labelClass}>Billing</span>
+                      <select
+                        value={newCharge.billing}
+                        onChange={(e) =>
+                          setNewCharge((p) => ({
+                            ...p,
+                            billing: e.target.value as ExtraChargeBilling,
+                          }))
+                        }
+                        className={fieldClass}
+                      >
+                        {(Object.keys(EXTRA_CHARGE_BILLING_LABELS) as ExtraChargeBilling[]).map(
+                          (key) => (
+                            <option key={key} value={key}>
+                              {EXTRA_CHARGE_BILLING_LABELS[key]}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <label className="inline-flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newCharge.saveToLibrary}
+                        onChange={(e) =>
+                          setNewCharge((p) => ({ ...p, saveToLibrary: e.target.checked }))
+                        }
+                        className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                      />
+                      Save for other listings
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowCustomFeeForm(false)}
+                        className="text-xs font-medium text-gray-500 hover:text-gray-700 px-2 py-1.5"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="inline-flex items-center gap-1 text-sm bg-green-700 hover:bg-green-800 text-white px-3 py-2 rounded-lg font-semibold"
+                      >
+                        <Plus className="w-4 h-4" /> Add
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowCustomFeeForm(true)}
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-green-700 hover:text-green-800"
+                >
+                  <Plus className="w-4 h-4" /> Custom fee
+                </button>
+              )}
+
+              <p className="text-[11px] text-gray-400 pt-1 border-t border-gray-100">
+                Reuse fees across listings in{" "}
+                <Link href="/host/extra-charges" className="text-green-700 hover:text-green-800 font-medium">
+                  Manage library
+                  <ArrowUpRight className="inline w-3 h-3 ms-0.5" />
+                </Link>
+              </p>
             </div>
-
-            <form
-              onSubmit={handleAddCharge}
-              className="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 p-4 space-y-3"
-            >
-              <p className="text-xs font-semibold text-gray-800">Add a custom charge</p>
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                <label className="block sm:col-span-5">
-                  <span className="text-[11px] font-medium text-gray-500 mb-1 block">Name</span>
-                  <input
-                    value={newCharge.label}
-                    onChange={(e) => setNewCharge((p) => ({ ...p, label: e.target.value }))}
-                    placeholder="e.g. Airport transfer"
-                    required
-                    className="w-full border border-gray-200 bg-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  />
-                </label>
-                <label className="block sm:col-span-2">
-                  <span className="text-[11px] font-medium text-gray-500 mb-1 block">
-                    Amount ({settings.currency})
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    value={newCharge.amount}
-                    onChange={(e) => setNewCharge((p) => ({ ...p, amount: e.target.value }))}
-                    placeholder="0"
-                    required
-                    className="w-full border border-gray-200 bg-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  />
-                </label>
-                <label className="block sm:col-span-3">
-                  <span className="text-[11px] font-medium text-gray-500 mb-1 block">Billing</span>
-                  <select
-                    value={newCharge.billing}
-                    onChange={(e) =>
-                      setNewCharge((p) => ({
-                        ...p,
-                        billing: e.target.value as ExtraChargeBilling,
-                      }))
-                    }
-                    className="w-full border border-gray-200 bg-white rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  >
-                    {(Object.keys(EXTRA_CHARGE_BILLING_LABELS) as ExtraChargeBilling[]).map((key) => (
-                      <option key={key} value={key}>
-                        {EXTRA_CHARGE_BILLING_LABELS[key]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="sm:col-span-2 flex items-end">
-                  <button
-                    type="submit"
-                    className="w-full inline-flex items-center justify-center gap-1 text-sm bg-green-700 hover:bg-green-800 text-white px-3 py-2 rounded-lg font-semibold"
-                  >
-                    <Plus className="w-4 h-4" /> Add
-                  </button>
-                </div>
-              </div>
-              <label className="inline-flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={newCharge.saveToLibrary}
-                  onChange={(e) =>
-                    setNewCharge((p) => ({ ...p, saveToLibrary: e.target.checked }))
-                  }
-                  className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-                />
-                Save to library for reuse on other listings
-              </label>
-            </form>
-
-            {!isExperience && (
-              <div className="border-t border-gray-100 pt-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Users className="w-4 h-4 text-gray-400" />
-                  <p className="text-xs font-semibold text-gray-800 tracking-wide uppercase">
-                    Guest capacity pricing
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label className="block">
-                    <span className="text-[11px] font-medium text-gray-500 mb-1 block">
-                      Guests included in base price
-                    </span>
-                    <input
-                      type="number"
-                      min={1}
-                      value={settings.guestsIncludedInBase}
-                      onChange={(e) =>
-                        onSave({ guestsIncludedInBase: Math.max(1, Number(e.target.value) || 1) })
-                      }
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-[11px] font-medium text-gray-500 mb-1 block">
-                      Extra guest surcharge ({settings.currency}/night)
-                    </span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={settings.extraGuestCharge}
-                      onChange={(e) =>
-                        onSave({ extraGuestCharge: Math.max(0, Number(e.target.value) || 0) })
-                      }
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                    />
-                  </label>
-                </div>
-              </div>
-            )}
-          </>
+          </div>
         )}
       </section>
     </>

@@ -135,7 +135,7 @@ export function useListingSubmissionsStore() {
   const shared = isSharedListingsEnabled();
   // Always start empty so SSR + first client paint match (avoid hydration errors).
   const [all, setAll] = useState<SubmittedListing[]>([]);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(true);
   const [loadActive, setLoadActive] = useState(false);
 
   const refresh = useCallback(async (force = false) => {
@@ -158,29 +158,25 @@ export function useListingSubmissionsStore() {
     setLoadActive(true);
   }, []);
 
-  // Hydrate local mirror before paint; no network fetch until ensureLoaded().
+  // Hydrate local mirror before paint only when listings are needed.
+  // Skipping on /admin avoids parsing a large localStorage blob on every admin page.
   useLayoutEffect(() => {
-    if (shared) {
-      const mirrored = loadMirroredSubmissions();
-      if (mirrored.length > 0) {
-        setAll(mirrored);
-        sharedListingsCache = mirrored;
-        sharedListingsFetchedAt = Date.now();
-      }
+    if (!shared || !loadActive) return;
+    const mirrored = loadMirroredSubmissions();
+    if (mirrored.length > 0) {
+      setAll(mirrored);
+      sharedListingsCache = mirrored;
+      sharedListingsFetchedAt = Date.now();
     }
-  }, [shared]);
+  }, [shared, loadActive]);
 
   useLayoutEffect(() => {
-    if (!loadActive) {
-      setReady(true);
-      return;
-    }
+    if (!loadActive) return;
 
     let cancelled = false;
 
     if (!shared) {
       setAll(loadAllSubmissions());
-      setReady(true);
       return () => {
         cancelled = true;
       };

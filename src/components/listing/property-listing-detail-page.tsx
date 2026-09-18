@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { Link } from "@/i18n/routing";
+import { Link, usePathname, useRouter } from "@/i18n/routing";
 import { CheckAvailabilityLink } from "@/components/auth/check-availability-link";
 import {
   MapPin,
@@ -45,7 +45,6 @@ import {
   X,
   Waves,
   Baby,
-  Mail,
   Link2,
 } from "lucide-react";
 import { useTranslations, useLocale } from "next-intl";
@@ -111,10 +110,23 @@ import { isFeaturedStay } from "@/lib/listings/public-listings";
 import { applyGuestReviewRatings } from "@/lib/booking/stay-reviews-data";
 import type { StayReview } from "@/lib/booking/stay-reviews-types";
 import { addToBookingCart, loadBookingCart } from "@/lib/guest/booking-cart";
+import { getGuestLoginHref } from "@/lib/guest/checkout-access";
+import {
+  FAVORITES_SYNC_EVENT,
+  isFavoriteId,
+  toggleFavoriteId,
+} from "@/lib/mock/guest-data";
+import { useAuth } from "@/components/providers/auth-provider";
 import { readStayDatesFromSearch, readStayPartyFromSearch } from "@/lib/guest/stay-search-dates";
 import { ExperienceBookingCard } from "@/components/listing/experience-booking-card";
 import { EventListingDetailContent } from "@/components/listing/event-listing-detail-content";
-import { ListingMapEmbed } from "@/components/listing/listing-map-embed";
+import { ListingLocationPreview } from "@/components/listing/listing-location-preview";
+import {
+  EmailBrandIcon,
+  FacebookBrandIcon,
+  WhatsAppBrandIcon,
+  XBrandIcon,
+} from "@/components/listing/share-brand-icons";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
 import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { isDiningListing } from "@/lib/booking/is-dining-listing";
@@ -261,33 +273,6 @@ function displayDayAppearance(
   return { className, title };
 }
 
-const EXPERIENCES = [
-  {
-    id: "farm-tour",
-    title: "Farm Tour",
-    desc: "Guided walk through organic gardens and animal pens",
-    amount: 75,
-  },
-  {
-    id: "fruit-picking",
-    title: "Fruit Picking",
-    desc: "Seasonal harvest experience for all ages",
-    amount: 50,
-  },
-  {
-    id: "bbq-evening",
-    title: "BBQ Evening",
-    desc: "Private BBQ setup with chef assistance",
-    amount: 120,
-  },
-  {
-    id: "camel-riding",
-    title: "Camel Riding",
-    desc: "Desert-edge camel ride at sunset",
-    amount: 90,
-  },
-];
-
 const POLICIES = [
   { title: "Check-in", desc: "From 3:00 PM. Early check-in subject to availability." },
   { title: "Check-out", desc: "Before 11:00 AM. Late check-out may incur extra charges." },
@@ -310,6 +295,8 @@ interface PropertyListingDetailPageProps {
   houseRules?: { title: string; description: string }[];
   /** Google Maps / OSM embed URL for Location section */
   mapEmbedUrl?: string;
+  /** Travel-time hints for the location section */
+  nearbyPlaces?: { label: string; duration: string }[];
   rooms?: {
     id?: string;
     name: string;
@@ -356,6 +343,7 @@ export function PropertyListingDetailPage({
   livestockCrops,
   houseRules,
   mapEmbedUrl,
+  nearbyPlaces = [],
   rooms: roomsProp,
   guestParty: guestPartyProp,
   extraCharges: extraChargesProp,
@@ -372,7 +360,11 @@ export function PropertyListingDetailPage({
 }: PropertyListingDetailPageProps) {
   const t = useTranslations("listing");
   const tc = useTranslations("common");
+  const ta = useTranslations("account");
   const locale = useLocale();
+  const router = useRouter();
+  const pathname = usePathname();
+  const { user, loading: authLoading } = useAuth();
   const { data: taxonomy } = useAdminTaxonomy();
   const { phone: supportPhone, telHref: supportTelHref } = useCountrySupportContact();
   const isExperience = isExperienceListing({
@@ -449,18 +441,8 @@ export function PropertyListingDetailPage({
 
   const [bookingRoomIds, setBookingRoomIds] = useState<string[]>([]);
   const defaultDates = useMemo(() => defaultCheckInOut(2), []);
-  const [checkIn, setCheckIn] = useState(() => {
-    const fromSearch = readStayDatesFromSearch();
-    if (fromSearch) return fromSearch.checkIn;
-    const cartLine = loadBookingCart().find((line) => line.listingId === stay.id);
-    return cartLine?.checkIn || "";
-  });
-  const [checkOut, setCheckOut] = useState(() => {
-    const fromSearch = readStayDatesFromSearch();
-    if (fromSearch) return fromSearch.checkOut;
-    const cartLine = loadBookingCart().find((line) => line.listingId === stay.id);
-    return cartLine?.checkOut || "";
-  });
+  const [checkIn, setCheckIn] = useState("");
+  const [checkOut, setCheckOut] = useState("");
   const [datePickerOpen, setDatePickerOpen] = useState<"checkIn" | "checkOut" | null>(null);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const seed = checkIn || defaultDates.checkIn;
@@ -481,6 +463,7 @@ export function PropertyListingDetailPage({
 
   const [activeTab, setActiveTab] = useState("overview");
   const [wishlist, setWishlist] = useState(false);
+  const [saveFlash, setSaveFlash] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [diningGalleryFilter, setDiningGalleryFilter] = useState("all");
@@ -489,7 +472,6 @@ export function PropertyListingDetailPage({
   const [shareFlash, setShareFlash] = useState(false);
   const shareMenuRef = useRef<HTMLDivElement>(null);
   const [readMore, setReadMore] = useState(false);
-  const [selectedExperienceIds, setSelectedExperienceIds] = useState<string[]>([]);
   const [selectedExtraIds, setSelectedExtraIds] = useState<string[]>([]);
   const [cartAdded, setCartAdded] = useState(false);
   const [pricingSettings, setPricingSettings] = useState<ListingPricingSettings | null>(null);
@@ -499,6 +481,34 @@ export function PropertyListingDetailPage({
     extraChargesProp ?? []
   );
   const [extrasCurrency, setExtrasCurrency] = useState(extraChargesCurrencyProp ?? BASE_CURRENCY);
+
+  useEffect(() => {
+    function syncSaved() {
+      setWishlist(isFavoriteId(stay.id));
+    }
+    syncSaved();
+    window.addEventListener(FAVORITES_SYNC_EVENT, syncSaved);
+    window.addEventListener("storage", syncSaved);
+    return () => {
+      window.removeEventListener(FAVORITES_SYNC_EVENT, syncSaved);
+      window.removeEventListener("storage", syncSaved);
+    };
+  }, [stay.id]);
+
+  const toggleWishlist = useCallback(() => {
+    if (authLoading) return;
+    if (!user) {
+      const returnPath = pathname || `/listing/${stay.id}`;
+      router.push(getGuestLoginHref(returnPath));
+      return;
+    }
+    const saved = toggleFavoriteId(stay.id);
+    setWishlist(saved);
+    if (saved) {
+      setSaveFlash(true);
+      window.setTimeout(() => setSaveFlash(false), 2000);
+    }
+  }, [authLoading, user, pathname, stay.id, router]);
 
   const displayRooms = useMemo(() => {
     if (hasRoomTypes) return hostRooms;
@@ -726,17 +736,6 @@ export function PropertyListingDetailPage({
     );
   }, [listingExtras]);
 
-  const selectedExperiences = useMemo(
-    () => EXPERIENCES.filter((e) => selectedExperienceIds.includes(e.id)),
-    [selectedExperienceIds]
-  );
-  const experiencesTotal = useMemo(
-    () =>
-      selectedExperiences.reduce((sum, e) => sum + e.amount, 0) *
-      Math.max(1, guestCount),
-    [selectedExperiences, guestCount]
-  );
-
   const selectedExtras = useMemo(
     () => listingExtras.filter((e) => selectedExtraIds.includes(e.id)),
     [listingExtras, selectedExtraIds]
@@ -800,7 +799,6 @@ export function PropertyListingDetailPage({
       guests: guestCount,
       roomIds: hasRoomTypes && bookingRoomIds.length > 0 ? bookingRoomIds : undefined,
       selectedExtras,
-      experiencesTotal,
     });
   }, [
     pricingSettings,
@@ -810,16 +808,7 @@ export function PropertyListingDetailPage({
     hasRoomTypes,
     bookingRoomIds,
     selectedExtras,
-    experiencesTotal,
   ]);
-
-  function toggleExperience(id: string) {
-    setSelectedExperienceIds((prev) => {
-      const adding = !prev.includes(id);
-      if (adding) scrollToCalculator();
-      return adding ? [...prev, id] : prev.filter((x) => x !== id);
-    });
-  }
 
   function toggleExtra(id: string) {
     setSelectedExtraIds((prev) => {
@@ -965,9 +954,6 @@ export function PropertyListingDetailPage({
     if (checkIn) params.set("checkIn", checkIn);
     if (checkOut) params.set("checkOut", checkOut);
     params.set("guests", String(guestCount));
-    if (selectedExperienceIds.length > 0) {
-      params.set("experiences", selectedExperienceIds.join(","));
-    }
     if (selectedExtraIds.length > 0) {
       params.set("extras", selectedExtraIds.join(","));
     }
@@ -979,7 +965,6 @@ export function PropertyListingDetailPage({
     checkIn,
     checkOut,
     guestCount,
-    selectedExperienceIds,
     selectedExtraIds,
   ]);
 
@@ -1143,9 +1128,8 @@ export function PropertyListingDetailPage({
 
   const tabs = [
     { key: "overview", label: t("tabs.overview") },
-    { key: "amenities", label: t("tabs.amenities") },
     { key: "rooms", label: t("tabs.rooms") },
-    { key: "experiences", label: t("tabs.experiences") },
+    { key: "amenities", label: t("tabs.amenities") },
     ...(listingExtras.length > 0 ? [{ key: "extras", label: "Extras" }] : []),
     { key: "location", label: t("tabs.location") },
     { key: "reviews", label: `${t("tabs.reviews")} (${ratedStay.reviews})` },
@@ -1468,7 +1452,7 @@ export function PropertyListingDetailPage({
           money={money}
           featured={showFeatured}
           wishlist={wishlist}
-          onToggleWishlist={() => setWishlist((saved) => !saved)}
+          onToggleWishlist={toggleWishlist}
           onShare={() => void copyShareLink()}
         />
       ) : (
@@ -1592,9 +1576,7 @@ export function PropertyListingDetailPage({
                         onClick={() => void shareVia("whatsapp")}
                         className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                       >
-                        <span className="w-8 h-8 rounded-full bg-[#25D366]/15 text-[#128C7E] flex items-center justify-center shrink-0 text-xs font-bold">
-                          WA
-                        </span>
+                        <WhatsAppBrandIcon className="w-8 h-8 shrink-0" />
                         WhatsApp
                       </button>
                       <button
@@ -1602,9 +1584,7 @@ export function PropertyListingDetailPage({
                         onClick={() => void shareVia("facebook")}
                         className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                       >
-                        <span className="w-8 h-8 rounded-full bg-[#1877F2]/15 text-[#1877F2] flex items-center justify-center shrink-0 text-xs font-bold">
-                          f
-                        </span>
+                        <FacebookBrandIcon className="w-8 h-8 shrink-0" />
                         Facebook
                       </button>
                       <button
@@ -1612,9 +1592,7 @@ export function PropertyListingDetailPage({
                         onClick={() => void shareVia("x")}
                         className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                       >
-                        <span className="w-8 h-8 rounded-full bg-gray-900/10 text-gray-900 flex items-center justify-center shrink-0 text-xs font-bold">
-                          𝕏
-                        </span>
+                        <XBrandIcon className="w-8 h-8 shrink-0" />
                         X
                       </button>
                       <button
@@ -1622,9 +1600,7 @@ export function PropertyListingDetailPage({
                         onClick={() => void shareVia("email")}
                         className="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                       >
-                        <span className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
-                          <Mail className="w-4 h-4" />
-                        </span>
+                        <EmailBrandIcon className="w-8 h-8 shrink-0" />
                         Email
                       </button>
                       {typeof navigator !== "undefined" &&
@@ -1645,11 +1621,17 @@ export function PropertyListingDetailPage({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setWishlist(!wishlist)}
-                  className="flex items-center gap-1.5 border border-gray-300 hover:border-gray-400 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  onClick={toggleWishlist}
+                  disabled={authLoading}
+                  className={`flex items-center gap-1.5 border text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-60 ${
+                    wishlist
+                      ? "border-red-200 bg-red-50 text-red-700 hover:border-red-300"
+                      : "border-gray-300 hover:border-gray-400 text-gray-600"
+                  }`}
+                  aria-pressed={wishlist}
                 >
-                  <Heart className={`w-4 h-4 ${wishlist ? "fill-red-500 text-red-500" : ""}`} />{" "}
-                  {tc("save")}
+                  <Heart className={`w-4 h-4 ${wishlist ? "fill-red-500 text-red-500" : ""}`} />
+                  {saveFlash ? ta("saved") : wishlist ? "Saved" : tc("save")}
                 </button>
               </div>
             </div>
@@ -1768,7 +1750,7 @@ export function PropertyListingDetailPage({
                 </div>
               ) : null}
               {featureIcons.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 border-y border-gray-100 mb-5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-4 border-t border-gray-100">
                   {featureIcons.map(({ icon: Icon, label }) => (
                     <div key={label} className="flex flex-col items-center text-center gap-2">
                       <div className="w-14 h-14 bg-green-50 rounded-xl flex items-center justify-center border border-green-100">
@@ -1778,19 +1760,6 @@ export function PropertyListingDetailPage({
                     </div>
                   ))}
                 </div>
-              )}
-              <h3 className="font-bold text-gray-800 text-sm mb-3">{t("propertyHighlights")}</h3>
-              {highlights.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {highlights.map((h, i) => (
-                    <div key={i} className="flex items-start gap-2 text-sm text-gray-600">
-                      <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
-                      {h}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-400">No highlights added for this listing yet.</p>
               )}
             </section>
 
@@ -1839,46 +1808,6 @@ export function PropertyListingDetailPage({
                 </div>
               </section>
             )}
-
-            {/* Amenities */}
-            <section id="section-amenities" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
-              <h2 className="font-bold text-gray-900 text-base mb-4 font-display">{t("tabs.amenities")}</h2>
-              {displayAmenities.length === 0 ? (
-                <p className="text-sm text-gray-400">No amenities listed for this property yet.</p>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                  {displayAmenities.map((amenity) => {
-                    const Icon = amenityIcon(amenity);
-                    return (
-                      <div key={amenity} className="flex items-center gap-2.5 text-sm text-gray-700">
-                        <div className="w-9 h-9 bg-green-50 border border-green-100 rounded-lg flex items-center justify-center shrink-0">
-                          <Icon className="w-4 h-4 text-green-700" />
-                        </div>
-                        {amenity}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
-            {/* Live activity */}
-            <div className="bg-[#fbbf24] rounded-xl px-5 py-3 flex items-center gap-3 mb-5" dir="ltr">
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="w-2 h-2 bg-gray-900 rounded-full animate-pulse" />
-                <span className="text-gray-900 text-sm font-semibold">Live</span>
-              </div>
-              <div className="listing-live-marquee-wrapper" aria-label="Recent bookings">
-                <div className="listing-live-marquee-track">
-                  {[...BOOKING_ACTIVITY, ...BOOKING_ACTIVITY].map((item, index) => (
-                    <span key={`${item.name}-${index}`} className="listing-live-marquee-item text-gray-800 text-sm">
-                      <strong className="text-gray-900">{item.name}</strong> booked this property{" "}
-                      <span className="text-gray-800">— {item.time}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
 
             {/* Rooms */}
             <section id="section-rooms" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
@@ -2014,62 +1943,63 @@ export function PropertyListingDetailPage({
               )}
             </section>
 
-            {/* Experiences */}
-            <section id="section-experiences" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
-              <div className="flex items-start justify-between gap-3 mb-4">
-                <h2 className="font-bold text-gray-900 text-base font-display">{t("tabs.experiences")}</h2>
-                {selectedExperienceIds.length > 0 && (
-                  <p className="text-xs text-green-700 font-medium shrink-0">
-                    {selectedExperienceIds.length} added to calculator
-                  </p>
-                )}
+            {/* Live activity */}
+            <div className="bg-[#fbbf24] rounded-xl px-5 py-3 flex items-center gap-3 mb-5" dir="ltr">
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="w-2 h-2 bg-gray-900 rounded-full animate-pulse" />
+                <span className="text-gray-900 text-sm font-semibold">Live</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {EXPERIENCES.map((exp) => {
-                  const added = selectedExperienceIds.includes(exp.id);
-                  return (
-                    <div
-                      key={exp.id}
-                      className={`border rounded-xl p-4 transition-colors cursor-pointer ${
-                        added
-                          ? "border-green-500 bg-green-50/40"
-                          : "border-gray-200 hover:border-green-300"
-                      }`}
-                      onClick={() => toggleExperience(exp.id)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          toggleExperience(exp.id);
-                        }
-                      }}
-                    >
-                      <h3 className="font-semibold text-gray-800 text-sm">{exp.title}</h3>
-                      <p className="text-gray-500 text-xs mt-1">{exp.desc}</p>
-                      <div className="flex items-center justify-between mt-3">
-                        <span className="text-green-700 font-bold text-sm">
-                          {money(exp.amount)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleExperience(exp.id);
-                          }}
-                          className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${
-                            added
-                              ? "bg-white border border-green-600 text-green-800"
-                              : "bg-green-700 hover:bg-green-800 text-white"
-                          }`}
-                        >
-                          {added ? "Remove" : "Add to booking"}
-                        </button>
+              <div className="listing-live-marquee-wrapper" aria-label="Recent bookings">
+                <div className="listing-live-marquee-track">
+                  {[...BOOKING_ACTIVITY, ...BOOKING_ACTIVITY].map((item, index) => (
+                    <span key={`${item.name}-${index}`} className="listing-live-marquee-item text-gray-800 text-sm">
+                      <strong className="text-gray-900">{item.name}</strong> booked this property{" "}
+                      <span className="text-gray-800">— {item.time}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Amenities */}
+            <section id="section-amenities" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
+              <h2 className="font-bold text-gray-900 text-base mb-4 font-display">{t("tabs.amenities")}</h2>
+              {displayAmenities.length === 0 ? (
+                <p className="text-sm text-gray-400">No amenities listed for this property yet.</p>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                  {displayAmenities.map((amenity) => {
+                    const Icon = amenityIcon(amenity);
+                    return (
+                      <div key={amenity} className="flex items-center gap-2.5 text-sm text-gray-700">
+                        <div className="w-9 h-9 bg-green-50 border border-green-100 rounded-lg flex items-center justify-center shrink-0">
+                          <Icon className="w-4 h-4 text-green-700" />
+                        </div>
+                        {amenity}
                       </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            {/* Property Highlights */}
+            <section id="section-highlights" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
+              <h2 className="font-bold text-gray-900 text-base mb-4 font-display">
+                {t("propertyHighlights")}
+              </h2>
+              {highlights.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {highlights.map((h, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm text-gray-600">
+                      <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                      {h}
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">No highlights added for this listing yet.</p>
+              )}
             </section>
 
             {/* Extras */}
@@ -2241,44 +2171,34 @@ export function PropertyListingDetailPage({
               </section>
             )}
 
-            {/* Location */}
+            {/* Location — approximate area only; exact address sent after booking */}
             <section id="section-location" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
               <h2 className="font-bold text-gray-900 text-base mb-4 font-display">{t("tabs.location")}</h2>
               <div className="flex items-center gap-2 text-sm text-gray-600 mb-3">
                 <MapPin className="w-4 h-4 text-green-600" />
-                {stayLocation}
+                {stayLocation.split(",")[0]?.trim() || stayLocation}
               </div>
-              <div className="relative w-full h-56 rounded-xl overflow-hidden bg-green-50 border border-green-100">
-                {mapEmbedUrl ? (
-                  <ListingMapEmbed
-                    src={mapEmbedUrl}
-                    title={`Map preview — ${stayLocation}`}
-                    className="h-full w-full"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-green-700">
-                    <MapPin className="w-10 h-10 opacity-30" />
-                    <span className="text-sm font-medium opacity-60">
-                      Map preview — {stayLocation}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-gray-500">
-                {[
-                  ["Airport", "45 mins"],
-                  ["City Centre", "20 mins"],
-                  ["Farm Market", "5 mins"],
-                  ["Railway Station", "30 mins"],
-                ].map(([place, time]) => (
-                  <div key={place} className="flex items-center gap-2">
-                    <Clock className="w-3 h-3 text-gray-400" />
-                    <span>
-                      <strong className="text-gray-700">{place}</strong> — {time}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <p className="text-xs text-gray-500 mb-3 leading-relaxed">
+                Exact location, directions, and host contact details are emailed after your booking
+                is confirmed.
+              </p>
+              <ListingLocationPreview
+                areaLabel={stayLocation.split(",")[0]?.trim() || stayLocation}
+                mapEmbedUrl={mapEmbedUrl}
+                className="h-56 w-full"
+              />
+              {nearbyPlaces.length > 0 && (
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-gray-500">
+                  {nearbyPlaces.map((place) => (
+                    <div key={`${place.label}-${place.duration}`} className="flex items-center gap-2">
+                      <Clock className="w-3 h-3 text-gray-400 shrink-0" />
+                      <span>
+                        <strong className="text-gray-700">{place.label}</strong> — {place.duration}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             <ListingReviewsSection
@@ -2335,11 +2255,6 @@ export function PropertyListingDetailPage({
                     {money(publishedRates.nightly || displayPrice)}
                   </span>
                   <span className="text-gray-400 text-sm">{tc("perNight")}</span>
-                  {selectedNights > 0 ? (
-                    <span className="text-sm font-semibold text-gray-700 ms-auto tabular-nums">
-                      {selectedNights} night{selectedNights === 1 ? "" : "s"}
-                    </span>
-                  ) : null}
                 </div>
                 {bookingRooms.length > 0 ? (
                   <p className="text-xs text-gray-500 mb-3">
@@ -2363,58 +2278,40 @@ export function PropertyListingDetailPage({
 
                 <div
                   ref={datePickerRef}
-                  className="border border-gray-200 rounded-xl overflow-visible mb-3 relative"
+                  className="border border-gray-200 rounded-xl overflow-visible mb-3 relative divide-y divide-gray-200"
                 >
                   <div className="relative">
-                    <div className="grid grid-cols-2 divide-x divide-gray-200 overflow-hidden rounded-t-xl">
+                    <div className="grid grid-cols-2 divide-x divide-gray-200">
                       <button
                         type="button"
                         onClick={() => openDatePicker("checkIn")}
-                        className={`p-3 text-start hover:bg-gray-50 transition-colors cursor-pointer ${
-                          datePickerOpen === "checkIn" ? "bg-green-50 ring-1 ring-inset ring-green-200" : ""
+                        className={`p-3 text-start hover:bg-gray-50 transition-colors ${
+                          datePickerOpen === "checkIn" ? "bg-green-50" : ""
                         }`}
                       >
-                        <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">
-                          {t("checkIn")}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Calendar
-                            className={`w-3.5 h-3.5 shrink-0 ${
-                              checkIn ? "text-green-600" : "text-gray-400"
-                            }`}
-                          />
-                          <span
-                            className={`text-sm font-semibold truncate ${
-                              checkIn ? "text-gray-900" : "text-gray-400"
-                            }`}
-                          >
-                            {formatDateLabel(checkIn)}
-                          </span>
+                        <div className="text-xs text-gray-500 mb-0.5">{t("checkIn")}</div>
+                        <div
+                          className={`text-sm font-semibold truncate ${
+                            checkIn ? "text-gray-900" : "text-gray-400"
+                          }`}
+                        >
+                          {formatDateLabel(checkIn)}
                         </div>
                       </button>
                       <button
                         type="button"
                         onClick={() => openDatePicker("checkOut")}
-                        className={`p-3 text-start hover:bg-gray-50 transition-colors cursor-pointer ${
-                          datePickerOpen === "checkOut" ? "bg-green-50 ring-1 ring-inset ring-green-200" : ""
+                        className={`p-3 text-start hover:bg-gray-50 transition-colors ${
+                          datePickerOpen === "checkOut" ? "bg-green-50" : ""
                         }`}
                       >
-                        <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">
-                          {t("checkOut")}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Calendar
-                            className={`w-3.5 h-3.5 shrink-0 ${
-                              checkOut ? "text-green-600" : "text-gray-400"
-                            }`}
-                          />
-                          <span
-                            className={`text-sm font-semibold truncate ${
-                              checkOut ? "text-gray-900" : "text-gray-400"
-                            }`}
-                          >
-                            {formatDateLabel(checkOut)}
-                          </span>
+                        <div className="text-xs text-gray-500 mb-0.5">{t("checkOut")}</div>
+                        <div
+                          className={`text-sm font-semibold truncate ${
+                            checkOut ? "text-gray-900" : "text-gray-400"
+                          }`}
+                        >
+                          {formatDateLabel(checkOut)}
                         </div>
                       </button>
                     </div>
@@ -2563,61 +2460,45 @@ export function PropertyListingDetailPage({
                               ? `2. Select check-out (minimum ${minStayNights} nights)`
                               : "2. Select check-out date"}
                         </p>
-                        {selectedNights > 0 ? (
-                          <p className="mt-1 text-center text-xs font-semibold text-green-800">
-                            {selectedNights} night{selectedNights === 1 ? "" : "s"} selected
-                          </p>
-                        ) : null}
                       </div>
                     )}
                   </div>
 
-                  {selectedNights > 0 ? (
-                    <div className="border-t border-gray-200 px-3 py-2.5 flex items-center justify-between gap-2 bg-green-50/60">
-                      <span className="text-xs text-gray-600">Length of stay</span>
-                      <span className="text-sm font-bold text-green-900 tabular-nums">
-                        {selectedNights} night{selectedNights === 1 ? "" : "s"}
-                      </span>
-                    </div>
-                  ) : checkIn ? (
-                    <div className="border-t border-gray-200 px-3 py-2.5 text-center">
-                      <button
-                        type="button"
-                        onClick={() => openDatePicker("checkOut")}
-                        className="text-xs font-semibold text-green-800 hover:text-green-950 underline-offset-2 hover:underline"
-                      >
-                        Choose check-out date →
-                      </button>
+                  {checkIn ? (
+                    <div className="px-3 py-2 text-center text-xs text-gray-600 bg-gray-50/80">
+                      {selectedNights > 0
+                        ? `${selectedNights} night${selectedNights === 1 ? "" : "s"}`
+                        : "Pick a check-out date"}
                     </div>
                   ) : null}
 
                   {dateBookingHint && (
-                    <p className="px-3 py-2 text-xs text-amber-800 bg-amber-50 border-t border-amber-100">
+                    <p className="px-3 py-2 text-xs text-amber-800 bg-amber-50">
                       {dateBookingHint}
                     </p>
                   )}
 
-                  <div className="border-t border-gray-200 p-3 relative">
-                    <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide mb-1">
-                      {t("guestsLabel")}
-                    </div>
+                  <div className="p-3 relative">
                     <button
                       type="button"
                       onClick={() => {
                         setDatePickerOpen(null);
                         setGuestsOpen((v) => !v);
                       }}
-                      className="w-full flex items-center justify-between gap-2 text-start"
+                      className="w-full flex items-center justify-between gap-3 text-start hover:bg-gray-50 -m-1 p-1 rounded-lg transition-colors"
                       aria-expanded={guestsOpen}
                     >
-                      <span className="text-sm font-semibold text-gray-800 truncate">
-                        {guestsSummary}
+                      <span className="text-sm text-gray-600">{t("guestsLabel")}</span>
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-sm font-semibold text-gray-900 truncate">
+                          {guestsSummary}
+                        </span>
+                        <ChevronDown
+                          className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${
+                            guestsOpen ? "rotate-180" : ""
+                          }`}
+                        />
                       </span>
-                      <ChevronDown
-                        className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${
-                          guestsOpen ? "rotate-180" : ""
-                        }`}
-                      />
                     </button>
 
                     {guestsOpen && (
@@ -2799,59 +2680,6 @@ export function PropertyListingDetailPage({
                   </div>
                 )}
 
-                {selectedExperiences.length > 0 && (
-                  <div className="border border-gray-200 rounded-xl p-3 mb-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wide">
-                        Experiences
-                      </div>
-                      <span className="text-[10px] text-gray-400">
-                        Per person · ×{Math.max(1, guestCount)}
-                      </span>
-                    </div>
-                    <ul className="space-y-1.5">
-                      {selectedExperiences.map((exp) => {
-                        const lineTotal = exp.amount * Math.max(1, guestCount);
-                        return (
-                          <li
-                            key={exp.id}
-                            className="flex items-center gap-2.5 rounded-lg px-1 py-1"
-                          >
-                            <span className="flex-1 min-w-0 text-sm font-medium text-gray-800 truncate">
-                              {exp.title}
-                            </span>
-                            <span className="text-xs font-semibold text-gray-700 tabular-nums shrink-0 text-end">
-                              {money(lineTotal)}
-                              {guestCount > 1 && (
-                                <span className="block text-[10px] font-normal text-gray-400">
-                                  {money(exp.amount)} × {guestCount}
-                                </span>
-                              )}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => toggleExperience(exp.id)}
-                              className="text-[10px] font-semibold text-gray-400 hover:text-red-600 shrink-0"
-                              aria-label={`Remove ${exp.title}`}
-                            >
-                              Remove
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    <div className="flex items-center justify-between pt-1.5 border-t border-gray-100 text-xs">
-                      <span className="text-gray-500">
-                        {selectedExperiences.length} experience
-                        {selectedExperiences.length === 1 ? "" : "s"}
-                      </span>
-                      <span className="font-bold text-green-800 tabular-nums">
-                        {money(experiencesTotal)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
                 {selectedExtras.length > 0 && (
                   <div className="border border-gray-200 rounded-xl p-3 mb-3 space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -2996,7 +2824,7 @@ export function PropertyListingDetailPage({
                           checkOut,
                           guests: guestCount,
                           rooms: bookingRoomIds,
-                          experienceIds: selectedExperienceIds,
+                          experienceIds: [],
                           extraIds: selectedExtraIds,
                           currency: priceCurrency,
                         });

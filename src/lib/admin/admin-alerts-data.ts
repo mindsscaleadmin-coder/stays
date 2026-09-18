@@ -26,8 +26,11 @@ export const ADMIN_ALERT_CATEGORY_LABELS: Record<AdminAlertCategory, string> = {
   system_health: "System health",
   host_payment: "Host payments",
 };
+/** India launch — amounts in INR (field name kept for backward compatibility). */
+export const ADMIN_ALERT_CURRENCY = "INR";
+
 export const DEFAULT_ADMIN_ALERT_SETTINGS: AdminAlertSettings = {
-  highValueThresholdAed: 5000,
+  highValueThresholdAed: 50000,
   newHostSignupDays: 14,
   enabledCategories: {
     host_signup: true,
@@ -268,7 +271,7 @@ function syncSystemHealthAlerts(state: AdminAlertsState): AdminAlert[] {
               ? `${label} is unavailable. Bookings and notifications may be affected.`
               : `${label} is experiencing degraded performance.`,
           createdAt: systemHealth.lastCheckedAt,
-          href: "/admin/alerts?tab=system",
+          href: "/admin/alerts?tab=system_health",
           sourceKey: `system-${key}-${status}`,
         },
         state
@@ -303,7 +306,7 @@ function syncHostPaymentAlerts(state: AdminAlertsState): AdminAlert[] {
         category: "host_payment",
         severity: "info",
         title: `Host paid for ${kindLabel}`,
-        message: `${hostName} purchased ${kindLabel} (${promo.durationDays} days) for “${listingTitle}” — AED ${promo.priceAed.toLocaleString()} · ${promo.paymentRef}. Ends ${new Date(promo.endsAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}.`,
+        message: `${hostName} purchased ${kindLabel} (${promo.durationDays} days) for “${listingTitle}” — ${ADMIN_ALERT_CURRENCY} ${promo.priceAed.toLocaleString("en-IN")} · ${promo.paymentRef}. Ends ${new Date(promo.endsAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}.`,
         createdAt: promo.purchasedAt,
         href: "/admin/advertisements",
         sourceKey: `host-payment-${promo.id}`,
@@ -314,7 +317,7 @@ function syncHostPaymentAlerts(state: AdminAlertsState): AdminAlert[] {
 }
 
 function formatMoney(amount: number): string {
-  return `AED ${Math.round(amount).toLocaleString()}`;
+  return `${ADMIN_ALERT_CURRENCY} ${Math.round(amount).toLocaleString("en-IN")}`;
 }
 
 export function computeAdminAlerts(state = loadAdminAlertsState()): AdminAlert[] {

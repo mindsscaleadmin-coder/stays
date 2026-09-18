@@ -1,4 +1,5 @@
 import { emitSyncEvent } from "@/lib/emit-sync-event";
+import { pushCartProfileNotice } from "@/lib/guest/guest-profile-notice-events";
 
 const STORAGE_KEY = "farm-stays-booking-cart";
 export const BOOKING_CART_SYNC_EVENT = "farm-stays-booking-cart-updated";
@@ -77,6 +78,7 @@ export function addToBookingCart(input: AddToCartInput): BookingCartLine {
     next.push(line);
   }
   saveBookingCart(next);
+  pushCartProfileNotice();
   return line;
 }
 

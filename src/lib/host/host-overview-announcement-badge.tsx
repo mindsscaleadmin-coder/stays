@@ -14,10 +14,10 @@ export function HostOverviewAnnouncementBadge() {
   const [count, setCount] = useState(0);
 
   useEffect(() => {
-    function refresh() {
-      setCount(countHostOverviewAnnouncements(hostId, user?.fullName));
+    async function refresh() {
+      setCount(await countHostOverviewAnnouncements(hostId, user?.fullName));
     }
-    refresh();
+    void refresh();
     for (const eventName of HOST_OVERVIEW_ANNOUNCEMENT_EVENTS) {
       window.addEventListener(eventName, refresh);
     }

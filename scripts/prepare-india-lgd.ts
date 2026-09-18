@@ -285,6 +285,20 @@ function csvEscape(value: string): string {
   return value;
 }
 
+const INDIA_MARKETPLACE = {
+  name: "India",
+  code: "IN",
+  flag: "🇮🇳",
+  currency: "INR",
+  currencySymbol: "₹",
+  exchangeRateToAED: 0.043,
+  taxPct: 18,
+  taxLabel: "GST",
+  dialCode: "+91",
+  enabled: true,
+  comingSoon: false,
+} as const;
+
 async function writeTaxonomy(states: StateRow[], districts: DistrictRow[]) {
   const taxonomy = await getTaxonomyFromDb();
   let india = taxonomy.countries.find((c) => (c.code ?? "").toUpperCase() === "IN") ??
@@ -292,23 +306,17 @@ async function writeTaxonomy(states: StateRow[], districts: DistrictRow[]) {
   if (!india) {
     india = {
       id: "c-lgd-in",
-      name: "India",
-      code: "IN",
-      flag: "🇮🇳",
-      currency: "INR",
-      currencySymbol: "₹",
-      exchangeRateToAED: 0.043,
-      taxPct: 18,
-      taxLabel: "GST",
-      dialCode: "+91",
-      enabled: true,
-      comingSoon: false,
+      ...INDIA_MARKETPLACE,
     };
     taxonomy.countries = [...taxonomy.countries, india];
-  } else if (!india.code) {
-    india = { ...india, code: "IN" };
-    taxonomy.countries = taxonomy.countries.map((c) => (c.id === india!.id ? india! : c));
+  } else {
+    india = { ...india, ...INDIA_MARKETPLACE };
   }
+
+  // India-only launch: keep other countries in catalog but disabled for later expansion.
+  taxonomy.countries = taxonomy.countries.map((c) =>
+    c.id === india!.id ? india! : { ...c, enabled: false, comingSoon: true }
+  );
 
   const indiaStateIds = new Set(
     taxonomy.states.filter((s) => s.countryId === india.id).map((s) => s.id)

@@ -32,6 +32,8 @@ export interface HostPayoutRecord {
   reference: string;
   method: PayoutMethod;
   status: "paid" | "failed";
+  /** Bank/wire transfer cost for this payout batch */
+  transferFee?: number;
 }
 
 export interface HostTransaction {

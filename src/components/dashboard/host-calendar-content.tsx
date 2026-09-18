@@ -25,6 +25,7 @@ import {
 import { catalogListingsForHost } from "@/lib/listings/catalog-listing-hosts";
 import { useHostAvailability } from "@/lib/host/use-host-availability";
 import { useHostBookings } from "@/lib/host/use-host-bookings";
+import { hostBookingDetailPath, isEventOpsRecord } from "@/lib/host/host-ops-adapter";
 import {
   calendarMonthLabel,
   daysInMonthGrid,
@@ -146,6 +147,10 @@ export function HostCalendarContent() {
       const start = new Date(`${b.checkIn}T12:00:00`);
       const end = new Date(`${b.checkOut}T12:00:00`);
       const target = b.status === "pending" ? pending : booked;
+      if (isEventOpsRecord(b)) {
+        target.add(b.checkIn);
+        continue;
+      }
       for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
         target.add(d.toISOString().slice(0, 10));
       }
@@ -173,12 +178,15 @@ export function HostCalendarContent() {
         const matchesListing =
           (booking.listingId && booking.listingId === listingId) ||
           (!booking.listingId && booking.property === selectedTitle);
-        return (
-          matchesListing &&
-          (booking.status === "confirmed" || booking.status === "pending") &&
-          booking.checkIn < monthEnd &&
-          booking.checkOut > monthStart
-        );
+        const active =
+          booking.status === "confirmed" ||
+          booking.status === "pending" ||
+          isEventOpsRecord(booking);
+        const overlapsMonth =
+          isEventOpsRecord(booking)
+            ? booking.checkIn >= monthStart && booking.checkIn < monthEnd
+            : booking.checkIn < monthEnd && booking.checkOut > monthStart;
+        return matchesListing && active && overlapsMonth;
       })
       .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
   }, [bookings, listingId, selectedTitle, viewMonth, viewYear]);
@@ -465,13 +473,13 @@ export function HostCalendarContent() {
           {monthBookings.length > 0 && (
             <div className="border-t border-gray-100 pt-4">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
-                Bookings this month
+                Bookings & enquiries this month
               </h4>
               <div className="space-y-2">
                 {monthBookings.map((booking) => (
                   <Link
                     key={booking.id}
-                    href={`/host/bookings/${booking.id}`}
+                    href={hostBookingDetailPath(booking)}
                     className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border border-gray-100 bg-gray-50/60 px-3 py-2.5 hover:border-green-200 hover:bg-green-50/40 transition-colors"
                   >
                     <div className="min-w-0">
@@ -479,7 +487,9 @@ export function HostCalendarContent() {
                         {booking.guest}
                       </p>
                       <p className="text-xs text-gray-500">
-                        {formatShortDate(booking.checkIn)} → {formatShortDate(booking.checkOut)}
+                        {isEventOpsRecord(booking)
+                          ? `${formatShortDate(booking.checkIn)} · Enquiry`
+                          : `${formatShortDate(booking.checkIn)} → ${formatShortDate(booking.checkOut)}`}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -489,12 +499,14 @@ export function HostCalendarContent() {
                       <span
                         className={cn(
                           "rounded-full px-2 py-0.5 text-[10px] font-bold capitalize",
-                          booking.status === "confirmed"
-                            ? "bg-blue-100 text-blue-700"
-                            : "bg-violet-100 text-violet-700"
+                          isEventOpsRecord(booking)
+                            ? "bg-amber-100 text-amber-800"
+                            : booking.status === "confirmed"
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-violet-100 text-violet-700"
                         )}
                       >
-                        {booking.status}
+                        {isEventOpsRecord(booking) ? "Enquiry" : booking.status}
                       </span>
                     </div>
                   </Link>

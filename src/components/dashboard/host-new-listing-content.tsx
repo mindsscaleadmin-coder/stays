@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Link } from "@/i18n/routing";
 import { ImagePlus, MapPin, Pencil, Upload } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
-import { ListingFilterFields } from "@/components/dashboard/listing-filter-fields";
+import { ListingFilterFields, ListingPropertyFilterFields } from "@/components/dashboard/listing-filter-fields";
 import {
   ListingPhotosManager,
   type ManagedListingPhoto,
@@ -24,8 +24,10 @@ import {
   countAmenitySelections,
   listingToFilterValues,
   resolveListingLabels,
+  validatePropertyFilterSelections,
 } from "@/lib/listings/validate-listing-filters";
 import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
+import { DEFAULT_CANCELLATION_POLICY_ID } from "@/lib/booking/policies";
 import {
   loadPricingSettings,
   savePricingSettings,
@@ -38,6 +40,7 @@ import {
   ListingDraftRoomsEditor,
   ListingPricingModePicker,
   MAX_ROOM_PHOTOS,
+  syncDraftRoomGuests,
   type DraftListingRoom,
   type ListingPricingMode,
 } from "@/components/dashboard/listing-draft-rooms-panel";
@@ -58,6 +61,7 @@ import {
   isVenueDirectoryMode,
   toListingQualityMode,
 } from "@/lib/listings/listing-mode";
+import { HOST_PROFILES_SYNC_EVENT } from "@/lib/host/host-profile-data";
 import {
   defaultExperienceSessions,
   type ExperienceSessionTemplate,
@@ -74,6 +78,7 @@ import {
   listingTitleWordCount,
 } from "@/lib/listings/listing-title";
 import {
+  bedTypeFilterIdSet,
   ListingAdvancedFiltersField,
   splitAdvancedIdsByVenueSection,
   useListingAdvancedFilterRows,
@@ -167,6 +172,9 @@ export function HostNewListingContent({
   );
   const [description, setDescription] = useState("");
   const [mapEmbedInput, setMapEmbedInput] = useState("");
+  const [nearbyPlaces, setNearbyPlaces] = useState<{ label: string; duration: string }[]>([
+    { label: "", duration: "" },
+  ]);
   const [meetingPoint, setMeetingPoint] = useState("");
   const [requirements, setRequirements] = useState("");
   const [licenseNumber, setLicenseNumber] = useState("");
@@ -214,6 +222,7 @@ export function HostNewListingContent({
   const venueDetailsVariant = isDining ? "dining" : "event";
   const isVenueDirectory = isVenueDirectoryMode(draftMode);
   const showBasePrice = !isExperience && !isVenueDirectory;
+  const isStayListing = showBasePrice;
 
   const countryConfig = useMemo(
     () => resolveCountryPricingConfig(taxonomy.countries, draftLabels.country),
@@ -434,6 +443,17 @@ export function HostNewListingContent({
   }, [listingId, selectedListCategory, showSubscriptionParam, subscriptionPlan]);
 
   useEffect(() => {
+    if (!hostId || !subscriptionPlan) return;
+    void fetch(`/api/hosts/${encodeURIComponent(hostId)}/profile`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferredDirectoryPlanId: subscriptionPlan }),
+    }).then(() => {
+      window.dispatchEvent(new Event(HOST_PROFILES_SYNC_EVENT));
+    });
+  }, [hostId, subscriptionPlan]);
+
+  useEffect(() => {
     return () => {
       photosRef.current.forEach((photo) => {
         if (!photo.persisted && photo.src.startsWith("blob:")) {
@@ -458,6 +478,14 @@ export function HostNewListingContent({
     setTitle(clampListingTitle(existing.title));
     setDescription(existing.description);
     setMapEmbedInput(existing.mapEmbedUrl ?? "");
+    setNearbyPlaces(
+      existing.nearbyPlaces?.length
+        ? existing.nearbyPlaces.map((place) => ({
+            label: place.label ?? "",
+            duration: place.duration ?? "",
+          }))
+        : [{ label: "", duration: "" }]
+    );
     setMeetingPoint(existing.meetingPoint ?? "");
     setRequirements(existing.requirements ?? "");
     setLicenseNumber(existing.licenseNumber ?? "");
@@ -586,21 +614,18 @@ export function HostNewListingContent({
       setFilterValues(listingFilters);
       if ((existing.rooms?.length ?? 0) > 0 && existing.rooms!.some((room) => room.price > 0)) {
       setPricingMode("multi_rate_rooms");
+      const bedTypeIds = bedTypeFilterIdSet(taxonomy, listingFilters);
       const hydratedRooms = existing.rooms!.map((room, index) => {
         const maxGuests = Math.max(1, room.capacity);
-        const maxAdults = Math.min(Math.max(1, room.maxAdults ?? maxGuests), maxGuests);
-        const maxChildren = maxGuests - maxAdults;
         return {
           key: room.id || `room-${index}`,
           name: room.name,
           description: room.description ?? "",
           price: room.price > 0 ? String(room.price) : "",
-          maxGuests,
-          maxAdults,
-          maxChildren,
-          maxInfants: room.maxInfants ?? 0,
+          ...syncDraftRoomGuests(maxGuests),
           beds: room.beds,
           baths: room.baths,
+          bedTypeId: room.advancedFilterIds?.find((id) => bedTypeIds.has(id)) ?? "",
           photos: draftRoomPhotosFromListing(room, photoUrls, tags),
         };
       });
@@ -661,10 +686,27 @@ export function HostNewListingContent({
     e.preventDefault();
     setError("");
 
-    const labels = resolveListingLabels(
-      taxonomy,
-      isVenueDirectory ? venueSubmitFilterValues : filterValues
-    );
+    const listingFilterValues =
+      isVenueDirectory
+        ? venueSubmitFilterValues
+        : showBasePrice && isMultiRate && !isExperience
+          ? (() => {
+              const bedTypeIds = bedTypeFilterIdSet(taxonomy, filterValues);
+              return {
+                ...filterValues,
+                advancedIds: filterValues.advancedIds.filter((id) => !bedTypeIds.has(id)),
+              };
+            })()
+          : filterValues;
+
+    const labels = resolveListingLabels(taxonomy, listingFilterValues);
+    if (showBasePrice && !isMultiRate && !isExperience) {
+      const propertyFilterError = validatePropertyFilterSelections(taxonomy, filterValues);
+      if (propertyFilterError) {
+        setError(propertyFilterError);
+        return;
+      }
+    }
     const mapEmbedUrl = parseMapEmbedUrl(mapEmbedInput);
     if (mapEmbedInput.trim() && !mapEmbedUrl) {
       setError(
@@ -878,21 +920,17 @@ export function HostNewListingContent({
             });
           }
           const maxGuests = Math.max(1, draft.maxGuests);
-          const maxAdults = Math.min(Math.max(1, draft.maxAdults), maxGuests);
-          const maxChildren = maxGuests - maxAdults;
           listingRooms.push({
             id: `R-${Date.now()}-${i}`,
             name: draft.name.trim(),
             description: draft.description.trim(),
             price: Math.max(0, Number(draft.price) || 0),
             capacity: maxGuests,
-            maxAdults,
-            maxChildren,
-            maxInfants: Math.max(0, draft.maxInfants),
             beds: Math.max(1, draft.beds),
             baths: Math.max(1, draft.baths),
             img: processedRoomPhotos[0]?.url ?? "",
             typeName: draft.name.trim(),
+            ...(draft.bedTypeId ? { advancedFilterIds: [draft.bedTypeId] } : {}),
           });
           for (const photo of processedRoomPhotos) {
             photoUrls.push(photo.url);
@@ -920,6 +958,13 @@ export function HostNewListingContent({
         highlightIds: filterValues.highlightIds,
         featureIconIds: filterValues.featureIconIds.slice(0, 4),
         mapEmbedUrl: mapEmbedUrl || "",
+        nearbyPlaces: nearbyPlaces
+          .map((place) => ({
+            label: place.label.trim(),
+            duration: place.duration.trim(),
+          }))
+          .filter((place) => place.label && place.duration)
+          .slice(0, 4),
         ...(isVenueDirectory
           ? { rooms: isVenueMultiRate ? listingRooms ?? [] : [] }
           : listingRooms?.length
@@ -981,6 +1026,7 @@ export function HostNewListingContent({
       } else {
         savedId = await submit({
           ...payload,
+          cancellationPolicyId: DEFAULT_CANCELLATION_POLICY_ID,
           hostId: resolveHostId(user) ?? "demo-host",
           hostName: resolveHostName(user),
         });
@@ -1198,13 +1244,11 @@ export function HostNewListingContent({
 
   const experienceSection =
     isExperience ? (
-      <div className="space-y-4 border border-gray-200 rounded-xl p-4 bg-white">
-        <div>
-          <p className="text-sm font-semibold text-gray-900">Experience details</p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Guests see these on the listing before they pick a session.
-          </p>
-        </div>
+      <DiningFormSection
+        title="Experience details"
+        tier="required"
+        description="Guests see these on the listing before they pick a session."
+      >
         <label className="block">
           <span className="text-sm font-medium text-gray-700">Meeting point / pickup</span>
           <textarea
@@ -1266,7 +1310,7 @@ export function HostNewListingContent({
           {itinerary.map((step, index) => (
             <div
               key={`step-${index}`}
-              className="grid grid-cols-1 sm:grid-cols-[2rem_1fr] gap-2 items-start bg-white border border-gray-100 rounded-lg p-3"
+              className="grid grid-cols-1 sm:grid-cols-[2rem_1fr] gap-2 items-start border-b border-gray-100 pb-3 last:border-b-0"
             >
               <span className="text-xs font-bold text-green-700 pt-2.5">{index + 1}</span>
               <div className="space-y-2">
@@ -1296,8 +1340,123 @@ export function HostNewListingContent({
             </div>
           ))}
         </div>
-      </div>
+      </DiningFormSection>
     ) : null;
+
+  const listingBasicsSection = (
+    <>
+      <div>
+        <div
+          className={
+            showBasePrice && !isMultiRate && !isExperience
+              ? "grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_11rem] gap-4"
+              : undefined
+          }
+        >
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-1.5">
+              <label htmlFor="title" className="block text-sm font-medium text-gray-700">
+                {isMultiRate ? "Venue Title" : "Title"}
+              </label>
+              <span className="text-xs text-gray-400">
+                {listingTitleWordCount(title)}/{LISTING_TITLE_MAX_WORDS} words
+              </span>
+            </div>
+            <input
+              id="title"
+              name="title"
+              value={title}
+              onChange={(e) => setTitle(clampListingTitle(e.target.value))}
+              maxLength={LISTING_TITLE_MAX_CHARS}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              placeholder={
+                isExperience
+                  ? "Sunrise desert safari"
+                  : isDining
+                    ? "Sunset Farm Table & Kitchen"
+                    : isEvent
+                      ? "Grand Palace Banquet Hall"
+                      : "Green Valley Farmhouse"
+              }
+            />
+          </div>
+          {showBasePrice && !isMultiRate && !isExperience && (
+            <div>
+              <label
+                htmlFor="listing-base-price"
+                className="block text-sm font-medium text-gray-700 mb-1.5"
+              >
+                Price / night
+              </label>
+              <div className="flex items-stretch">
+                <div className="inline-flex items-center gap-1 rounded-s-lg border border-gray-200 border-e-0 bg-gray-50 px-2.5 text-xs text-gray-700 shrink-0">
+                  <span className="font-semibold text-gray-900">{countryConfig.currency}</span>
+                  {countryConfig.currencySymbol ? (
+                    <span className="text-gray-400">{countryConfig.currencySymbol}</span>
+                  ) : null}
+                </div>
+                <input
+                  id="listing-base-price"
+                  name="basePrice"
+                  type="number"
+                  min={0}
+                  value={basePrice}
+                  onChange={(e) => setBasePrice(e.target.value)}
+                  placeholder="0"
+                  className="w-full min-w-0 border border-gray-200 rounded-e-lg rounded-s-none px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+        {showBasePrice && !isMultiRate && !isExperience ? (
+          <ListingPropertyFilterFields values={filterValues} onChange={setFilterValues} />
+        ) : null}
+        <p className="text-xs text-gray-400 mt-1">
+          {isMultiRate
+            ? isVenueDirectory
+              ? isDining
+                ? "Overall dining venue name shown on the listing page."
+                : "Overall venue name shown on the listing page."
+              : "Overall property name shown on the listing page."
+            : isExperience
+              ? "Clear titles help guests find your experience."
+              : "Short titles stay on one line on the listing page."}
+        </p>
+      </div>
+
+      <div>
+        <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1.5">
+          {isMultiRate ? "Venue description" : "Description"}
+        </label>
+        <RichTextEditor
+          id="description"
+          name="description"
+          rows={8}
+          value={description}
+          onChange={setDescription}
+          placeholder={
+            isExperience
+              ? "Describe what guests will do, see, and take away…"
+              : isDining
+                ? "Describe your dining experience, menu style, and setting…"
+                : "Describe your property..."
+          }
+        />
+      </div>
+
+      <div>
+        {isVenueDirectory && !isVenueSingleRate ? (
+          <p className="text-xs text-gray-500 mb-1.5">
+            {isDining
+              ? "Venue overview photos (exterior, dining room, terrace). Space photos go in each space card below."
+              : "Venue overview photos (exterior, entrance, common areas). Space photos go in the venue card below."}
+          </p>
+        ) : null}
+        {photosSection}
+      </div>
+    </>
+  );
 
   return (
     <HostDashboardShell>
@@ -1390,132 +1549,48 @@ export function HostNewListingContent({
               <>
                 {categoryLocation}
 
-                {(showBasePrice || (isVenueDirectory && !isDining)) && (
-                  <div className="space-y-3">
-                    <p className="text-sm font-medium text-gray-700">How do you charge?</p>
-                    <ListingPricingModePicker
-                      mode={pricingMode}
-                      onModeChange={handlePricingModeChange}
-                      variant={pricingPickerVariant}
-                    />
-                  </div>
-                )}
-
-                {!isVenueSingleRate ? (
-                  <>
-                    <div>
-                      <div
-                        className={
-                          showBasePrice && !isMultiRate && !isExperience
-                            ? "grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_11rem] gap-4"
-                            : undefined
-                        }
-                      >
-                        <div>
-                          <div className="flex items-center justify-between gap-3 mb-1.5">
-                            <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-                              {isMultiRate ? "Venue Title" : "Title"}
-                            </label>
-                            <span className="text-xs text-gray-400">
-                              {listingTitleWordCount(title)}/{LISTING_TITLE_MAX_WORDS} words
-                            </span>
-                          </div>
-                          <input
-                            id="title"
-                            name="title"
-                            value={title}
-                            onChange={(e) => setTitle(clampListingTitle(e.target.value))}
-                            maxLength={LISTING_TITLE_MAX_CHARS}
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                            placeholder={
-                              isExperience
-                                ? "Sunrise desert safari"
-                                : isDining
-                                  ? "Sunset Farm Table & Kitchen"
-                                  : isEvent
-                                    ? "Grand Palace Banquet Hall"
-                                    : "Green Valley Farmhouse"
-                            }
-                          />
-                        </div>
-                        {showBasePrice && !isMultiRate && !isExperience && (
-                          <div>
-                            <label
-                              htmlFor="listing-base-price"
-                              className="block text-sm font-medium text-gray-700 mb-1.5"
-                            >
-                              Price / night
-                            </label>
-                            <div className="flex items-stretch">
-                              <div className="inline-flex items-center gap-1 rounded-s-lg border border-gray-200 border-e-0 bg-gray-50 px-2.5 text-xs text-gray-700 shrink-0">
-                                <span className="font-semibold text-gray-900">
-                                  {countryConfig.currency}
-                                </span>
-                                {countryConfig.currencySymbol ? (
-                                  <span className="text-gray-400">{countryConfig.currencySymbol}</span>
-                                ) : null}
-                              </div>
-                              <input
-                                id="listing-base-price"
-                                name="basePrice"
-                                type="number"
-                                min={0}
-                                value={basePrice}
-                                onChange={(e) => setBasePrice(e.target.value)}
-                                placeholder="0"
-                                className="w-full min-w-0 border border-gray-200 rounded-e-lg rounded-s-none px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-400 mt-1">
-                        {isMultiRate
-                          ? isVenueDirectory
-                            ? isDining
-                              ? "Overall dining venue name shown on the listing page."
-                              : "Overall venue name shown on the listing page."
-                            : "Overall property name shown on the listing page."
-                          : isExperience
-                            ? "Clear titles help guests find your experience."
-                            : "Short titles stay on one line on the listing page."}
-                      </p>
-                    </div>
-
-                    <div>
-                      <label
-                        htmlFor="description"
-                        className="block text-sm font-medium text-gray-700 mb-1.5"
-                      >
-                        {isMultiRate ? "Venue description" : "Description"}
-                      </label>
-                      <RichTextEditor
-                        id="description"
-                        name="description"
-                        rows={8}
-                        value={description}
-                        onChange={setDescription}
-                        placeholder={
-                          isExperience
-                            ? "Describe what guests will do, see, and take away…"
-                            : isDining
-                              ? "Describe your dining experience, menu style, and setting…"
-                              : "Describe your property..."
-                        }
+                {(showBasePrice || (isVenueDirectory && !isDining)) &&
+                  (isStayListing ? (
+                    <DiningFormSection
+                      className="border-t border-gray-200"
+                      title="Pricing mode"
+                      tier="required"
+                      description="One nightly rate for the whole property, or separate rates per room type."
+                    >
+                      <ListingPricingModePicker
+                        mode={pricingMode}
+                        onModeChange={handlePricingModeChange}
+                        variant={pricingPickerVariant}
+                      />
+                    </DiningFormSection>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium text-gray-700">How do you charge?</p>
+                      <ListingPricingModePicker
+                        mode={pricingMode}
+                        onModeChange={handlePricingModeChange}
+                        variant={pricingPickerVariant}
                       />
                     </div>
+                  ))}
 
-                    <div>
-                      {isVenueDirectory && !isVenueSingleRate ? (
-                        <p className="text-xs text-gray-500 mb-1.5">
-                          {isDining
-                            ? "Venue overview photos (exterior, dining room, terrace). Space photos go in each space card below."
-                            : "Venue overview photos (exterior, entrance, common areas). Space photos go in the venue card below."}
-                        </p>
-                      ) : null}
-                      {photosSection}
-                    </div>
-                  </>
+                {!isVenueSingleRate ? (
+                  isExperience || isStayListing ? (
+                    <DiningFormSection
+                      className={isStayListing ? undefined : "border-t border-gray-200"}
+                      title="Listing basics"
+                      tier="required"
+                      description={
+                        isExperience
+                          ? "Title, description, and photos guests see on your experience page."
+                          : "Title, description, photos, and property details guests see on your listing."
+                      }
+                    >
+                      {listingBasicsSection}
+                    </DiningFormSection>
+                  ) : (
+                    listingBasicsSection
+                  )
                 ) : null}
 
                 {showBasePrice && isMultiRate && !isExperience && (
@@ -1524,6 +1599,7 @@ export function HostNewListingContent({
                     onRoomsChange={setDraftRooms}
                     currency={countryConfig.currency}
                     currencySymbol={countryConfig.currencySymbol}
+                    filterValues={filterValues}
                   />
                 )}
 
@@ -1537,7 +1613,15 @@ export function HostNewListingContent({
                   />
                 ) : null}
 
-                {!isDining ? (
+                {isExperience || isStayListing ? (
+                  <DiningFormSection
+                    title="Features & filters"
+                    tier="recommended"
+                    description="Icons, highlights, and search filters used on your listing and in guest search."
+                  >
+                    <div className="space-y-5">{extras}</div>
+                  </DiningFormSection>
+                ) : !isDining ? (
                   <div className="space-y-5 pt-1 border-t border-gray-100">{extras}</div>
                 ) : null}
               </>
@@ -1545,7 +1629,18 @@ export function HostNewListingContent({
           />
 
           {showBasePrice ? (
-            <ListingAdvancedFiltersField values={filterValues} onChange={setFilterValues} />
+            <DiningFormSection
+              title="Property filters"
+              tier="recommended"
+              description="Amenities and options shown on search and your listing page."
+            >
+              <ListingAdvancedFiltersField
+                values={filterValues}
+                onChange={setFilterValues}
+                embedded
+                excludeBedType={isMultiRate && !isExperience}
+              />
+            </DiningFormSection>
           ) : null}
 
           {isVenueForm ? (
@@ -1571,7 +1666,7 @@ export function HostNewListingContent({
           {isVenueDirectory && filterValues.categoryId ? (
             isDining && isVenueSingleRate && diningFilterRows.length > 0 ? (
               <DiningFormSection
-                number={2}
+                className="border-t border-gray-200"
                 title="Search filters"
                 tier="required"
                 description="Cuisine, setting, meal service, amenities, parking, and rules — each asked once here and used for search and your guest listing page."
@@ -1636,47 +1731,141 @@ export function HostNewListingContent({
             />
           ) : null}
 
-          <div className="space-y-3 border border-gray-100 rounded-xl p-4 bg-gray-50/60">
-            <div className="flex items-start gap-2">
-              <MapPin className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-gray-900">
-                  {isDining ? "Map location" : "Embed map"}
+          {isDining || isStayListing ? (
+            <DiningFormSection
+              title="Map location"
+              tier={isDining ? "required" : "recommended"}
+              description={
+                isDining
+                  ? "Required for dining listings. Shown to guests as a location preview only — not interactive. Paste your Google Maps embed code."
+                  : "Optional location preview on your listing. Paste your Google Maps embed code."
+              }
+            >
+              <textarea
+                value={mapEmbedInput}
+                onChange={(e) => setMapEmbedInput(e.target.value)}
+                rows={3}
+                placeholder='Paste iframe HTML or https://www.google.com/maps/embed?…'
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white font-mono focus:outline-none focus:ring-2 focus:ring-green-500 resize-y min-h-[72px]"
+              />
+              {mapEmbedInput.trim() && !mapEmbedPreview ? (
+                <p className="text-xs text-amber-700">
+                  Could not read an embed URL yet. Use Share → Embed a map (not the normal share
+                  link).
                 </p>
-                {isDining ? (
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Required for dining listings. Shown to guests as a location preview only — not
-                    interactive. Paste your Google Maps embed code.
-                  </p>
-                ) : null}
+              ) : null}
+              {mapEmbedPreview ? (
+                <div className="relative w-full h-48 rounded-lg overflow-hidden border border-gray-200 bg-white">
+                  <iframe
+                    title="Map preview"
+                    src={mapEmbedPreview}
+                    className="absolute inset-0 w-full h-full border-0"
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    allowFullScreen
+                  />
+                </div>
+              ) : null}
+            </DiningFormSection>
+          ) : (
+            <div className="space-y-3 border border-gray-100 rounded-xl p-4 bg-gray-50/60">
+              <div className="flex items-start gap-2">
+                <MapPin className="w-4 h-4 text-green-700 mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900">Embed map</p>
+                </div>
               </div>
+              <textarea
+                value={mapEmbedInput}
+                onChange={(e) => setMapEmbedInput(e.target.value)}
+                rows={3}
+                placeholder='Paste iframe HTML or https://www.google.com/maps/embed?…'
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white font-mono focus:outline-none focus:ring-2 focus:ring-green-500 resize-y min-h-[72px]"
+              />
+              {mapEmbedInput.trim() && !mapEmbedPreview ? (
+                <p className="text-xs text-amber-700">
+                  Could not read an embed URL yet. Use Share → Embed a map (not the normal share
+                  link).
+                </p>
+              ) : null}
+              {mapEmbedPreview ? (
+                <div className="relative w-full h-48 rounded-xl overflow-hidden border border-gray-200 bg-white">
+                  <iframe
+                    title="Map preview"
+                    src={mapEmbedPreview}
+                    className="absolute inset-0 w-full h-full border-0"
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    allowFullScreen
+                  />
+                </div>
+              ) : null}
             </div>
-            <textarea
-              value={mapEmbedInput}
-              onChange={(e) => setMapEmbedInput(e.target.value)}
-              rows={3}
-              placeholder='Paste iframe HTML or https://www.google.com/maps/embed?…'
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white font-mono focus:outline-none focus:ring-2 focus:ring-green-500 resize-y min-h-[72px]"
-            />
-            {mapEmbedInput.trim() && !mapEmbedPreview ? (
-              <p className="text-xs text-amber-700">
-                Could not read an embed URL yet. Use Share → Embed a map (not the normal share
-                link).
-              </p>
-            ) : null}
-            {mapEmbedPreview ? (
-              <div className="relative w-full h-48 rounded-xl overflow-hidden border border-gray-200 bg-white">
-                <iframe
-                  title="Map preview"
-                  src={mapEmbedPreview}
-                  className="absolute inset-0 w-full h-full border-0"
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  allowFullScreen
-                />
-              </div>
-            ) : null}
-          </div>
+          )}
+
+          {isStayListing ? (
+            <DiningFormSection
+              title="Nearby travel times"
+              tier="optional"
+              description="Optional. Shown on the listing location section (e.g. Airport — 45 mins). Up to 4 entries."
+            >
+              <ul className="space-y-2">
+                {nearbyPlaces.map((place, index) => (
+                  <li key={index} className="grid grid-cols-1 sm:grid-cols-[1fr_8rem_auto] gap-2">
+                    <input
+                      value={place.label}
+                      onChange={(e) =>
+                        setNearbyPlaces((prev) =>
+                          prev.map((row, i) =>
+                            i === index ? { ...row, label: e.target.value } : row
+                          )
+                        )
+                      }
+                      placeholder="e.g. Airport"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                    />
+                    <input
+                      value={place.duration}
+                      onChange={(e) =>
+                        setNearbyPlaces((prev) =>
+                          prev.map((row, i) =>
+                            i === index ? { ...row, duration: e.target.value } : row
+                          )
+                        )
+                      }
+                      placeholder="e.g. 45 mins"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNearbyPlaces((prev) =>
+                          prev.length > 1 ? prev.filter((_, i) => i !== index) : prev
+                        )
+                      }
+                      disabled={nearbyPlaces.length <= 1}
+                      className="text-xs font-medium text-gray-400 hover:text-red-600 disabled:opacity-40 px-2"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {nearbyPlaces.length < 4 ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setNearbyPlaces((prev) =>
+                      prev.length < 4 ? [...prev, { label: "", duration: "" }] : prev
+                    )
+                  }
+                  className="text-xs font-semibold text-green-700 hover:text-green-800"
+                >
+                  + Add travel time
+                </button>
+              ) : null}
+            </DiningFormSection>
+          ) : null}
 
           {qualityChecklist.length > 0 ? (
             <ListingQualityChecklist items={qualityChecklist} />

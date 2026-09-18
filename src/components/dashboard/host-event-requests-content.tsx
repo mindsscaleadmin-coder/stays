@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Link } from "@/i18n/routing";
 import {
   CalendarCheck,
   CheckCircle,
@@ -127,6 +128,15 @@ export function HostEventRequestsContent() {
             Guests ask you to confirm a date. Your contact details stay hidden until you mark a
             request available — then the guest can message you directly.
           </p>
+        </div>
+
+        <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 text-sm text-blue-900">
+          Confirmed enquiries now appear on{" "}
+          <Link href="/host/bookings" className="font-semibold underline hover:text-blue-950">
+            Bookings
+          </Link>{" "}
+          with staff assignment, notes, and completion tracking. Use this page to reply to new
+          requests.
         </div>
 
         {message && (
@@ -300,6 +310,14 @@ export function HostEventRequestsContent() {
                         : "The guest was told this date is unavailable."}
                       {request.respondedAt ? ` · ${formatSent(request.respondedAt)}` : ""}
                     </p>
+                    {request.status === "available" ? (
+                      <Link
+                        href={`/host/bookings/event/${encodeURIComponent(request.id)}`}
+                        className="inline-flex mt-3 text-xs font-semibold text-green-700 hover:underline"
+                      >
+                        Open in Bookings (staff, notes, completion)
+                      </Link>
+                    ) : null}
                   </div>
                 )}
               </div>

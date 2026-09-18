@@ -51,48 +51,52 @@ export function useHostPricing(listingId?: string, country?: CountryPricingConfi
     : "";
 
   const persistLatest = useCallback(async () => {
-    const snapshot = settingsRef.current;
-    if (!snapshot) return null;
-    const gen = ++persistGen.current;
+    const runPersist = async (): Promise<ListingPricingSettings | null> => {
+      const snapshot = settingsRef.current;
+      if (!snapshot) return null;
+      const gen = ++persistGen.current;
 
-    if (shared) {
-      inFlightRef.current += 1;
-      try {
-        const saved = await savePricingToApi(snapshot);
-        if (settingsRef.current !== snapshot) {
-          return persistLatest();
+      if (shared) {
+        inFlightRef.current += 1;
+        try {
+          const saved = await savePricingToApi(snapshot);
+          if (settingsRef.current !== snapshot) {
+            return runPersist();
+          }
+          if (gen !== persistGen.current) return snapshot;
+          savePricingSettings(saved);
+          settingsRef.current = saved;
+          setSettings(saved);
+          dirtyRef.current = false;
+          setSaveError(null);
+          window.dispatchEvent(new Event(HOST_PRICING_SYNC_EVENT));
+          return saved;
+        } catch (error) {
+          if (settingsRef.current !== snapshot) {
+            return runPersist();
+          }
+          if (gen !== persistGen.current) return snapshot;
+          savePricingSettings(snapshot);
+          settingsRef.current = snapshot;
+          setSettings(snapshot);
+          // Keep dirty so a background reload cannot replace the unsaved edit.
+          setSaveError(
+            error instanceof Error ? error.message : "Could not save pricing"
+          );
+          return snapshot;
+        } finally {
+          inFlightRef.current -= 1;
         }
-        if (gen !== persistGen.current) return snapshot;
-        savePricingSettings(saved);
-        settingsRef.current = saved;
-        setSettings(saved);
-        dirtyRef.current = false;
-        setSaveError(null);
-        window.dispatchEvent(new Event(HOST_PRICING_SYNC_EVENT));
-        return saved;
-      } catch (error) {
-        if (settingsRef.current !== snapshot) {
-          return persistLatest();
-        }
-        if (gen !== persistGen.current) return snapshot;
-        savePricingSettings(snapshot);
-        settingsRef.current = snapshot;
-        setSettings(snapshot);
-        // Keep dirty so a background reload cannot replace the unsaved edit.
-        setSaveError(
-          error instanceof Error ? error.message : "Could not save pricing"
-        );
-        return snapshot;
-      } finally {
-        inFlightRef.current -= 1;
       }
-    }
 
-    savePricingSettings(snapshot);
-    settingsRef.current = snapshot;
-    setSettings(snapshot);
-    dirtyRef.current = false;
-    return snapshot;
+      savePricingSettings(snapshot);
+      settingsRef.current = snapshot;
+      setSettings(snapshot);
+      dirtyRef.current = false;
+      return snapshot;
+    };
+
+    return runPersist();
   }, [shared]);
 
   const refresh = useCallback(async () => {

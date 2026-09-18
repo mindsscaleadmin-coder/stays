@@ -8,6 +8,7 @@ import type {
 } from "@/lib/host/host-reviews-types";
 import type { FlatHostReview } from "@/lib/admin/trust-data";
 import { resolveHostName } from "@/lib/admin/trust-data";
+import { seedTrustDemoIfEmpty } from "@/lib/server/trust-demo-seed";
 
 type ReviewOverlay = {
   moderationStatus?: ReviewModerationStatus;
@@ -72,7 +73,7 @@ function mapReviewRow(
   },
   overlay: ReviewOverlay | undefined
 ): HostGuestReview {
-  let moderationStatus: ReviewModerationStatus =
+  const moderationStatus: ReviewModerationStatus =
     overlay?.moderationStatus ?? (row.status === "removed" ? "removed" : "visible");
 
   return {
@@ -208,6 +209,8 @@ export async function moderateHostReviewInDb(
 }
 
 export async function listAllReviewsFlatFromDb(): Promise<FlatHostReview[]> {
+  await seedTrustDemoIfEmpty();
+
   const rows = await prisma.review.findMany({
     include: {
       listing: { select: { title: true, hostId: true } },

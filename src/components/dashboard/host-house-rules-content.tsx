@@ -12,6 +12,7 @@ import {
   resolveHostName,
   useListingSubmissions,
 } from "@/lib/listings/use-listing-submissions";
+import { DEFAULT_CANCELLATION_POLICY_ID } from "@/lib/booking/policies";
 import type { HouseRule } from "@/lib/listings/submission-types";
 import { HOST_LISTINGS } from "@/lib/mock/dashboard-data";
 
@@ -22,8 +23,6 @@ export function HostHouseRulesContent() {
   const hostName = resolveHostName(user);
   const { all, update, ready } = useListingSubmissions({ load: true });
   const submissions = filterHostListings(all, hostId ?? "", hostName);
-  const { houseRuleTemplates, cancellationPolicies, defaultHouseRules } =
-    useContentPolicyOptions();
 
   const listingOptions = useMemo(() => {
     if (submissions.length > 0) {
@@ -48,6 +47,9 @@ export function HostHouseRulesContent() {
     [submissions, listingId]
   );
 
+  const { houseRuleTemplates, cancellationPolicies, defaultHouseRules } =
+    useContentPolicyOptions(listing?.parentCategory);
+
   useEffect(() => {
     const fromUrl = searchParams.get("listing");
     if (fromUrl && listingOptions.some((l) => l.id === fromUrl)) {
@@ -60,7 +62,10 @@ export function HostHouseRulesContent() {
     }
   }, [listingId, listingOptions, searchParams]);
 
-  const defaultCancellationId = cancellationPolicies[0]?.id ?? "flexible";
+  const defaultCancellationId =
+    cancellationPolicies.find((p) => p.id === DEFAULT_CANCELLATION_POLICY_ID)?.id ??
+    cancellationPolicies[0]?.id ??
+    DEFAULT_CANCELLATION_POLICY_ID;
 
   useEffect(() => {
     if (!ready) return;
@@ -77,7 +82,7 @@ export function HostHouseRulesContent() {
       listing.cancellationPolicyId ?? defaultCancellationId
     );
     setHydrated(true);
-  }, [listing, ready, defaultCancellationId, defaultHouseRules]);
+  }, [listing, ready, defaultCancellationId, defaultHouseRules, cancellationPolicies]);
 
   function flash(text: string) {
     setMessage(text);
@@ -190,6 +195,12 @@ export function HostHouseRulesContent() {
               )}
             </select>
           </label>
+          {listing?.parentCategory && (
+            <p className="text-xs text-green-800 bg-green-50 border border-green-100 rounded-lg px-3 py-2 mt-3">
+              Policy pack: <span className="font-semibold">{listing.parentCategory}</span> — rules
+              and cancellation options match this listing type.
+            </p>
+          )}
         </div>
 
         <section className="bg-white rounded-2xl border p-5 space-y-4">

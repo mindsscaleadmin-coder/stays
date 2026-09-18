@@ -18,7 +18,7 @@ import {
 import { useTranslations, useLocale } from "next-intl";
 import { useAuth } from "@/components/providers/auth-provider";
 import { getInitials } from "@/lib/auth/types";
-import { GUEST_BOOKINGS, getFavoriteIds } from "@/lib/mock/guest-data";
+import { FAVORITES_SYNC_EVENT, GUEST_BOOKINGS, getFavoriteIds } from "@/lib/mock/guest-data";
 import { usePublicListings } from "@/lib/listings/use-public-listings";
 import { formatAmount } from "@/lib/utils";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
@@ -39,7 +39,11 @@ import {
 import { BookingMessageThread } from "@/components/booking/booking-message-thread";
 import { StayReviewForm } from "@/components/booking/stay-review-form";
 import { getHostBookingRecord } from "@/lib/host/host-booking-data";
-import { appendBookingMessage, loadBookingMessages } from "@/lib/booking/booking-messages-data";
+import {
+  appendBookingMessage,
+  BOOKING_MESSAGES_SYNC_EVENT,
+  loadBookingMessages,
+} from "@/lib/booking/booking-messages-data";
 import { guestHasStayed, getReviewForBooking } from "@/lib/booking/stay-reviews-data";
 import { loadHostBookings } from "@/lib/host/host-booking-data";
 import {
@@ -47,7 +51,7 @@ import {
   previewGuestCancelRefund,
 } from "@/lib/guest/cancel-guest-booking";
 
-type Tab = "profile" | "bookings" | "favorites" | "settings";
+type Tab = "profile" | "bookings" | "messages" | "favorites" | "settings";
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const AVATAR_MAX_EDGE = 512;
@@ -94,8 +98,26 @@ const STATUS_STYLES = {
 };
 
 function tabFromSearch(tab: string | null): Tab {
-  if (tab === "bookings" || tab === "favorites" || tab === "settings") return tab;
+  if (
+    tab === "bookings" ||
+    tab === "messages" ||
+    tab === "favorites" ||
+    tab === "settings"
+  ) {
+    return tab;
+  }
   return "profile";
+}
+
+function formatMessageWhen(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export function AccountContent() {
@@ -133,6 +155,7 @@ export function AccountContent() {
   const [cancelError, setCancelError] = useState("");
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState("");
+  const [messagesTick, setMessagesTick] = useState(0);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -150,7 +173,16 @@ export function AccountContent() {
   }, [user]);
 
   useEffect(() => {
-    setFavoriteIds(getFavoriteIds());
+    function refreshFavorites() {
+      setFavoriteIds(getFavoriteIds());
+    }
+    refreshFavorites();
+    window.addEventListener(FAVORITES_SYNC_EVENT, refreshFavorites);
+    window.addEventListener("storage", refreshFavorites);
+    return () => {
+      window.removeEventListener(FAVORITES_SYNC_EVENT, refreshFavorites);
+      window.removeEventListener("storage", refreshFavorites);
+    };
   }, [tab]);
 
   useEffect(() => {
@@ -192,6 +224,18 @@ export function AccountContent() {
     };
   }, [user?.id]);
 
+  useEffect(() => {
+    function onMessagesSync() {
+      setMessagesTick((tick) => tick + 1);
+    }
+    window.addEventListener(BOOKING_MESSAGES_SYNC_EVENT, onMessagesSync);
+    window.addEventListener("storage", onMessagesSync);
+    return () => {
+      window.removeEventListener(BOOKING_MESSAGES_SYNC_EVENT, onMessagesSync);
+      window.removeEventListener("storage", onMessagesSync);
+    };
+  }, []);
+
   const bookings = useMemo(() => {
     const hostById = new Map(loadHostBookings().map((h) => [h.id, h]));
     const map = new Map<string, GuestBookingSummary>();
@@ -231,6 +275,27 @@ export function AccountContent() {
     });
   }, [liveBookings, isDemo, user?.id]);
 
+  const messageThreads = useMemo(() => {
+    return bookings
+      .map((b) => {
+        const messages = loadBookingMessages(b.id);
+        if (messages.length === 0) return null;
+        const lastMessage = messages[messages.length - 1]!;
+        return { booking: b, lastMessage };
+      })
+      .filter((row): row is { booking: GuestBookingSummary; lastMessage: ReturnType<typeof loadBookingMessages>[number] } => row !== null)
+      .sort(
+        (a, b) =>
+          new Date(b.lastMessage.createdAt).getTime() -
+          new Date(a.lastMessage.createdAt).getTime()
+      );
+  }, [bookings, messagesTick]);
+
+  const bookingsWithoutMessages = useMemo(() => {
+    const withMessages = new Set(messageThreads.map((thread) => thread.booking.id));
+    return bookings.filter((b) => !withMessages.has(b.id));
+  }, [bookings, messageThreads]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -243,6 +308,9 @@ export function AccountContent() {
 
   const userId = user.id;
   const favorites = publicListings.filter((s) => favoriteIds.includes(s.id));
+  const activeMessageBooking = openThreadId
+    ? bookings.find((b) => b.id === openThreadId)
+    : undefined;
 
   async function handleSignOut() {
     await signOut();
@@ -607,6 +675,134 @@ export function AccountContent() {
                   )}
                 </div>
               ))
+            )}
+          </div>
+        )}
+
+        {tab === "messages" && (
+          <div className="space-y-4">
+            <div>
+              <h2 className="font-bold text-gray-900 font-display">{t("messagesTitle")}</h2>
+              <p className="text-sm text-gray-500 mt-1">{t("messagesSubtitle")}</p>
+            </div>
+
+            {messageThreads.length === 0 ? (
+              <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.06)] p-8 text-center">
+                <MessageSquare className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 text-sm">
+                  {bookings.length === 0 ? t("noMessagesNoBookings") : t("noMessages")}
+                </p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl border divide-y divide-gray-50">
+                {messageThreads.map(({ booking, lastMessage }) => {
+                  const selected = openThreadId === booking.id;
+                  return (
+                    <button
+                      key={booking.id}
+                      type="button"
+                      onClick={() =>
+                        setOpenThreadId((id) => (id === booking.id ? null : booking.id))
+                      }
+                      className={`w-full text-start p-5 transition-colors ${
+                        selected ? "bg-green-50/60" : "hover:bg-gray-50/80"
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold text-gray-900">{booking.property}</p>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full capitalize ${
+                                STATUS_STYLES[booking.status as keyof typeof STATUS_STYLES] ||
+                                "bg-gray-100 text-gray-600"
+                              }`}
+                            >
+                              {booking.status}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {booking.checkIn} → {booking.checkOut}
+                            {booking.bookingReference
+                              ? ` · ${booking.bookingReference}`
+                              : ""}
+                          </p>
+                          <p className="text-sm text-gray-700 mt-2 line-clamp-2">
+                            {lastMessage.body}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-end">
+                          <time className="text-[11px] text-gray-400">
+                            {formatMessageWhen(lastMessage.createdAt)}
+                          </time>
+                          <p className="text-[10px] font-semibold mt-1 text-gray-500 capitalize">
+                            {lastMessage.senderRole === "guest" ? "You" : lastMessage.senderRole}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {bookingsWithoutMessages.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-gray-800">
+                  {messageThreads.length > 0 ? "Other bookings" : "Your bookings"}
+                </h3>
+                {bookingsWithoutMessages.map((b) => (
+                  <div
+                    key={b.id}
+                    className="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.06)] p-4 flex gap-4"
+                  >
+                    <div className="relative w-20 h-16 rounded-xl overflow-hidden shrink-0 bg-gray-100">
+                      {b.img ? (
+                        <Image
+                          src={b.img}
+                          alt={b.property}
+                          fill
+                          className="object-cover"
+                          sizes="80px"
+                        />
+                      ) : null}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 text-sm">{b.property}</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {b.checkIn} → {b.checkOut}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenThreadId((id) => (id === b.id ? null : b.id))
+                        }
+                        className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-green-700 hover:underline"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        {openThreadId === b.id ? t("hideMessages") : t("messageHost")}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {openThreadId && (
+              <BookingMessageThread
+                bookingId={openThreadId}
+                viewerRole="guest"
+                viewerId={userId}
+                viewerName={user.fullName}
+                title="Messages with host"
+                subtitle={
+                  activeMessageBooking
+                    ? `${activeMessageBooking.property} · booking ${
+                        activeMessageBooking.bookingReference || openThreadId
+                      }`
+                    : undefined
+                }
+              />
             )}
           </div>
         )}

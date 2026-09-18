@@ -13,6 +13,7 @@ import { expireEndedFlashDeals } from "@/lib/server/listing-pricing-repo";
 import { withAudit } from "@/lib/booking/booking-audit";
 import { releaseBookingNights, releaseExperienceSlotCapacity } from "@/lib/booking/booking-nights";
 import { BASE_CURRENCY } from "@/lib/currency";
+import { shouldAutoIssueStripeRefund } from "@/lib/booking/refund-governance";
 
 type Tx = Prisma.TransactionClient;
 
@@ -155,7 +156,7 @@ export async function declineBooking(bookingId: string, reason?: string) {
 
     return { booking: updated, evaluation };
   }).then(async (result) => {
-    if (result.evaluation.stripeEligible) {
+    if (result.evaluation.stripeEligible && shouldAutoIssueStripeRefund()) {
       const stripe = await maybeStripeRefund({
         stripeSessionId: result.booking.stripeSessionId,
         amount: result.evaluation.refundAmount,
@@ -252,7 +253,7 @@ export async function cancelBooking(input: {
   let stripe: { refunded: boolean; refundId?: string; error?: string } = {
     refunded: false,
   };
-  if (guestEval.stripeEligible) {
+  if (guestEval.stripeEligible && shouldAutoIssueStripeRefund()) {
     stripe = await maybeStripeRefund({
       stripeSessionId: booking.stripeSessionId,
       amount: guestEval.refundAmount,
@@ -343,7 +344,7 @@ export async function expirePendingBookings(
       return next;
     });
 
-    if (evaluation.stripeEligible) {
+    if (evaluation.stripeEligible && shouldAutoIssueStripeRefund()) {
       const stripe = await maybeStripeRefund({
         stripeSessionId: booking.stripeSessionId,
         amount: evaluation.refundAmount,

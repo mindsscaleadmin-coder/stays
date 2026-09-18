@@ -19,8 +19,8 @@ export async function enqueueBookingConfirmedJob(input: {
 }) {
   const queued = await safeAddJob("booking-confirmed", input);
   if (!queued) {
-    const { deliverBookingConfirmedEmail } = await import("@/lib/email/jobs");
-    await deliverBookingConfirmedEmail(input.bookingId).catch(() => null);
+    const { deliverInvoiceEmail } = await import("@/lib/email/jobs");
+    await deliverInvoiceEmail(input.bookingId).catch(() => null);
   }
   return queued;
 }

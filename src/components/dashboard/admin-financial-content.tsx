@@ -6,6 +6,7 @@ import { useRouter } from "@/i18n/routing";
 import {
   Banknote,
   CheckCircle2,
+  CreditCard,
   FileText,
   Globe2,
   HandCoins,
@@ -24,7 +25,6 @@ import {
   Wallet,
 } from "lucide-react";
 import { Link } from "@/i18n/routing";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { filterActiveCountries } from "@/lib/admin/country-utils";
 import {
@@ -32,9 +32,10 @@ import {
   filterPayoutsByHost,
   filterRefundsByHost,
   filterTransactionsByHost,
-  listFinancialHosts,
 } from "@/lib/admin/financial-data";
 import { useAdminFinancial } from "@/lib/admin/use-admin-financial";
+import { useAdminPlatformConfig } from "@/lib/admin/use-admin-platform-config";
+import { eventsDirectoryIsFree } from "@/lib/admin/events-subscription";
 import type {
   AdminPayoutItem,
   AdminTransactionRow,
@@ -53,8 +54,20 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "refunds", label: "Refund approvals" },
 ];
 
-const inputClass =
-  "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500";
+const TAB_WIRING: Record<TabId, string> = {
+  reports:
+    "Aggregates bookable stay/experience transactions. Events & Dining directory listings are enquiry-only — no booking commission in these totals.",
+  transactions:
+    "Live from host account ledgers (Shared DB) or demo seed data (local). Each row reflects gross, platform fee, tax pass-through, and host net.",
+  payouts:
+    "Approve, hold, or release host settlements. Held payouts block settlement until you release them.",
+  commission:
+    "Global fee applies to bookable listings at checkout. Per-host overrides win over global. Directory subscriptions are configured under Subscription.",
+  tax:
+    "Country tax rate and label sync to checkout and host pricing. India uses GST; values are stored in Admin → Countries.",
+  refunds:
+    "Cancellations queue refunds here for human review before Stripe moves money. Approve to issue the refund; reject to keep the payment.",
+};
 
 const PAYOUT_STATUS_STYLES: Record<string, string> = {
   pending_review: "bg-amber-100 text-amber-700",
@@ -72,6 +85,19 @@ const REFUND_STATUS_STYLES: Record<string, string> = {
 
 function formatMoney(currency: string, amount: number): string {
   return `${currency} ${amount.toLocaleString()}`;
+}
+
+const inputClass =
+  "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500";
+
+function sortCountriesIndiaFirst(names: string[]): string[] {
+  return [...names].sort((a, b) => {
+    const aIndia = a.toLowerCase() === "india";
+    const bIndia = b.toLowerCase() === "india";
+    if (aIndia && !bIndia) return -1;
+    if (!aIndia && bIndia) return 1;
+    return a.localeCompare(b);
+  });
 }
 
 function StatCard({
@@ -220,11 +246,15 @@ export function AdminFinancialContent() {
   const hostParam = searchParams.get("host") ?? "";
 
   const { data: taxonomy, saveCountry } = useAdminTaxonomy();
+  const { config: platformConfig } = useAdminPlatformConfig();
   const {
     ready,
+    shared,
     settings,
+    financialHosts,
     transactions,
     payouts,
+    refresh,
     updateGlobalCommission,
     setHostOverride,
     removeHostOverride,
@@ -253,7 +283,7 @@ export function AdminFinancialContent() {
     [taxonomy.countries]
   );
 
-  const allHosts = useMemo(() => (ready ? listFinancialHosts() : []), [ready]);
+  const allHosts = useMemo(() => financialHosts, [financialHosts]);
 
   const countryOptions = useMemo(() => {
     const names = new Set<string>();
@@ -261,7 +291,7 @@ export function AdminFinancialContent() {
     for (const h of allHosts) {
       if (h.country) names.add(h.country);
     }
-    return Array.from(names).sort((a, b) => a.localeCompare(b));
+    return sortCountriesIndiaFirst(Array.from(names));
   }, [taxonomyCountries, allHosts]);
 
   const hostsInCountry = useMemo(() => {
@@ -285,10 +315,14 @@ export function AdminFinancialContent() {
     [payouts, hostFilter]
   );
 
-  const scopedRefunds = useMemo(
-    () => filterRefundsByHost(settings.refundRequests, hostFilter),
-    [settings.refundRequests, hostFilter]
-  );
+  const scopedRefunds = useMemo(() => {
+    const list = filterRefundsByHost(settings.refundRequests, hostFilter);
+    return [...list].sort((a, b) => {
+      if (a.status === "pending" && b.status !== "pending") return -1;
+      if (b.status === "pending" && a.status !== "pending") return 1;
+      return new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime();
+    });
+  }, [settings.refundRequests, hostFilter]);
 
   const report = useMemo(
     () => computeFinancialReport(scopedTransactions, scopedPayouts, scopedRefunds),
@@ -306,6 +340,25 @@ export function AdminFinancialContent() {
   const scopedPendingRefundCount = useMemo(
     () => scopedRefunds.filter((r) => r.status === "pending").length,
     [scopedRefunds]
+  );
+
+  const commissionBounds = platformConfig.features.hostBounds;
+  const directoryFreeLaunch = eventsDirectoryIsFree(settings.eventsSubscription);
+  const wiringSummary = useMemo(
+    () => ({
+      globalFee: settings.commission.globalFeePct,
+      serviceFee: settings.commission.globalServiceFeeFlat,
+      overrides: settings.commission.hostOverrides.length,
+      pendingPayouts: scopedPendingPayoutReviewCount,
+      pendingRefunds: scopedPendingRefundCount,
+      txnCount: scopedTransactions.length,
+    }),
+    [
+      settings.commission,
+      scopedPendingPayoutReviewCount,
+      scopedPendingRefundCount,
+      scopedTransactions.length,
+    ]
   );
 
   const setTab = useCallback(
@@ -372,22 +425,21 @@ export function AdminFinancialContent() {
 
   if (!ready) {
     return (
-      <AdminDashboardShell>
-        <div className="flex items-center justify-center min-h-[320px]">
+              <div className="flex items-center justify-center min-h-[320px]">
           <Loader2 className="w-8 h-8 animate-spin text-green-600" />
         </div>
-      </AdminDashboardShell>
+      
     );
   }
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
+          <div className="space-y-6">
         <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">Financial Control</h2>
             <p className="text-gray-500 text-sm mt-1">
-              Commission structure, payouts, tax rules, and refund workflows across the platform.
+              Bookable stays and experiences — commission, GST, payouts, and refunds for India launch.
+              Events and Dining directory listings are enquiry-only (no booking commission here).
               {(scopedPendingPayoutReviewCount > 0 || scopedPendingRefundCount > 0) && (
                 <span className="text-amber-600 font-medium">
                   {scopedPendingPayoutReviewCount > 0 &&
@@ -399,6 +451,16 @@ export function AdminFinancialContent() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                refresh();
+                flash("Financial data refreshed.");
+              }}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50 px-3 py-2 rounded-lg"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Refresh
+            </button>
             <label className="flex items-center gap-2 text-xs text-gray-600">
               <MapPin className="w-3.5 h-3.5 text-gray-400" />
               <span className="sr-only">Country</span>
@@ -442,6 +504,62 @@ export function AdminFinancialContent() {
           </div>
         )}
 
+        {shared && (
+          <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+            Shared database — commission, payouts, refunds, and ledger totals sync across admins and
+            host accounts.
+          </p>
+        )}
+
+        <section className="bg-gradient-to-br from-green-50 to-white rounded-2xl border border-green-100 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-green-800">
+                Live wiring
+              </p>
+              <p className="text-sm text-gray-600 mt-1">
+                Read-only snapshot of what this page controls. Commission and tax apply to bookable
+                listings at checkout; directory subscriptions are managed under{" "}
+                <Link href="/admin/subscription" className="text-green-700 font-medium hover:underline">
+                  Subscription
+                </Link>
+                .
+              </p>
+            </div>
+            <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full bg-white border border-green-100 text-green-800">
+              {shared ? "Shared database" : "Local storage"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Global commission</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{wiringSummary.globalFee}%</p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Host overrides</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{wiringSummary.overrides}</p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Transactions</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{wiringSummary.txnCount}</p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Payouts to review</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{wiringSummary.pendingPayouts}</p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Pending refunds</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{wiringSummary.pendingRefunds}</p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Directory launch</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">
+                {directoryFreeLaunch ? "Free" : "Paid tiers"}
+              </p>
+            </div>
+          </div>
+        </section>
+
         <div className="flex flex-wrap gap-2 border-b pb-1 overflow-x-auto">
           {TABS.map((tab) => (
             <button
@@ -470,12 +588,19 @@ export function AdminFinancialContent() {
           ))}
         </div>
 
+        <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
+          {TAB_WIRING[activeTab]}
+        </p>
+
         {activeTab === "reports" && (
           <div className="space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            <div className="overflow-x-auto pb-1">
+              <div className="grid grid-cols-6 gap-2 w-full min-w-[720px]">
               <StatCard label="Platform revenue" value={formatMoney(report.currency, report.platformRevenue)} hint="Commission collected" icon={TrendingUp} tone="purple" />
               <StatCard label="Host earnings" value={formatMoney(report.currency, report.hostEarnings)} hint="Net to hosts" icon={HandCoins} tone="green" />
-              <StatCard label="Tax collected" value={formatMoney(report.currency, report.taxCollected)} hint="VAT / GST remitted" icon={Receipt} tone="blue" />
+              <StatCard label="Tax collected" value={formatMoney(report.currency, report.taxCollected)} hint="VAT / GST pass-through" icon={Receipt} tone="blue" />
+              <StatCard label="Stripe fees" value={formatMoney(report.currency, report.stripeFeesTotal ?? 0)} hint="Processing costs" icon={CreditCard} tone="amber" />
+              <StatCard label="True margin" value={formatMoney(report.currency, report.truePlatformMargin ?? report.platformRevenue)} hint="Revenue − Stripe − bank costs" icon={TrendingUp} tone="purple" />
               <StatCard label="Outstanding payouts" value={formatMoney(report.currency, report.outstandingPayouts)} hint="Pending settlement" icon={Wallet} tone="amber" />
               <StatCard
                 label="Transactions"
@@ -484,6 +609,7 @@ export function AdminFinancialContent() {
                 icon={FileText}
               />
               <StatCard label="Pending refunds" value={String(report.pendingRefunds)} hint="Awaiting approval" icon={RefreshCw} tone="amber" />
+              </div>
             </div>
 
             <section className="bg-white rounded-2xl border shadow-sm overflow-hidden">
@@ -500,6 +626,9 @@ export function AdminFinancialContent() {
                   ["Gross booking value", scopedTransactions.reduce((s, t) => s + t.grossAmount, 0)],
                   ["Platform commission", report.platformRevenue],
                   ["Tax (pass-through)", report.taxCollected],
+                  ["Stripe processing fees", report.stripeFeesTotal ?? 0],
+                  ["Bank transfer costs", report.payoutTransferCosts ?? 0],
+                  ["True platform margin", report.truePlatformMargin ?? report.platformRevenue],
                   ["Host net earnings", report.hostEarnings],
                   ["Outstanding payouts", report.outstandingPayouts],
                 ].map(([label, amount]) => (
@@ -580,9 +709,11 @@ export function AdminFinancialContent() {
                 <Percent className="w-4 h-4 text-green-700" />
                 <h3 className="font-semibold text-gray-900">Global commission</h3>
               </div>
-              <p className="text-sm text-gray-500">Default platform fee applied to all hosts unless overridden.</p>
+              <p className="text-sm text-gray-500">Default platform fee on bookable checkout (Stays & Experiences).</p>
               <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                Bounded by Platform Configuration → Host bounds (floor / ceiling). Values outside the range are clamped on save.
+                Clamped to Platform Configuration → Host bounds:{" "}
+                {commissionBounds.commissionFloorPct}% – {commissionBounds.commissionCeilingPct}%.
+                Directory Events/Dining listings do not use this commission — they use yearly subscriptions.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
                 <label className="block">
@@ -608,14 +739,14 @@ export function AdminFinancialContent() {
 
             <section className="bg-white rounded-2xl border shadow-sm p-5">
               <p className="text-sm text-gray-600">
-                Events and dining directory subscriptions are managed under{" "}
+                Events and Dining directory billing (Events, Dining, or combo yearly plans) is under{" "}
                 <Link
                   href="/admin/subscription"
                   className="font-semibold text-green-800 hover:text-green-950"
                 >
                   Subscription
                 </Link>
-                .
+                . No booking commission on directory enquiries.
               </p>
             </section>
 
@@ -719,7 +850,16 @@ export function AdminFinancialContent() {
               </div>
             </div>
             <div className="space-y-2">
-              {taxonomy.countries.map((country) => (
+              {[...taxonomy.countries]
+                .filter((c) => c.enabled !== false)
+                .sort((a, b) => {
+                  const aIndia = a.name.toLowerCase() === "india";
+                  const bIndia = b.name.toLowerCase() === "india";
+                  if (aIndia && !bIndia) return -1;
+                  if (!aIndia && bIndia) return 1;
+                  return a.name.localeCompare(b.name);
+                })
+                .map((country) => (
                 <article key={country.id} className="bg-white rounded-xl border border-gray-100 p-4">
                   <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                     <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -748,7 +888,7 @@ export function AdminFinancialContent() {
                       <label className="block sm:col-span-2">
                         <span className="text-[10px] font-semibold uppercase text-gray-400">Tax label</span>
                         <input
-                          defaultValue={country.taxLabel ?? "VAT"}
+                          defaultValue={country.taxLabel ?? (country.name === "India" ? "GST" : "VAT")}
                           onBlur={(e) => {
                             saveCountry({ ...country, taxLabel: e.target.value.trim() || "VAT" });
                             flash(`Tax label updated for ${country.name}.`);
@@ -770,8 +910,17 @@ export function AdminFinancialContent() {
 
         {activeTab === "refunds" && (
           <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-100 rounded-2xl px-4 py-3 text-sm text-amber-900">
+              <p className="font-semibold">Manual refund approval is on</p>
+              <p className="text-amber-800/90 mt-1">
+                Policy refunds are held in this queue until you approve them. Review the amount and
+                reason, then approve to send money via Stripe or reject to decline the refund.
+              </p>
+            </div>
             {scopedRefunds.length === 0 ? (
-              <div className="bg-white rounded-2xl border p-8 text-center text-sm text-gray-400">No refund requests.</div>
+              <div className="bg-white rounded-2xl border p-8 text-center text-sm text-gray-400">
+                No pending refunds — you&apos;re all caught up.
+              </div>
             ) : (
               scopedRefunds.map((r: RefundRequest) => (
                 <article key={r.id} className="bg-white rounded-2xl border p-5 space-y-3">
@@ -799,16 +948,17 @@ export function AdminFinancialContent() {
                     </div>
                   </div>
                   {r.status === "pending" && (
-                    <div className="flex flex-wrap gap-2 border-t pt-3">
+                    <div className="flex flex-wrap items-center gap-2 border-t pt-3">
                       <button
                         type="button"
                         onClick={() => {
+                          if (!confirm(`Approve refund of ${r.amount} for ${r.bookingRef}?`)) return;
                           reviewRefund(r.id, "approved", "Approved by admin");
-                          flash("Refund approved.");
+                          flash("Refund approved — Stripe will process if configured.");
                         }}
                         className="text-xs font-semibold text-green-700 border border-green-200 hover:bg-green-50 px-4 py-2 rounded-lg inline-flex items-center gap-1"
                       >
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Approve refund
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Approve &amp; issue refund
                       </button>
                       <button
                         type="button"
@@ -816,12 +966,18 @@ export function AdminFinancialContent() {
                           const note = prompt("Rejection reason:") ?? "";
                           if (note === null) return;
                           reviewRefund(r.id, "rejected", note.trim() || "Rejected");
-                          flash("Refund rejected.");
+                          flash("Refund rejected — no money moved.");
                         }}
                         className="text-xs font-semibold text-red-600 border border-red-200 hover:bg-red-50 px-4 py-2 rounded-lg"
                       >
                         Reject
                       </button>
+                      <Link
+                        href={`/admin/bookings?q=${encodeURIComponent(r.bookingRef)}`}
+                        className="text-xs font-medium text-gray-500 hover:text-green-700 ms-auto"
+                      >
+                        View booking
+                      </Link>
                     </div>
                   )}
                 </article>
@@ -830,6 +986,6 @@ export function AdminFinancialContent() {
           </div>
         )}
       </div>
-    </AdminDashboardShell>
+    
   );
 }

@@ -32,7 +32,6 @@ export type StayQuote = {
   discountPct: number;
   discountLabel: string | null;
   discountAmount: number;
-  extraGuestTotal: number;
   extrasTotal: number;
   experiencesTotal: number;
   taxPct: number;
@@ -262,22 +261,14 @@ export function calculateStayQuote(input: StayQuoteInput): StayQuote | null {
   const afterDiscount = accommodationSubtotal - discountAmount;
 
   const extrasOn = settings.extraChargesEnabled;
-  const extraGuests = Math.max(0, guests - settings.guestsIncludedInBase);
-  const extraGuestTotal =
-    extrasOn &&
-    extraGuests > 0 &&
-    settings.extraGuestCharge > 0 &&
-    accommodationSubtotal > 0
-      ? extraGuests * settings.extraGuestCharge * nights
-      : 0;
-
   const extrasTotal = extrasOn ? extrasAmount(selectedExtras, nights, guests) : 0;
 
   const experiences = Math.max(0, experiencesTotal);
-  const pretax = afterDiscount + extraGuestTotal + extrasTotal + experiences;
+  const inclusiveSubtotal = afterDiscount + extrasTotal + experiences;
   const taxPct = Math.max(0, settings.taxPct);
-  const taxAmount = Math.round((pretax * taxPct) / 100);
-  const total = pretax + taxAmount;
+  const taxAmount =
+    taxPct > 0 ? Math.round((inclusiveSubtotal * taxPct) / (100 + taxPct)) : 0;
+  const total = inclusiveSubtotal;
 
   const roomCount = resolvedRoomIds.filter(Boolean).length;
   const lines: StayQuoteLine[] = [];
@@ -293,12 +284,6 @@ export function calculateStayQuote(input: StayQuoteInput): StayQuote | null {
   if (discountAmount > 0 && discountLabel) {
     lines.push({ label: discountLabel, amount: -discountAmount });
   }
-  if (extraGuestTotal > 0) {
-    lines.push({
-      label: `Extra guests (${extraGuests} × ${nights} night${nights === 1 ? "" : "s"})`,
-      amount: extraGuestTotal,
-    });
-  }
   if (extrasTotal > 0) {
     lines.push({ label: "Extras", amount: extrasTotal });
   }
@@ -307,7 +292,7 @@ export function calculateStayQuote(input: StayQuoteInput): StayQuote | null {
   }
   if (taxAmount > 0) {
     lines.push({
-      label: `${settings.taxLabel} (${taxPct}%)`,
+      label: `${settings.taxLabel} (${taxPct}%, included)`,
       amount: taxAmount,
     });
   }
@@ -320,7 +305,6 @@ export function calculateStayQuote(input: StayQuoteInput): StayQuote | null {
     discountPct,
     discountLabel,
     discountAmount,
-    extraGuestTotal,
     extrasTotal,
     experiencesTotal: experiences,
     taxPct,

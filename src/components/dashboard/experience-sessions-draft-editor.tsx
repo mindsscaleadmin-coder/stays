@@ -1,6 +1,7 @@
 "use client";
 
 import { Plus, Trash2 } from "lucide-react";
+import { DiningFormSection } from "@/components/dashboard/dining-form-section";
 import type { ExperienceSessionTemplate } from "@/lib/booking/experience-session-types";
 
 const fieldClass =
@@ -45,20 +46,16 @@ export function ExperienceSessionsDraftEditor({
   }
 
   return (
-    <div className="space-y-4 border border-gray-200 rounded-xl p-4 bg-gray-50/40">
-      <div>
-        <p className="text-sm font-semibold text-gray-900">Session pricing</p>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Set times, capacity, and rates for each session guests can book. Currency follows
-          the listing country ({currency}).
-        </p>
-      </div>
-
-      <div className="space-y-3">
+    <DiningFormSection
+      title="Session pricing"
+      tier="required"
+      description={`Set times, capacity, and rates for each session guests can book. Currency follows the listing country (${currency}).`}
+    >
+      <div className="space-y-4">
         {sessions.map((session) => (
           <div
             key={session.key}
-            className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5 space-y-4"
+            className="border-b border-gray-100 pb-4 space-y-4 last:border-b-0"
           >
             <div className="flex items-center justify-between gap-3">
               <input
@@ -159,7 +156,7 @@ export function ExperienceSessionsDraftEditor({
       >
         <Plus className="w-3.5 h-3.5" /> Add session
       </button>
-    </div>
+    </DiningFormSection>
   );
 }
 

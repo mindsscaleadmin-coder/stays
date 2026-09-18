@@ -21,6 +21,81 @@ type FilterRow = {
   items: { id: string; name: string }[];
 };
 
+export function isBedTypeFilterTab(tab: Pick<FilterTab, "id" | "label">): boolean {
+  const label = tab.label.trim().toLowerCase();
+  return tab.id === "bedType" || /^bed\s*types?$/.test(label);
+}
+
+export function buildListingAdvancedFilterRows(
+  taxonomy: TaxonomyData,
+  values: ListingFilterValues,
+  placement: "all" | "venueSpaceColumn" | "venueOptionsRemainder" = "all",
+  options?: { excludeBedType?: boolean }
+): FilterRow[] {
+  const { parentId, categoryId, subcategoryId } = values;
+  if (!categoryId) return [];
+
+  const scope = {
+    parentId: parentId || null,
+    categoryId: categoryId || null,
+    subcategoryId: subcategoryId || null,
+  };
+
+  const next: FilterRow[] = [];
+  const seenLabels = new Set<string>();
+
+  for (const tab of taxonomy.extraTabs.filter((item) => isFilterEnabled(item))) {
+    if (options?.excludeBedType && isBedTypeFilterTab(tab)) continue;
+    if (!tabMatchesListingPlacement(tab, placement)) continue;
+
+    const items = getExtraFiltersForListingTab(tab.id, taxonomy.extraFilters, scope).map(
+      (item) => ({
+        id: item.id,
+        name: item.name,
+      })
+    );
+    if (items.length === 0) continue;
+
+    const labelKey = tab.label.trim().toLowerCase();
+    if (seenLabels.has(labelKey)) continue;
+    seenLabels.add(labelKey);
+
+    next.push({ key: tab.id, label: tab.label, items });
+  }
+
+  const features = taxonomy.featureFilters
+    .filter(
+      (item) =>
+        isFilterEnabled(item) &&
+        item.parentId === parentId &&
+        (!item.subcategoryId || !subcategoryId || item.subcategoryId === subcategoryId)
+    )
+    .map((item) => ({ id: item.id, name: item.name }));
+
+  if (
+    features.length > 0 &&
+    tabMatchesListingPlacement(
+      { id: "features", label: "Features", listingSection: "venueOptions" },
+      placement
+    ) &&
+    !seenLabels.has("features")
+  ) {
+    next.push({ key: "features", label: "Features", items: features });
+  }
+
+  return next;
+}
+
+export function bedTypeFilterIdSet(
+  taxonomy: TaxonomyData,
+  values: ListingFilterValues
+): Set<string> {
+  const row = buildListingAdvancedFilterRows(taxonomy, values, "all").find((item) =>
+    isBedTypeFilterTab({ id: item.key, label: item.label })
+  );
+  return new Set(row?.items.map((item) => item.id) ?? []);
+}
+
 function tabMatchesListingPlacement(
   tab: FilterTab,
   placement: "all" | "venueSpaceColumn" | "venueOptionsRemainder"
@@ -60,73 +135,23 @@ export function splitAdvancedIdsByVenueSection(taxonomy: TaxonomyData, ids: stri
 
 export function useListingAdvancedFilterRows(
   values: ListingFilterValues,
-  placement: "all" | "venueSpaceColumn" | "venueOptionsRemainder" = "all"
+  placement: "all" | "venueSpaceColumn" | "venueOptionsRemainder" = "all",
+  options?: { excludeBedType?: boolean }
 ) {
   const { data } = useAdminTaxonomy();
-  const { parentId, categoryId, subcategoryId } = values;
 
-  const scope = useMemo(
-    () => ({
-      parentId: parentId || null,
-      categoryId: categoryId || null,
-      subcategoryId: subcategoryId || null,
-    }),
-    [parentId, categoryId, subcategoryId]
+  return useMemo(
+    () => buildListingAdvancedFilterRows(data, values, placement, options),
+    [data, values, placement, options?.excludeBedType]
   );
+}
 
-  return useMemo(() => {
-    if (!categoryId) return [];
-
-    const next: FilterRow[] = [];
-    const seenLabels = new Set<string>();
-
-    for (const tab of data.extraTabs.filter((item) => isFilterEnabled(item))) {
-      if (!tabMatchesListingPlacement(tab, placement)) continue;
-
-      const items = getExtraFiltersForListingTab(tab.id, data.extraFilters, scope).map((item) => ({
-        id: item.id,
-        name: item.name,
-      }));
-      if (items.length === 0) continue;
-
-      const labelKey = tab.label.trim().toLowerCase();
-      if (seenLabels.has(labelKey)) continue;
-      seenLabels.add(labelKey);
-
-      next.push({ key: tab.id, label: tab.label, items });
-    }
-
-    const features = data.featureFilters
-      .filter(
-        (item) =>
-          isFilterEnabled(item) &&
-          item.parentId === parentId &&
-          (!item.subcategoryId || !subcategoryId || item.subcategoryId === subcategoryId)
-      )
-      .map((item) => ({ id: item.id, name: item.name }));
-
-    if (
-      features.length > 0 &&
-      tabMatchesListingPlacement(
-        { id: "features", label: "Features", listingSection: "venueOptions" },
-        placement
-      ) &&
-      !seenLabels.has("features")
-    ) {
-      next.push({ key: "features", label: "Features", items: features });
-    }
-
-    return next;
-  }, [
-    data.extraTabs,
-    data.extraFilters,
-    data.featureFilters,
-    parentId,
-    subcategoryId,
-    scope,
-    categoryId,
-    placement,
-  ]);
+export function useBedTypeFilterRow(values: ListingFilterValues) {
+  const rows = useListingAdvancedFilterRows(values, "all");
+  return useMemo(
+    () => rows.find((row) => isBedTypeFilterTab({ id: row.key, label: row.label })) ?? null,
+    [rows]
+  );
 }
 
 export function ListingAdvancedFiltersField({
@@ -134,6 +159,7 @@ export function ListingAdvancedFiltersField({
   onChange,
   placement = "all",
   embedded = false,
+  excludeBedType = false,
 }: {
   values: ListingFilterValues;
   onChange: (next: ListingFilterValues) => void;
@@ -141,9 +167,11 @@ export function ListingAdvancedFiltersField({
   placement?: "all" | "venueSpaceColumn" | "venueOptionsRemainder";
   /** Render without the outer panel chrome when nested inside another card. */
   embedded?: boolean;
+  /** Hide bed type here — shown per room in multi-rate stay editor instead. */
+  excludeBedType?: boolean;
 }) {
   const { advancedIds } = values;
-  const visibleRows = useListingAdvancedFilterRows(values, placement);
+  const visibleRows = useListingAdvancedFilterRows(values, placement, { excludeBedType });
 
   function toggleAdvanced(id: string) {
     onChange({

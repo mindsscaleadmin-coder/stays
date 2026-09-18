@@ -11,9 +11,14 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import type { EventsSubscriptionPlan } from "@/lib/admin/financial-types";
+import type { DirectoryComboOffer, EventsSubscriptionPlan } from "@/lib/admin/financial-types";
 import type { ListPropertyCategoryOption } from "@/lib/host/list-property";
-import { formatEventsPlanCapacity } from "@/lib/admin/events-subscription";
+import {
+  formatEventsPlanCapacity,
+  formatEventsPlanFee,
+  type DirectoryVertical,
+} from "@/lib/admin/events-subscription";
+import { comboOfferSavings, formatDirectorySpaceCap } from "@/lib/host/directory-space";
 import { useEventsSubscriptionSettings } from "@/lib/host/use-events-subscription-settings";
 import { ModalPortal } from "@/components/ui/modal-portal";
 import { cn } from "@/lib/utils";
@@ -55,16 +60,17 @@ function planTagline(plan: EventsSubscriptionPlan): string {
 function planFeatures(
   plan: EventsSubscriptionPlan,
   directoryLabel: string,
-  isDining: boolean
+  isDining: boolean,
+  vertical: DirectoryVertical
 ): string[] {
-  const capacity = formatEventsPlanCapacity(plan);
+  const capacity = formatEventsPlanCapacity(plan, vertical);
   const sectionLabel = isDining ? "Dining directory" : `${directoryLabel} section`;
   return [
     capacity,
     `Live in the public ${sectionLabel}`,
     "Direct guest enquiries — no booking fees",
     "Featured & Trending boosts available",
-    "Yearly renewal — one subscription per host",
+    `Yearly ${isDining ? "Dining" : "Events"} subscription per host`,
   ];
 }
 
@@ -85,16 +91,38 @@ export function ListPropertySubscriptionModal({
   onClose: () => void;
   onContinue: (planId: string) => void;
 }) {
-  const { ready, freeDuringLaunch, plans } = useEventsSubscriptionSettings();
+  const {
+    ready,
+    freeDuringLaunch,
+    plansForVertical,
+    eventsPlans,
+    diningPlans,
+    comboOffer,
+  } = useEventsSubscriptionSettings();
+  const vertical: DirectoryVertical = category?.key === "dining" ? "dining" : "events";
 
   const activePlans = useMemo(
-    () => plans.filter((plan) => plan.active),
-    [plans]
+    () => plansForVertical(vertical).filter((plan) => plan.active),
+    [plansForVertical, vertical]
   );
 
   const popularPlanId = useMemo(
     () => resolvePopularPlanId(activePlans),
     [activePlans]
+  );
+
+  const comboSavings = useMemo(
+    () =>
+      comboOffer
+        ? comboOfferSavings({
+            freeDuringLaunch,
+            eventsPlans,
+            diningPlans,
+            comboOffer,
+            yearlyFeeAed: 0,
+          })
+        : null,
+    [comboOffer, diningPlans, eventsPlans, freeDuringLaunch]
   );
 
   useEffect(() => {
@@ -109,7 +137,7 @@ export function ListPropertySubscriptionModal({
   if (!open || !category) return null;
 
   const directoryLabel = category.label;
-  const isDining = category.key === "dining";
+  const isDining = vertical === "dining";
 
   return (
     <ModalPortal>
@@ -165,6 +193,15 @@ export function ListPropertySubscriptionModal({
             </div>
           ) : null}
 
+          {comboOffer && (
+            <ComboOfferCard
+              comboOffer={comboOffer}
+              comboSavings={comboSavings}
+              freeDuringLaunch={freeDuringLaunch}
+              onSelect={() => onContinue("combo")}
+            />
+          )}
+
           <div
             className={cn(
               "flex flex-col sm:flex-row gap-3 sm:gap-4 items-stretch",
@@ -198,6 +235,63 @@ export function ListPropertySubscriptionModal({
   );
 }
 
+function ComboOfferCard({
+  comboOffer,
+  comboSavings,
+  freeDuringLaunch,
+  onSelect,
+}: {
+  comboOffer: DirectoryComboOffer;
+  comboSavings: number | null;
+  freeDuringLaunch: boolean;
+  onSelect: () => void;
+}) {
+  const hallSpaces = comboOffer.eventsHallSpaces;
+  const hallLine =
+    hallSpaces === null || hallSpaces === undefined
+      ? "unlimited event spaces"
+      : `${hallSpaces} event space${hallSpaces === 1 ? "" : "s"}`;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="w-full rounded-2xl border border-amber-300 bg-gradient-to-r from-amber-50 to-green-50 p-4 text-start hover:border-amber-400 transition-colors"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="text-[10px] font-bold uppercase tracking-wide text-amber-900">
+          Bundle offer
+        </p>
+        {comboSavings !== null && comboSavings > 0 && (
+          <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-white border border-amber-200 text-amber-900">
+            Saves {formatEventsPlanFee(comboSavings)} vs separate entry tiers
+          </span>
+        )}
+      </div>
+      <p className="text-base font-semibold text-gray-900 mt-1">{comboOffer.name}</p>
+      <p className="text-sm text-gray-600 mt-1">{comboOffer.description}</p>
+      {freeDuringLaunch ? (
+        <div className="mt-2 space-y-0.5">
+          <p className="text-xs font-medium text-gray-400 line-through tabular-nums">
+            {formatEventsPlanFee(comboOffer.yearlyFeeAed)}/year
+          </p>
+          <p className="text-lg font-bold text-green-700 tabular-nums">Free now</p>
+          <p className="text-[10px] text-gray-500">Paid tier when launch pricing begins</p>
+        </div>
+      ) : (
+        <p className="text-lg font-bold text-green-800 mt-2 tabular-nums">
+          {formatEventsPlanFee(comboOffer.yearlyFeeAed)}
+          <span className="text-xs font-semibold text-gray-500">/year</span>
+        </p>
+      )}
+      <p className="text-xs text-gray-600 mt-2">
+        Includes {formatDirectorySpaceCap(comboOffer.eventsSpaces, "events")},{" "}
+        {hallLine}, and {formatDirectorySpaceCap(comboOffer.diningSpaces, "dining")}
+      </p>
+    </button>
+  );
+}
+
 function PlanCard({
   plan,
   directoryLabel,
@@ -216,7 +310,7 @@ function PlanCard({
   onSelect: () => void;
 }) {
   const Icon = planIcon(plan);
-  const features = planFeatures(plan, directoryLabel, isDining);
+  const features = planFeatures(plan, directoryLabel, isDining, isDining ? "dining" : "events");
 
   return (
     <button
@@ -256,7 +350,7 @@ function PlanCard({
         {freeDuringLaunch ? (
           <div className="space-y-0.5">
             <p className="text-xs font-medium text-gray-400 line-through tabular-nums">
-              AED {plan.yearlyFeeAed.toLocaleString()}/year
+              {formatEventsPlanFee(plan.yearlyFeeAed)}/year
             </p>
             <p
               className={cn(
@@ -276,7 +370,7 @@ function PlanCard({
                 compact ? "text-xl" : "text-2xl"
               )}
             >
-              AED {plan.yearlyFeeAed.toLocaleString()}
+              {formatEventsPlanFee(plan.yearlyFeeAed)}
               <span className="text-xs font-semibold text-gray-500">/year</span>
             </p>
             <p className="text-[10px] text-gray-500">Billed annually per host account</p>

@@ -14,11 +14,11 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import { AdminAnalyticsSectionView } from "./admin-analytics-section";
 import { useAdminPlatformAnalytics } from "@/lib/admin/use-admin-platform-analytics";
 import { useAdminUsers } from "@/lib/admin/use-admin-users";
 import { usePendingListingBadgeCount } from "@/lib/admin/use-pending-listing-badge";
+import { usePendingRefundBadgeCount } from "@/lib/admin/use-pending-refund-badge";
 import { useHostVerification } from "@/lib/host/use-host-verification";
 import { formatAmount } from "@/lib/utils";
 import { formatPlatformMoney } from "@/lib/admin/platform-analytics-data";
@@ -28,6 +28,7 @@ const QUICK_ACTIONS = [
   { label: "Review Host IDs", href: "/admin/hosts?verification=pending", cls: "bg-purple-600 hover:bg-purple-700 text-white" },
   { label: "Manage Users", href: "/admin/users", cls: "bg-blue-600 hover:bg-blue-700 text-white" },
   { label: "View Bookings", href: "/admin/bookings", cls: "bg-amber-500 hover:bg-amber-600 text-white" },
+  { label: "Pending Refunds", href: "/admin/financial?tab=refunds", cls: "bg-orange-600 hover:bg-orange-700 text-white" },
   { label: "Analytics", href: "/admin/analytics", cls: "bg-gray-700 hover:bg-gray-800 text-white" },
 ];
 
@@ -83,9 +84,12 @@ export function AdminDashboardContent() {
   const { ready: analyticsReady, snapshot } = analytics;
   const { kpis } = snapshot;
 
+  const pendingRefunds = usePendingRefundBadgeCount();
   const pendingUsers = users.filter((account) => account.status === "pending").length;
   const pendingListingCount = pendingListings ?? 0;
-  const operationalQueue = pendingListingCount + pendingVerifications + pendingUsers;
+  const pendingRefundCount = pendingRefunds ?? 0;
+  const operationalQueue =
+    pendingListingCount + pendingVerifications + pendingUsers + pendingRefundCount;
   const ready = verificationsReady && analyticsReady;
 
   const cards = [
@@ -116,8 +120,11 @@ export function AdminDashboardContent() {
     {
       label: "Platform revenue",
       value: formatPlatformMoney(kpis.totalRevenue),
-      detail: "Open financial control",
-      href: "/admin/financial",
+      detail:
+        pendingRefundCount > 0
+          ? `${pendingRefundCount} refund${pendingRefundCount === 1 ? "" : "s"} awaiting approval`
+          : "Open financial control",
+      href: "/admin/financial?tab=refunds",
       icon: CreditCard,
       tone: "bg-purple-50 text-purple-600",
     },
@@ -140,8 +147,7 @@ export function AdminDashboardContent() {
   ];
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
+          <div className="space-y-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">
@@ -180,15 +186,15 @@ export function AdminDashboardContent() {
             <FileCheck2 className="h-4 w-4 text-green-700" />
             <h3 className="font-bold text-gray-900">Quick actions</h3>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid grid-cols-5 gap-2 sm:gap-3">
             {QUICK_ACTIONS.map(({ label, href, cls }) => (
-              <Link key={label} href={href} className={`px-5 py-2.5 rounded-xl text-center text-sm font-semibold transition-colors ${cls}`}>
+              <Link key={label} href={href} className={`px-2 py-2.5 sm:px-3 rounded-xl text-center text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${cls}`}>
                 {label}
               </Link>
             ))}
           </div>
         </div>
       </div>
-    </AdminDashboardShell>
+    
   );
 }

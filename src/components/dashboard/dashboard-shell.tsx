@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useSyncExternalStore, useState, type ComponentType, type ReactNode } from "react";
 import { Link, usePathname } from "@/i18n/routing";
 import { ChevronDown, Leaf, Menu, X, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -43,48 +43,68 @@ function splitHref(href: string): { path: string; query: URLSearchParams } {
  */
 function useNavActive(navItems: DashboardNavItem[], exactHrefs: string[]) {
   const pathname = usePathname();
-  const [search, setSearch] = useState("");
+  const search = useSyncExternalStore(
+    () => () => {},
+    () => (typeof window !== "undefined" ? window.location.search : ""),
+    () => ""
+  );
 
-  useEffect(() => {
-    setSearch(typeof window !== "undefined" ? window.location.search : "");
-  }, [pathname]);
+  const searchParams = useMemo(
+    () => new URLSearchParams(search.startsWith("?") ? search.slice(1) : search),
+    [search]
+  );
 
-  const searchParams = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  const exactSet = useMemo(() => new Set(exactHrefs), [exactHrefs]);
 
-  const isActive = (href: string) => {
-    const { path, query } = splitHref(href);
-
-    const pathMatches = (candidate: string) =>
-      exactHrefs.includes(candidate)
-        ? pathname === candidate
-        : pathname === candidate || pathname.startsWith(`${candidate}/`);
-
-    if (!pathMatches(path)) return false;
-
-    const allPaths: string[] = [];
+  const allPaths = useMemo(() => {
+    const paths: string[] = [];
     for (const item of navItems) {
-      allPaths.push(splitHref(item.href).path);
-      item.children?.forEach((child) => allPaths.push(splitHref(child.href).path));
+      paths.push(splitHref(item.href).path);
+      item.children?.forEach((child) => paths.push(splitHref(child.href).path));
     }
+    return paths;
+  }, [navItems]);
+
+  const pathMatches = useCallback(
+    (candidate: string) =>
+      exactSet.has(candidate)
+        ? pathname === candidate
+        : pathname === candidate || pathname.startsWith(`${candidate}/`),
+    [pathname, exactSet]
+  );
+
+  const longestActivePath = useMemo(() => {
     const matching = allPaths.filter((p) => pathMatches(p));
-    const longest = matching.reduce((a, b) => (a.length >= b.length ? a : b), "");
-    if (longest !== path) return false;
+    return matching.reduce((a, b) => (a.length >= b.length ? a : b), "");
+  }, [allPaths, pathMatches]);
 
-    const entries = Array.from(query.entries());
-    if (entries.length === 0) {
-      if (exactHrefs.includes(path) && path === "/account") {
-        return !searchParams.get("tab");
+  const isActive = useCallback(
+    (href: string) => {
+      const { path, query } = splitHref(href);
+
+      if (!pathMatches(path)) return false;
+      if (longestActivePath !== path) return false;
+
+      const entries = Array.from(query.entries());
+      if (entries.length === 0) {
+        if (exactSet.has(path) && path === "/account") {
+          return !searchParams.get("tab");
+        }
+        return true;
       }
-      return true;
-    }
 
-    return entries.every(([key, value]) => searchParams.get(key) === value);
-  };
+      return entries.every(([key, value]) => searchParams.get(key) === value);
+    },
+    [pathMatches, longestActivePath, searchParams, exactSet]
+  );
 
-  const isSectionActive = (item: DashboardNavItem) => {
-    if (isActive(item.href)) return true;
-    return item.children?.some((child) => isActive(child.href)) ?? false;
-  };
+  const isSectionActive = useCallback(
+    (item: DashboardNavItem) => {
+      if (isActive(item.href)) return true;
+      return item.children?.some((child) => isActive(child.href)) ?? false;
+    },
+    [isActive]
+  );
 
   return { isActive, isSectionActive };
 }
@@ -110,7 +130,7 @@ function NavLink({
   return (
     <Link
       href={toIntlHref(href)}
-      prefetch={true}
+      prefetch={false}
       className={className}
       onClick={() => onNavigate?.()}
     >
@@ -119,7 +139,7 @@ function NavLink({
   );
 }
 
-function SidebarNav({
+const SidebarNav = memo(function SidebarNav({
   navItems,
   exactHrefs,
   onNavigate,
@@ -130,17 +150,12 @@ function SidebarNav({
 }) {
   const { isActive, isSectionActive } = useNavActive(navItems, exactHrefs);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   return (
     <nav className="p-3 flex flex-col gap-0.5 relative z-10">
       {navItems.map((item) => {
         const Icon = item.icon;
-        const sectionActive = mounted && isSectionActive(item);
+        const sectionActive = isSectionActive(item);
         const hasChildren = Boolean(item.children?.length);
         const isOpen = expanded[item.href] ?? sectionActive;
 
@@ -156,7 +171,7 @@ function SidebarNav({
                   }))
                 }
                 className={cn(
-                  "relative flex items-center gap-3 w-full px-3.5 py-3 rounded-xl text-sm font-medium transition-colors text-start",
+                  "relative flex items-center gap-3 w-full px-3.5 py-3 rounded-xl text-sm font-medium text-start",
                   sectionActive
                     ? "bg-gray-100 text-gray-900"
                     : "text-gray-700 hover:bg-gray-50"
@@ -165,15 +180,15 @@ function SidebarNav({
                 {sectionActive && (
                   <span className="absolute start-0 top-2 bottom-2 w-[3px] rounded-full bg-green-600" />
                 )}
-                {Icon && (
-                  <Icon
-                    className={cn(
-                      "w-[18px] h-[18px] shrink-0",
-                      sectionActive ? "text-gray-900" : "text-gray-500"
-                    )}
-                    strokeWidth={1.75}
-                  />
-                )}
+              {Icon && (
+                <Icon
+                  className={cn(
+                    "w-[18px] h-[18px] shrink-0",
+                    sectionActive ? "text-gray-900" : "text-gray-500"
+                  )}
+                  strokeWidth={1.75}
+                />
+              )}
                 <span className="flex-1">{item.label}</span>
                 {item.badge && (
                   <span
@@ -196,9 +211,8 @@ function SidebarNav({
                     href={item.href}
                     onNavigate={onNavigate}
                     className={cn(
-                      "relative px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                      mounted &&
-                        isActive(item.href) &&
+                      "relative px-3 py-2 rounded-lg text-sm font-medium",
+                      isActive(item.href) &&
                         !item.children?.some((c) => isActive(c.href))
                         ? "bg-gray-100 text-gray-900"
                         : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
@@ -208,14 +222,14 @@ function SidebarNav({
                   </NavLink>
                   {item.children!.map((child) => {
                     const ChildIcon = child.icon;
-                    const childActive = mounted && isActive(child.href);
+                    const childActive = isActive(child.href);
                     return (
                       <NavLink
                         key={child.href}
                         href={child.href}
                         onNavigate={onNavigate}
                         className={cn(
-                          "relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                          "relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium",
                           childActive
                             ? "bg-gray-100 text-gray-900"
                             : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
@@ -224,7 +238,7 @@ function SidebarNav({
                         {childActive && (
                           <span className="absolute start-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-green-600" />
                         )}
-                        {mounted && ChildIcon && (
+                        {ChildIcon && (
                           <ChildIcon className="w-4 h-4 shrink-0" strokeWidth={1.75} />
                         )}
                         <span className="flex-1">{child.label}</span>
@@ -245,9 +259,9 @@ function SidebarNav({
           );
         }
 
-        const active = mounted && isActive(item.href);
+        const active = isActive(item.href);
         const Trailing = item.Trailing;
-        const showNotice = mounted && Boolean(item.trailing || item.badge);
+        const showNotice = Boolean(item.trailing || item.badge);
 
         return (
           <div key={`${item.href}-${item.label}`} className="relative">
@@ -255,15 +269,15 @@ function SidebarNav({
               href={item.href}
               onNavigate={onNavigate}
               className={cn(
-                "relative flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium transition-colors cursor-pointer",
+                "relative flex items-center gap-3 px-3.5 py-3 rounded-xl text-sm font-medium cursor-pointer",
                 active ? "bg-gray-100 text-gray-900" : "text-gray-700 hover:bg-gray-50",
-                mounted && Trailing ? "pe-12" : undefined
+                Trailing ? "pe-14" : undefined
               )}
             >
               {active && (
                 <span className="absolute start-0 top-2 bottom-2 w-[3px] rounded-full bg-green-600" />
               )}
-              {mounted && Icon && (
+              {Icon && (
                 <span className="relative shrink-0">
                   <Icon
                     className={cn(
@@ -274,7 +288,6 @@ function SidebarNav({
                   />
                   {showNotice && (
                     <span className="absolute -top-1 -end-1 flex h-2.5 w-2.5" aria-hidden>
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
                       <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
                     </span>
                   )}
@@ -283,7 +296,7 @@ function SidebarNav({
               <span className="flex-1 truncate">{item.label}</span>
               {!Trailing &&
                 (item.trailing ??
-                  (mounted && item.badge ? (
+                  (item.badge ? (
                     <span
                       className="inline-flex items-center justify-center min-w-[1.25rem] shrink-0 bg-red-500 text-white text-[10px] font-bold leading-none px-1.5 py-0.5 rounded-full"
                       aria-label={`${item.badge} new`}
@@ -292,7 +305,7 @@ function SidebarNav({
                     </span>
                   ) : null))}
             </NavLink>
-            {mounted && Trailing ? (
+            {Trailing ? (
               <div className="absolute end-3.5 top-1/2 -translate-y-1/2 pointer-events-none">
                 <Trailing />
               </div>
@@ -302,7 +315,7 @@ function SidebarNav({
       })}
     </nav>
   );
-}
+});
 
 function SidebarChrome({
   title,
@@ -362,14 +375,59 @@ function DashboardShellInner({
 }: DashboardShellProps) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const closeSidebar = () => setSidebarOpen(false);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const openSidebar = useCallback(() => setSidebarOpen(true), []);
 
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "auto" });
+    const frame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [pathname]);
 
   return (
     <div className="min-h-[calc(100vh-120px)] bg-gray-100 lg:flex lg:items-start">
+      <DashboardSidebarColumn
+        pathname={pathname}
+        title={title}
+        subtitle={subtitle}
+        brandLogo={brandLogo}
+        navItems={navItems}
+        exactHrefs={exactHrefs}
+        sidebarExtra={sidebarExtra}
+        sidebarOpen={sidebarOpen}
+        onCloseSidebar={closeSidebar}
+      />
+      <DashboardMainColumn onOpenSidebar={openSidebar}>
+        {children}
+      </DashboardMainColumn>
+    </div>
+  );
+}
+
+const DashboardSidebarColumn = memo(function DashboardSidebarColumn({
+  pathname: _pathname,
+  title,
+  subtitle,
+  brandLogo,
+  navItems,
+  exactHrefs,
+  sidebarExtra,
+  sidebarOpen,
+  onCloseSidebar,
+}: {
+  pathname: string;
+  title: string;
+  subtitle?: string;
+  brandLogo?: string | null;
+  navItems: DashboardNavItem[];
+  exactHrefs: string[];
+  sidebarExtra?: ReactNode;
+  sidebarOpen: boolean;
+  onCloseSidebar: () => void;
+}) {
+  return (
+    <>
       <aside
         className="hidden lg:flex flex-col shrink-0 bg-white border-e border-gray-100 sticky z-20 overflow-y-auto pointer-events-auto"
         style={{
@@ -388,7 +446,7 @@ function DashboardShellInner({
           <button
             type="button"
             className="fixed inset-0 bg-black/40 z-40 lg:hidden"
-            onClick={closeSidebar}
+            onClick={onCloseSidebar}
             aria-label="Close overlay"
           />
           <aside
@@ -400,34 +458,46 @@ function DashboardShellInner({
               subtitle={subtitle}
               brandLogo={brandLogo}
               showClose
-              onClose={closeSidebar}
+              onClose={onCloseSidebar}
             />
             <SidebarNav
               navItems={navItems}
               exactHrefs={exactHrefs}
-              onNavigate={closeSidebar}
+              onNavigate={onCloseSidebar}
             />
             {sidebarExtra}
           </aside>
         </>
       ) : null}
+    </>
+  );
+});
 
-      <div id="dashboard-main-column" className="min-w-0 flex-1">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:py-6">
-          <button
-            type="button"
-            className="lg:hidden mb-4 flex items-center gap-2 text-sm font-medium text-gray-600"
-            onClick={() => setSidebarOpen(true)}
-          >
-            <Menu className="w-5 h-5" /> Menu
-          </button>
-          {children}
-        </div>
+const DashboardMainColumn = memo(function DashboardMainColumn({
+  children,
+  onOpenSidebar,
+}: {
+  children: ReactNode;
+  onOpenSidebar: () => void;
+}) {
+  return (
+    <div id="dashboard-main-column" className="min-w-0 flex-1">
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:py-6">
+        <button
+          type="button"
+          className="lg:hidden mb-4 flex items-center gap-2 text-sm font-medium text-gray-600"
+          onClick={onOpenSidebar}
+        >
+          <Menu className="w-5 h-5" /> Menu
+        </button>
+        {children}
       </div>
     </div>
   );
-}
+});
 
 export function DashboardShell(props: DashboardShellProps) {
   return <DashboardShellInner {...props} />;
 }
+
+export { DashboardSidebarColumn, DashboardMainColumn };

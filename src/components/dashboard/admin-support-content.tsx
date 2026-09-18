@@ -18,7 +18,6 @@ import {
   User,
   Users,
 } from "lucide-react";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import { AdminOpenDisputesPanel } from "./admin-open-disputes-panel";
 import { useAdminSupport } from "@/lib/admin/use-admin-support";
 import { useAdminBookings } from "@/lib/admin/use-admin-bookings";
@@ -309,17 +308,15 @@ export function AdminSupportContent() {
 
   if (!ready) {
     return (
-      <AdminDashboardShell>
-        <div className="flex items-center justify-center min-h-[320px]">
+              <div className="flex items-center justify-center min-h-[320px]">
           <Loader2 className="w-8 h-8 animate-spin text-green-600" />
         </div>
-      </AdminDashboardShell>
+      
     );
   }
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
+          <div className="space-y-6">
         <div>
           <h2 className="text-xl font-bold text-gray-900 font-display">Support & Dispute Management</h2>
           <p className="text-gray-500 text-sm mt-1">
@@ -525,6 +522,6 @@ export function AdminSupportContent() {
           </div>
         </section>
       </div>
-    </AdminDashboardShell>
+    
   );
 }

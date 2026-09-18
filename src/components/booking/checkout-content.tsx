@@ -17,9 +17,17 @@ import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { useLocale } from "next-intl";
 import { computeExperienceQuote } from "@/lib/booking/compute-experience-quote";
+import {
+  DEFAULT_CANCELLATION_POLICY_ID,
+  evaluateCancellationRefund,
+} from "@/lib/booking/policies";
 import { normalizeExperienceSessions } from "@/lib/booking/experience-session-types";
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
 import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
+import {
+  getSubmissionById,
+  LISTINGS_SYNC_EVENT,
+} from "@/lib/listings/submission-data";
 import { isDataImageUrl } from "@/lib/utils";
 
 const EXPERIENCE_PRICES: Record<string, { title: string; amount: number }> = {
@@ -42,6 +50,15 @@ type Props = {
   extraIds: string[];
 };
 
+function CheckoutCancellationNotice({ summary }: { summary: string }) {
+  return (
+    <p className="text-xs text-gray-600 leading-relaxed">
+      <span className="font-medium text-gray-800">Cancellation: </span>
+      {summary}
+    </p>
+  );
+}
+
 export function CheckoutContent({
   listingId,
   kind = "stay",
@@ -62,6 +79,21 @@ export function CheckoutContent({
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [paymentMode, setPaymentMode] = useState<"stripe" | "demo">("demo");
+  const [cancellationPolicyId, setCancellationPolicyId] = useState(
+    DEFAULT_CANCELLATION_POLICY_ID
+  );
+
+  useEffect(() => {
+    function loadPolicy() {
+      setCancellationPolicyId(
+        getSubmissionById(listingId)?.cancellationPolicyId ??
+          DEFAULT_CANCELLATION_POLICY_ID
+      );
+    }
+    loadPolicy();
+    window.addEventListener(LISTINGS_SYNC_EVENT, loadPolicy);
+    return () => window.removeEventListener(LISTINGS_SYNC_EVENT, loadPolicy);
+  }, [listingId]);
 
   const stay = useMemo(
     () => listings.find((s) => s.id === listingId),
@@ -221,6 +253,36 @@ export function CheckoutContent({
     });
     return { quote, session, currency };
   }, [asExperience, pricing, sessionKey, guests, countryPricing.currency]);
+
+  const stayCancellationSummary = useMemo(() => {
+    if (!checkIn || !checkOut || nights < 1) return null;
+    const total = quotePreview?.total ?? 0;
+    if (total <= 0) return null;
+    return evaluateCancellationRefund({
+      policyId: cancellationPolicyId,
+      checkIn,
+      totalPrice: total,
+      paymentStatus: "paid",
+    }).summary;
+  }, [
+    cancellationPolicyId,
+    checkIn,
+    checkOut,
+    nights,
+    quotePreview?.total,
+  ]);
+
+  const experienceCancellationSummary = useMemo(() => {
+    if (!experienceDate || !experienceQuote) return null;
+    const total = experienceQuote.quote.total;
+    if (total <= 0) return null;
+    return evaluateCancellationRefund({
+      policyId: cancellationPolicyId,
+      checkIn: experienceDate,
+      totalPrice: total,
+      paymentStatus: "paid",
+    }).summary;
+  }, [cancellationPolicyId, experienceDate, experienceQuote]);
 
   async function handlePay() {
     if (!stay || !user) return;
@@ -440,6 +502,9 @@ export function CheckoutContent({
               {error}
             </p>
           )}
+          {experienceCancellationSummary && (
+            <CheckoutCancellationNotice summary={experienceCancellationSummary} />
+          )}
           <button
             type="button"
             disabled={paying || !user}
@@ -575,6 +640,12 @@ export function CheckoutContent({
                 </div>
               )}
 
+              {stayCancellationSummary && (
+                <div className="mb-4">
+                  <CheckoutCancellationNotice summary={stayCancellationSummary} />
+                </div>
+              )}
+
               <button
                 type="button"
                 disabled={paying || !quotePreview?.stayQuote}
@@ -602,7 +673,13 @@ export function CheckoutContent({
           </div>
         </div>
       </div>
-      <div className="lg:hidden fixed bottom-0 inset-x-0 z-50 border-t border-gray-200 bg-white/95 backdrop-blur-md px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3">
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-50 border-t border-gray-200 bg-white/95 backdrop-blur-md px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        {stayCancellationSummary && (
+          <div className="mb-2.5">
+            <CheckoutCancellationNotice summary={stayCancellationSummary} />
+          </div>
+        )}
+        <div className="flex items-center gap-3">
         <div className="min-w-0">
           <p className="text-[11px] text-gray-500">Total</p>
           <p className="text-base font-bold text-gray-900 tabular-nums leading-tight">
@@ -627,6 +704,7 @@ export function CheckoutContent({
             </>
           )}
         </button>
+        </div>
       </div>
     </div>
   );

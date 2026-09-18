@@ -1,7 +1,7 @@
 import {
   CONTENT_POLICY_SYNC_EVENT,
-  loadContentPolicy,
 } from "@/lib/admin/content-policy-data";
+import { loadContentPolicyClient } from "@/lib/admin/content-policy-api";
 import { announcementsForHost } from "@/lib/admin/announcement-audience";
 import { emitSyncEvent } from "@/lib/emit-sync-event";
 import { filterHostListings } from "@/lib/listings/host-listings-utils";
@@ -42,16 +42,17 @@ export function saveDismissedAnnouncementIds(hostId: string, ids: string[]) {
   }
 }
 
-export function countHostOverviewAnnouncements(
+export async function countHostOverviewAnnouncements(
   hostId?: string,
   hostName?: string
-): number {
+): Promise<number> {
   if (typeof window === "undefined") return 0;
 
   const dismissed = new Set(loadDismissedAnnouncementIds(hostId));
   const listings = filterHostListings(loadAllSubmissions(), hostId, hostName);
+  const policy = await loadContentPolicyClient();
   const fromPolicy = announcementsForHost(
-    loadContentPolicy().platformAnnouncements,
+    policy.platformAnnouncements,
     listings
   ).filter((announcement) => !dismissed.has(announcement.id));
 

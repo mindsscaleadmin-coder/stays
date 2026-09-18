@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useRouter } from "@/i18n/routing";
+import { Link, useRouter } from "@/i18n/routing";
 import {
   AlertTriangle,
   Award,
@@ -18,7 +18,6 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import { useAdminTrust } from "@/lib/admin/use-admin-trust";
 import type { FlatHostReview, TrustBadgeDefinition } from "@/lib/admin/trust-data";
 import { newBadgeCatalogId } from "@/lib/admin/trust-data";
@@ -124,6 +123,7 @@ export function AdminTrustContent() {
 
   const {
     ready,
+    shared,
     settings,
     reviews,
     hostFlags,
@@ -164,27 +164,51 @@ export function AdminTrustContent() {
     });
   }, [reviews, query, modFilter]);
 
+  const summary = useMemo(() => {
+    const visibleReviews = reviews.filter((r) => r.moderationStatus !== "removed").length;
+    const activeBadges = settings.badgeCatalog.filter((b) => b.enabled).length;
+    return {
+      totalReviews: reviews.length,
+      visibleReviews,
+      flaggedReviews: flaggedReviewCount,
+      flaggedHosts: flaggedHostCount,
+      pendingCerts: pendingCertCount,
+      activeBadges,
+    };
+  }, [
+    reviews,
+    flaggedReviewCount,
+    flaggedHostCount,
+    pendingCertCount,
+    settings.badgeCatalog,
+  ]);
+
   if (!ready) {
     return (
-      <AdminDashboardShell>
-        <div className="flex items-center justify-center min-h-[320px]">
+              <div className="flex items-center justify-center min-h-[320px]">
           <Loader2 className="w-8 h-8 animate-spin text-green-600" />
         </div>
-      </AdminDashboardShell>
+      
     );
   }
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
+          <div className="space-y-6">
         <div>
           <h2 className="text-xl font-bold text-gray-900 font-display">Reviews & Trust Management</h2>
           <p className="text-gray-500 text-sm mt-1">
-            Moderate guest reviews, flag unreliable hosts, and approve verification badges.
+            Moderate guest reviews, monitor flagged hosts, approve certification badges, and manage
+            the trust catalog. Changes sync to{" "}
+            <Link href="/host/get-verified" className="text-green-700 font-medium hover:underline">
+              Host → Get verified
+            </Link>{" "}
+            and public listing trust signals.
             {(flaggedReviewCount > 0 || pendingCertCount > 0) && (
               <span className="text-amber-600 font-medium">
-                {flaggedReviewCount > 0 && ` ${flaggedReviewCount} flagged review${flaggedReviewCount === 1 ? "" : "s"}.`}
-                {pendingCertCount > 0 && ` ${pendingCertCount} certificate${pendingCertCount === 1 ? "" : "s"} pending.`}
+                {flaggedReviewCount > 0 &&
+                  ` ${flaggedReviewCount} flagged review${flaggedReviewCount === 1 ? "" : "s"}.`}
+                {pendingCertCount > 0 &&
+                  ` ${pendingCertCount} certificate${pendingCertCount === 1 ? "" : "s"} pending.`}
               </span>
             )}
           </p>
@@ -194,18 +218,76 @@ export function AdminTrustContent() {
           <div className="bg-green-50 border border-green-200 text-green-800 text-sm rounded-xl px-4 py-3">{message}</div>
         )}
 
+        <section className="bg-gradient-to-br from-green-50 to-white rounded-2xl border border-green-100 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-green-800">
+                Live wiring
+              </p>
+              <p className="text-sm text-gray-600 mt-1">
+                India launch — NPOP organic, FSSAI, GST, and eco-tourism badges. Review moderation
+                updates guest-visible ratings; certificate approvals show on host profiles.
+              </p>
+            </div>
+            <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full bg-white border border-green-100 text-green-800">
+              {shared ? "Shared database" : "Local storage"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Reviews</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">
+                {summary.visibleReviews} visible · {summary.totalReviews} total
+              </p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Flagged reviews</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{summary.flaggedReviews}</p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Flagged hosts</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{summary.flaggedHosts}</p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Pending certs</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{summary.pendingCerts}</p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Badge types</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">
+                {summary.activeBadges} active · {settings.badgeCatalog.length} total
+              </p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Manual flags</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">
+                {settings.manualHostFlags.length} host
+                {settings.manualHostFlags.length === 1 ? "" : "s"}
+              </p>
+            </div>
+          </div>
+        </section>
+
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { label: "Total reviews", value: reviews.length, icon: MessageSquare },
-            { label: "Flagged reviews", value: flaggedReviewCount, icon: Flag },
-            { label: "Flagged hosts", value: flaggedHostCount, icon: ShieldAlert },
-            { label: "Pending certs", value: pendingCertCount, icon: Award },
-          ].map((s) => (
-            <div key={s.label} className="rounded-2xl border bg-white p-4 shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{s.label}</p>
-              <p className="text-2xl font-bold font-display text-gray-900 mt-1">{s.value}</p>
-            </div>
-          ))}
+            { label: "Total reviews", value: summary.totalReviews, icon: MessageSquare },
+            { label: "Flagged reviews", value: summary.flaggedReviews, icon: Flag },
+            { label: "Flagged hosts", value: summary.flaggedHosts, icon: ShieldAlert },
+            { label: "Pending certs", value: summary.pendingCerts, icon: Award },
+          ].map((s) => {
+            const Icon = s.icon;
+            return (
+              <div key={s.label} className="rounded-2xl border bg-white p-4 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Icon className="w-4 h-4 text-green-700" />
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                    {s.label}
+                  </p>
+                </div>
+                <p className="text-2xl font-bold font-display text-gray-900 mt-1">{s.value}</p>
+              </div>
+            );
+          })}
         </div>
 
         <div className="flex flex-wrap gap-2 border-b pb-1">
@@ -234,6 +316,10 @@ export function AdminTrustContent() {
 
         {activeTab === "reviews" && (
           <div className="space-y-4">
+            <p className="text-xs text-gray-500">
+              Remove abusive or fake reviews, flag suspicious content, or restore moderated reviews.
+              Visible reviews affect host ratings on listings and in the flagged-hosts tab.
+            </p>
             <div className="bg-white rounded-2xl border p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="relative">
                 <Search className="w-4 h-4 text-gray-400 absolute start-3 top-1/2 -translate-y-1/2" />
@@ -248,7 +334,11 @@ export function AdminTrustContent() {
             </div>
             <div className="space-y-3">
               {filteredReviews.length === 0 ? (
-                <div className="bg-white rounded-2xl border p-8 text-center text-sm text-gray-400">No reviews match.</div>
+                <div className="bg-white rounded-2xl border p-8 text-center text-sm text-gray-400">
+                  {reviews.length === 0
+                    ? "No guest reviews yet. Reviews appear here after completed bookings."
+                    : "No reviews match your filters."}
+                </div>
               ) : (
                 filteredReviews.map((r) => (
                   <ReviewCard
@@ -271,14 +361,26 @@ export function AdminTrustContent() {
 
         {activeTab === "hosts" && (
           <div className="space-y-3">
-            <p className="text-xs text-gray-500 flex items-start gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              Hosts are auto-flagged with 2+ poor reviews (≤2★) or average below 3.5★ with 3+ reviews.
-            </p>
+            <section className="bg-white rounded-2xl border p-4 space-y-2">
+              <p className="text-xs text-gray-500 flex items-start gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                Hosts are auto-flagged with 2+ poor reviews (≤2★) or average below 3.5★ with 3+
+                reviews. Manual flags persist until cleared here.
+              </p>
+              {summary.flaggedHosts > 0 && (
+                <p className="text-xs font-medium text-orange-700">
+                  {summary.flaggedHosts} host{summary.flaggedHosts === 1 ? "" : "s"} need attention.
+                </p>
+              )}
+            </section>
             {hostFlags.length === 0 ? (
-              <div className="bg-white rounded-2xl border p-8 text-center text-sm text-gray-400">No host review data.</div>
+              <div className="bg-white rounded-2xl border p-8 text-center text-sm text-gray-400">
+                No host review data yet.
+              </div>
             ) : (
-              hostFlags.map((h) => (
+              hostFlags
+                .filter((h) => h.totalReviews > 0 || settings.manualHostFlags.includes(h.hostId))
+                .map((h) => (
                 <article key={h.hostId} className={cn("bg-white rounded-2xl border p-4 sm:p-5", h.flagged && "border-orange-200 bg-orange-50/30")}>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
@@ -316,6 +418,13 @@ export function AdminTrustContent() {
 
         {activeTab === "certificates" && (
           <div className="space-y-3">
+            <p className="text-xs text-gray-500">
+              Hosts submit documents under{" "}
+              <Link href="/host/get-verified" className="text-green-700 font-medium hover:underline">
+                Get verified
+              </Link>
+              . Approved badges display on their listing trust panel.
+            </p>
             {pendingCerts.length === 0 ? (
               <div className="bg-white rounded-2xl border p-8 text-center">
                 <Award className="w-10 h-10 text-gray-300 mx-auto mb-3" />
@@ -373,8 +482,9 @@ export function AdminTrustContent() {
         {activeTab === "badges" && (
           <div className="space-y-4">
             <p className="text-xs text-gray-500">
-              Master badge types hosts can apply for on Verification &amp; Trust. Add, edit, enable,
-              or delete types here.
+              Master badge types hosts can apply for on Verification &amp; Trust. India defaults
+              include NPOP organic, FSSAI, GST, eco-tourism, and sustainable agriculture. Edits save
+              automatically.
             </p>
 
             <form
@@ -446,6 +556,7 @@ export function AdminTrustContent() {
                               next[index] = { ...badge, label: e.target.value };
                               saveBadges(next);
                             }}
+                            onBlur={() => flash(`${badge.label} label saved.`)}
                             className={inputClass}
                           />
                         </label>
@@ -460,6 +571,7 @@ export function AdminTrustContent() {
                               next[index] = { ...badge, description: e.target.value };
                               saveBadges(next);
                             }}
+                            onBlur={() => flash(`${badge.label} description saved.`)}
                             className={inputClass}
                           />
                         </label>
@@ -508,6 +620,6 @@ export function AdminTrustContent() {
           </div>
         )}
       </div>
-    </AdminDashboardShell>
+    
   );
 }

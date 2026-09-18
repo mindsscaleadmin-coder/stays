@@ -7,8 +7,8 @@ import { useHostNotifications } from "@/lib/host/use-host-notifications";
 import { useHostSubmissions } from "@/lib/listings/use-listing-submissions";
 import {
   CONTENT_POLICY_SYNC_EVENT,
-  loadContentPolicy,
 } from "@/lib/admin/content-policy-data";
+import { loadContentPolicyClient } from "@/lib/admin/content-policy-api";
 import { announcementsForHost } from "@/lib/admin/announcement-audience";
 import type { PlatformAnnouncement } from "@/lib/admin/content-policy-types";
 import {
@@ -37,16 +37,20 @@ export function HostOverviewAnnouncements({
   const [dismissed, setDismissed] = useState<string[]>([]);
 
   useEffect(() => {
-    function refresh() {
-      setAnnouncements(loadContentPolicy().platformAnnouncements);
+    async function refresh() {
+      const policy = await loadContentPolicyClient();
+      setAnnouncements(policy.platformAnnouncements);
       setDismissed(loadDismissedAnnouncementIds(hostId));
     }
-    refresh();
-    window.addEventListener(CONTENT_POLICY_SYNC_EVENT, refresh);
-    window.addEventListener("storage", refresh);
+    void refresh();
+    function onSync() {
+      void refresh();
+    }
+    window.addEventListener(CONTENT_POLICY_SYNC_EVENT, onSync);
+    window.addEventListener("storage", onSync);
     return () => {
-      window.removeEventListener(CONTENT_POLICY_SYNC_EVENT, refresh);
-      window.removeEventListener("storage", refresh);
+      window.removeEventListener(CONTENT_POLICY_SYNC_EVENT, onSync);
+      window.removeEventListener("storage", onSync);
     };
   }, [hostId]);
 

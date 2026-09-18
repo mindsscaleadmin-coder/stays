@@ -15,7 +15,7 @@ describe("computeBookingQuote", () => {
       currency: "INR",
     });
     expect(quote.nights).toBe(3);
-    expect(quote.total).toBe(1100);
+    expect(quote.total).toBe(1050);
     expect(quote.currency).toBe("INR");
     expect(quote.lines).toHaveLength(4);
   });

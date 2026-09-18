@@ -1,6 +1,12 @@
 import type { Country as TaxonomyCountry } from "@/lib/admin/taxonomy-types";
 import { ALL_COUNTRIES, type Country as PlatformCountry } from "@/lib/mock/countries";
 import { BASE_CURRENCY } from "@/lib/currency";
+import {
+  LAUNCH_COUNTRY_NAME,
+  LAUNCH_CURRENCY,
+  LAUNCH_TAX_LABEL,
+  LAUNCH_TAX_PCT,
+} from "@/lib/tax/launch-market";
 
 /** Common listing country name aliases → ISO code for lookup. */
 const COUNTRY_NAME_ALIASES: Record<string, string> = {
@@ -79,8 +85,8 @@ export function countryPricingConfig(country: TaxonomyCountry): CountryPricingCo
     currency: country.currency ?? BASE_CURRENCY,
     currencySymbol: country.currencySymbol ?? "د.إ",
     exchangeRateToAED: country.exchangeRateToAED ?? 1,
-    taxPct: country.taxPct ?? 5,
-    taxLabel: country.taxLabel ?? "VAT",
+    taxPct: country.taxPct ?? LAUNCH_TAX_PCT,
+    taxLabel: country.taxLabel ?? LAUNCH_TAX_LABEL,
   };
 }
 
@@ -97,13 +103,13 @@ export function resolveCountryPricingConfig(
   if (!match) {
     return {
       countryId: "",
-      countryName: "United Arab Emirates",
-      flag: "🇦🇪",
-      currency: BASE_CURRENCY,
-      currencySymbol: "د.إ",
-      exchangeRateToAED: 1,
-      taxPct: 5,
-      taxLabel: "VAT",
+      countryName: LAUNCH_COUNTRY_NAME,
+      flag: "🇮🇳",
+      currency: LAUNCH_CURRENCY,
+      currencySymbol: "₹",
+      exchangeRateToAED: 0.043,
+      taxPct: LAUNCH_TAX_PCT,
+      taxLabel: LAUNCH_TAX_LABEL,
     };
   }
 

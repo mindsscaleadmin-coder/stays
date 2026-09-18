@@ -78,9 +78,20 @@ export interface CmsSettings {
   contentSections: CmsContentSection[];
 }
 
-export interface ContentPolicySettings {
+export interface ParentCategoryPolicyPack {
+  parentId: string;
+  parentName: string;
   houseRuleTemplates: HouseRuleTemplate[];
   cancellationPolicies: CancellationPolicyOption[];
+}
+
+export interface ContentPolicySettings {
+  /** House rules + cancellation tiers per parent category (Stays, Experiences, Events, Dining). */
+  parentPolicyPacks: ParentCategoryPolicyPack[];
+  /** @deprecated Migrated into parentPolicyPacks — kept for legacy localStorage reads. */
+  houseRuleTemplates?: HouseRuleTemplate[];
+  /** @deprecated Migrated into parentPolicyPacks — kept for legacy localStorage reads. */
+  cancellationPolicies?: CancellationPolicyOption[];
   platformAnnouncements: PlatformAnnouncement[];
   messageTemplates: MessageTemplate[];
   cms: CmsSettings;

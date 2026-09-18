@@ -53,7 +53,18 @@ export function groupDailyOps(bookings: HostBookingRecord[], today = todayIso())
       b.checkOut > today
   );
   const upcoming = bookings
-    .filter((b) => b.status === "confirmed" && b.checkIn > today && b.checkIn <= weekEnd)
+    .filter((b) => {
+      if (b.status !== "confirmed" && b.status !== "pending") return false;
+      if (b.checkIn < today || b.checkIn > weekEnd) return false;
+      if (b.status !== "confirmed") return true;
+      const isTodayArrival =
+        b.checkIn === today && b.checkInStatus !== "checked_out";
+      const isTodayDeparture =
+        b.checkOut === today &&
+        (b.checkInStatus === "checked_in" || b.checkInStatus === "pending");
+      const isOnProperty = b.checkIn < today && b.checkOut > today;
+      return !(isTodayArrival || isTodayDeparture || isOnProperty);
+    })
     .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
 
   return { pending, arrivals, departures, onProperty, upcoming };

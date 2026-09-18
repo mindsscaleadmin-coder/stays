@@ -14,6 +14,13 @@ import { loadAllSubmissions } from "@/lib/listings/submission-data";
 const STORAGE_KEY = "farm-stays-host-notifications";
 export const HOST_NOTIFICATIONS_SYNC_EVENT = "farm-stays-host-notifications-updated";
 
+/** Legacy demo seed rows — strip so sidebar/inbox don't show fake unread alerts. */
+const DEMO_ALERT_IDS = new Set(["n-1", "n-2", "n-3", "n-4"]);
+
+function withoutDemoAlerts(alerts: HostNotificationAlert[]): HostNotificationAlert[] {
+  return alerts.filter((alert) => !DEMO_ALERT_IDS.has(alert.id));
+}
+
 export function defaultHostNotifications(hostId: string): HostNotificationsData {
   return {
     hostId,
@@ -23,43 +30,7 @@ export function defaultHostNotifications(hostId: string): HostNotificationsData 
       reviewsPosted: true,
       policyUpdates: true,
     },
-    alerts: [
-      {
-        id: "n-1",
-        type: "booking",
-        title: "New booking request",
-        message: "Sarah Ahmed requested 3 nights at Green Valley Farmhouse.",
-        date: "2026-07-20T09:15:00",
-        read: false,
-        href: "/host/bookings",
-      },
-      {
-        id: "n-2",
-        type: "payment",
-        title: "Payment received",
-        message: "AED 6,118 payout for booking GF-M9O2T4 is processing.",
-        date: "2026-07-19T14:30:00",
-        read: false,
-        href: "/host/accounts",
-      },
-      {
-        id: "n-3",
-        type: "review",
-        title: "New guest review",
-        message: "Mehul Joshi left a 5-star review for Green Valley Farmhouse.",
-        date: "2026-07-15T11:00:00",
-        read: true,
-        href: "/host/reviews",
-      },
-      {
-        id: "n-4",
-        type: "policy",
-        title: "Platform policy update",
-        message: "Updated cancellation policy for farm stays — review by Aug 1.",
-        date: "2026-07-10T08:00:00",
-        read: true,
-      },
-    ],
+    alerts: [],
   };
 }
 
@@ -86,9 +57,18 @@ function writeAll(map: Record<string, HostNotificationsData>) {
 }
 
 export function loadHostNotifications(hostId: string): HostNotificationsData {
+  const defaults = defaultHostNotifications(hostId);
   const stored = readAll()[hostId];
-  if (!stored) return defaultHostNotifications(hostId);
-  return { ...defaultHostNotifications(hostId), ...stored, hostId };
+  if (!stored) return defaults;
+  return {
+    ...defaults,
+    ...stored,
+    hostId,
+    prefs: { ...defaults.prefs, ...stored.prefs },
+    alerts: withoutDemoAlerts(
+      Array.isArray(stored.alerts) ? stored.alerts : defaults.alerts
+    ),
+  };
 }
 
 export function saveNotificationPrefs(

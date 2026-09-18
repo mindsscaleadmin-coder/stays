@@ -14,7 +14,6 @@ import {
   Shield,
   User,
 } from "lucide-react";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import {
   buildHostListingStats,
   listingsForHost,
@@ -213,8 +212,7 @@ export function AdminUserDetailContent({ userId }: { userId: string }) {
 
   if (users.length > 0 && !user) {
     return (
-      <AdminDashboardShell>
-        <div className="bg-white rounded-2xl border p-8 text-center max-w-lg">
+              <div className="bg-white rounded-2xl border p-8 text-center max-w-lg">
           <h2 className="text-lg font-bold text-gray-900 mb-2">User not found</h2>
           <p className="text-sm text-gray-500 mb-4">
             This user may have been removed or the link is invalid.
@@ -223,17 +221,16 @@ export function AdminUserDetailContent({ userId }: { userId: string }) {
             Back to Users
           </Link>
         </div>
-      </AdminDashboardShell>
+      
     );
   }
 
   if (!user) {
     return (
-      <AdminDashboardShell>
-        <div className="bg-white rounded-2xl border p-8 text-center text-sm text-gray-400">
+              <div className="bg-white rounded-2xl border p-8 text-center text-sm text-gray-400">
           Loading user details…
         </div>
-      </AdminDashboardShell>
+      
     );
   }
 
@@ -244,8 +241,7 @@ export function AdminUserDetailContent({ userId }: { userId: string }) {
   ).length;
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
+          <div className="space-y-6">
         <div>
           <Link
             href="/admin/users"
@@ -630,6 +626,6 @@ export function AdminUserDetailContent({ userId }: { userId: string }) {
           </section>
         )}
       </div>
-    </AdminDashboardShell>
+    
   );
 }

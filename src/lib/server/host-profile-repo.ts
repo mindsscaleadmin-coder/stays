@@ -3,6 +3,10 @@ import {
   defaultHostPublicProfile,
 } from "@/lib/host/host-profile-data";
 import type { HostPublicProfile, HostPublicProfileInput } from "@/lib/host/host-profile-types";
+import { isHostDirectoryPublic } from "@/lib/host/directory-billing";
+import { eventsDirectoryIsFree } from "@/lib/admin/events-subscription";
+import { getFinancialSettingsFromDb } from "@/lib/server/platform-catalog-repo";
+import { mergeHostProfileSubscriptionFields } from "@/lib/host/merge-host-profile-fields";
 import { isEventsSubscriptionActive } from "@/lib/host/events-subscription";
 
 function parsePayload(raw: string): Omit<HostPublicProfile, "hostId"> {
@@ -92,10 +96,7 @@ export async function saveHostProfile(
     logoWidth: input.logoWidth,
     logoHeight: input.logoHeight,
     instantBookEnabled: true,
-    eventsSubscriptionExpiresAt:
-      input.eventsSubscriptionExpiresAt !== undefined
-        ? input.eventsSubscriptionExpiresAt.trim() || undefined
-        : stored?.eventsSubscriptionExpiresAt,
+    ...mergeHostProfileSubscriptionFields(input, stored),
   };
 
   const { hostId: _, ...payload } = next;
@@ -114,22 +115,73 @@ export async function isHostInstantBookEnabled(_hostId: string): Promise<boolean
 }
 
 export async function listEventSubscribedHostIds(now = new Date()): Promise<string[]> {
+  return listDirectorySubscribedHostIds("events", now);
+}
+
+export async function listDiningSubscribedHostIds(now = new Date()): Promise<string[]> {
+  return listDirectorySubscribedHostIds("dining", now);
+}
+
+async function listDirectorySubscribedHostIds(
+  vertical: "events" | "dining",
+  now = new Date()
+): Promise<string[]> {
+  let globalFree = true;
+  try {
+    const settings = await getFinancialSettingsFromDb();
+    globalFree = eventsDirectoryIsFree(settings.eventsSubscription);
+  } catch {
+    globalFree = true;
+  }
+
   const rows = await prisma.hostProfile.findMany({ select: { hostId: true, payload: true } });
+  const hostIdsWithProfile = new Set(rows.map((row) => row.hostId));
   const ids: string[] = [];
+
   for (const row of rows) {
     try {
-      const stored = parsePayload(row.payload);
-      if (isEventsSubscriptionActive(stored.eventsSubscriptionExpiresAt, now)) {
+      const profile = mergeProfile(row.hostId, parsePayload(row.payload));
+      if (isHostDirectoryPublic(profile, vertical, globalFree, now)) {
         ids.push(row.hostId);
       }
     } catch {
       // skip
     }
   }
-  return ids;
+
+  if (globalFree) {
+    const users = await prisma.user.findMany({
+      where: { roles: { contains: "host" } },
+      select: { id: true },
+    });
+    for (const user of users) {
+      if (hostIdsWithProfile.has(user.id)) continue;
+      ids.push(user.id);
+    }
+  }
+
+  return Array.from(new Set(ids));
 }
 
 export async function isHostEventsSubscriptionActive(hostId: string): Promise<boolean> {
+  return isHostDirectorySubscriptionActive(hostId, "events");
+}
+
+export async function isHostDiningSubscriptionActive(hostId: string): Promise<boolean> {
+  return isHostDirectorySubscriptionActive(hostId, "dining");
+}
+
+export async function isHostDirectorySubscriptionActive(
+  hostId: string,
+  vertical: "events" | "dining"
+): Promise<boolean> {
   const profile = await getHostProfile(hostId);
-  return isEventsSubscriptionActive(profile?.eventsSubscriptionExpiresAt);
+  let globalFree = true;
+  try {
+    const settings = await getFinancialSettingsFromDb();
+    globalFree = eventsDirectoryIsFree(settings.eventsSubscription);
+  } catch {
+    globalFree = true;
+  }
+  return isHostDirectoryPublic(profile, vertical, globalFree);
 }

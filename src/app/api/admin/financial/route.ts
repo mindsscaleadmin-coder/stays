@@ -15,7 +15,7 @@ import { requireAdmin } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
 import type { FinancialSettings, RefundRequest } from "@/lib/admin/financial-types";
 import { getPlatformLedger } from "@/lib/server/host-accounts-repo";
-import { refundBooking } from "@/lib/booking/booking-ops";
+import { refundBooking, rejectPendingRefund } from "@/lib/booking/booking-ops";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +92,12 @@ export async function PATCH(request: Request) {
             bookingId,
             actor: "admin",
             reason: typeof body.reviewNote === "string" ? body.reviewNote : "Admin approved refund",
+          });
+        } else if (body.status === "rejected") {
+          await rejectPendingRefund({
+            bookingId,
+            actor: "Admin",
+            reason: typeof body.reviewNote === "string" ? body.reviewNote : undefined,
           });
         }
       }

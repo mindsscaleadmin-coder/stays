@@ -136,9 +136,9 @@ export function HostLoginContent() {
       </form>
 
       <p className="mt-6 text-center text-xs text-gray-400">
-        <a href="/" className="hover:text-gray-600 hover:underline">
+        <Link href="/" className="hover:text-gray-600 hover:underline">
           {t("backToSite")}
-        </a>
+        </Link>
       </p>
     </HostAuthShell>
   );

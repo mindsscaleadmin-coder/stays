@@ -139,6 +139,7 @@ export function SubmissionListingLoader({ id }: { id: string }) {
         livestockCrops={listing.livestockCrops}
         houseRules={listing.houseRules}
         mapEmbedUrl={listing.mapEmbedUrl || undefined}
+        nearbyPlaces={listing.nearbyPlaces ?? []}
         previewMode={isPreview}
         rooms={rooms}
         guestParty={readGuestPartyFromFilters(listing.customFilters, stay.guests)}

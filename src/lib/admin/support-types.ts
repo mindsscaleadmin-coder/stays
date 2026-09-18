@@ -40,4 +40,4 @@ export interface SupportTicketRecord {
   communicationLogs: CommunicationLog[];
 }
 
-export interface FlatSupportTicket extends SupportTicketRecord {}
+export type FlatSupportTicket = SupportTicketRecord;

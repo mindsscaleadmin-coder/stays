@@ -31,6 +31,7 @@ model User {
   hostAddons        HostAddons?
   hostAnalytics     HostAnalytics?
   hostAccounts      HostAccounts?
+  hostBookingOps    HostBookingOps[]
 
   @@index([createdAt])
 }
@@ -140,7 +141,12 @@ model Booking {
   refundPercent Int?
   refundAmount  Float?
   stripeSessionId String?
+  stripePaymentIntentId String?
   stripeRefundId  String?
+  /// JSON GuestQuoteSnapshot — guest invoice line items
+  guestQuoteSnapshot String?
+  /// JSON FinancialSnapshot — internal ledger fields at payment
+  financialSnapshot String?
   /// pending | checked_in | checked_out
   checkInStatus String    @default("pending")
   checkedInAt   DateTime?
@@ -340,10 +346,31 @@ model HostStaff {
   password    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  assignedBookingOps HostBookingOps[]
 
   @@unique([hostId, email])
   @@index([email])
   @@index([hostId])
+}
+
+/// Host-only operational metadata for bookings and event enquiries (staff, notes, manual completion).
+model HostBookingOps {
+  id              String    @id @default(cuid())
+  hostId          String
+  host            User      @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  /// booking | event_request
+  sourceType      String
+  sourceId        String
+  assignedStaffId String?
+  assignedStaff   HostStaff? @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  privateNotes    String?
+  /// Manual completion for event enquiries (bookings use Booking.status).
+  completedAt     DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([sourceType, sourceId])
+  @@index([hostId])
+  @@index([hostId, assignedStaffId])
 }
 
 /// Host notification prefs + inbox alerts

@@ -115,6 +115,8 @@ export interface SubmittedListing {
   flashDealCurrency?: string;
   /** Google Maps / OSM embed URL for the listing location section */
   mapEmbedUrl?: string;
+  /** Optional travel-time hints shown on the location section (e.g. Airport — 45 mins). */
+  nearbyPlaces?: { label: string; duration: string }[];
   /** Experience listings — sequenced activity steps */
   itinerary?: { step: number; title: string; description?: string }[];
   /** Experience — where guests meet / pickup details */
@@ -159,6 +161,7 @@ export interface SubmitListingInput {
   cancellationPolicyId?: string;
   rooms?: ListingRoom[];
   mapEmbedUrl?: string;
+  nearbyPlaces?: { label: string; duration: string }[];
   itinerary?: { step: number; title: string; description?: string }[];
   meetingPoint?: string;
   requirements?: string;

@@ -19,9 +19,54 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { ListPropertyLink } from "@/components/auth/list-property-link";
 import { getInitials } from "@/lib/auth/types";
 import {
+  isAdminDashboardPath,
   isDashboardChromePath,
 } from "@/lib/layout/dashboard-chrome";
 import { cn } from "@/lib/utils";
+import { GuestCartProfileDot } from "@/lib/guest/guest-cart-badge";
+import { GuestFavoritesProfileDot } from "@/lib/guest/guest-favorites-badge";
+import { GUEST_HEADER_QUICK_LINKS } from "@/lib/guest/guest-nav";
+import {
+  clearAllProfileNotices,
+  clearCartProfileNotice,
+  clearFavoritesProfileNotice,
+} from "@/lib/guest/guest-profile-notice-events";
+import type { DashboardNavItem } from "@/components/dashboard/dashboard-shell";
+
+function GuestHeaderQuickLinks({
+  items,
+  onNavigate,
+  className,
+}: {
+  items: DashboardNavItem[];
+  onNavigate: (href: string) => void;
+  className?: string;
+}) {
+  return (
+    <>
+      {items.map((item) => {
+        const Icon = item.icon;
+        const Trailing = item.Trailing;
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            role="menuitem"
+            onClick={() => onNavigate(item.href)}
+            className={cn(
+              "flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors",
+              className
+            )}
+          >
+            {Icon ? <Icon className="w-4 h-4 shrink-0 text-gray-400" /> : null}
+            <span className="flex-1 truncate">{item.label}</span>
+            {Trailing ? <Trailing /> : null}
+          </Link>
+        );
+      })}
+    </>
+  );
+}
 
 function CountrySwitcher() {
   const { country, setCountry, enabledCountries, allCountries } = useCountry();
@@ -173,6 +218,7 @@ export function Header() {
   const router = useRouter();
   const { user, loading, isAdmin, isHost, signOut } = useAuth();
   const dashboardChrome = isDashboardChromePath(pathname);
+  const adminDashboard = isAdminDashboardPath(pathname);
   const [hostHref, setHostHref] = useState("/host/login");
   const [profileHref, setProfileHref] = useState("/account");
   const [verifyHref, setVerifyHref] = useState("/account/verify");
@@ -214,6 +260,17 @@ export function Header() {
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
+  useEffect(() => {
+    if (pathname.endsWith("/cart") || pathname.includes("/cart/")) {
+      clearCartProfileNotice();
+    }
+    if (pathname.includes("/account")) {
+      const tab = new URLSearchParams(window.location.search).get("tab");
+      if (tab === "favorites") clearFavoritesProfileNotice();
+      if (tab === "bookings") clearAllProfileNotices();
+    }
+  }, [pathname]);
+
   async function handleSignOut() {
     await signOut();
     setMenuOpen(false);
@@ -244,34 +301,49 @@ export function Header() {
         </Link>
 
         <div className="flex items-center gap-2 shrink-0 ms-auto">
-          <CountrySwitcher />
-          <Link
-            href={isAdmin ? "/admin" : "/admin/login"}
-            className="hidden lg:flex items-center gap-1 border border-gray-200 hover:border-green-400 text-gray-500 hover:text-green-700 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
-          >
-            <LayoutDashboard className="w-3.5 h-3.5" /> {t("admin")}
-          </Link>
-          <Link
-            href={hostHref}
-            className="hidden lg:flex items-center gap-1 border border-gray-200 hover:border-green-400 text-gray-500 hover:text-green-700 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
-          >
-            <Home className="w-3.5 h-3.5" /> {t("host")}
-          </Link>
-          <ListPropertyLink className="hidden lg:inline-flex items-center gap-1.5 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
-            {t("listProperty")}
-          </ListPropertyLink>
+          {!adminDashboard ? <CountrySwitcher /> : null}
+          {!adminDashboard ? (
+            <Link
+              href={isAdmin ? "/admin" : "/admin/login"}
+              className="hidden lg:flex items-center gap-1 border border-gray-200 hover:border-green-400 text-gray-500 hover:text-green-700 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" /> {t("admin")}
+            </Link>
+          ) : null}
+          {!adminDashboard ? (
+            <Link
+              href={hostHref}
+              className="hidden lg:flex items-center gap-1 border border-gray-200 hover:border-green-400 text-gray-500 hover:text-green-700 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+            >
+              <Home className="w-3.5 h-3.5" /> {t("host")}
+            </Link>
+          ) : null}
+          {!adminDashboard ? (
+            <ListPropertyLink className="hidden lg:inline-flex items-center gap-1.5 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+              {t("listProperty")}
+            </ListPropertyLink>
+          ) : null}
           {!loading && user ? (
             <div ref={userMenuRef} className="relative">
               <button
                 type="button"
-                onClick={() => setUserMenuOpen((v) => !v)}
+                onClick={() => {
+                  if (!userMenuOpen) clearAllProfileNotices();
+                  setUserMenuOpen(!userMenuOpen);
+                }}
                 className="flex items-center gap-2 p-1.5 pe-2.5 rounded-lg hover:bg-gray-100 transition-colors"
                 title={user.fullName}
                 aria-expanded={userMenuOpen}
                 aria-haspopup="menu"
               >
-                <div className="w-8 h-8 bg-green-700 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                <div className="relative w-8 h-8 bg-green-700 rounded-full flex items-center justify-center text-white text-xs font-bold">
                   {getInitials(user.fullName)}
+                  {!isAdmin && (
+                    <>
+                      <GuestFavoritesProfileDot />
+                      <GuestCartProfileDot />
+                    </>
+                  )}
                 </div>
                 <span className="hidden lg:block text-sm font-medium text-gray-700 max-w-[100px] truncate">
                   {user.fullName.split(" ")[0]}
@@ -298,6 +370,16 @@ export function Header() {
                     <User className="w-4 h-4 text-gray-400" />
                     {tAccount("tabs.profile")}
                   </Link>
+                  {!isAdmin && (
+                    <GuestHeaderQuickLinks
+                      items={GUEST_HEADER_QUICK_LINKS}
+                      onNavigate={(href) => {
+                        setUserMenuOpen(false);
+                        if (href === "/cart") clearCartProfileNotice();
+                        if (href.includes("tab=favorites")) clearFavoritesProfileNotice();
+                      }}
+                    />
+                  )}
                   {isHost && !isAdmin && (
                     <Link
                       href={verifyHref}
@@ -374,6 +456,17 @@ export function Header() {
                   <User className="w-4 h-4" />
                   {tAccount("tabs.profile")}
                 </Link>
+                {!isAdmin && (
+                  <GuestHeaderQuickLinks
+                    items={GUEST_HEADER_QUICK_LINKS}
+                    onNavigate={(href) => {
+                      setMenuOpen(false);
+                      if (href === "/cart") clearCartProfileNotice();
+                      if (href.includes("tab=favorites")) clearFavoritesProfileNotice();
+                    }}
+                    className="justify-center border border-gray-200 text-gray-700 hover:border-green-400 hover:text-green-700 rounded-xl"
+                  />
+                )}
                 {isHost && !isAdmin && (
                   <Link
                     href={verifyHref}

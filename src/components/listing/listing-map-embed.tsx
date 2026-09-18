@@ -1,4 +1,4 @@
-/** Non-interactive map preview for guest listing pages. */
+/** Non-interactive map preview for guest listing pages (demo only — not draggable or clickable). */
 export function ListingMapEmbed({
   src,
   title,
@@ -9,16 +9,25 @@ export function ListingMapEmbed({
   className?: string;
 }) {
   return (
-    <div className={`relative ${className ?? ""}`} role="img" aria-label={title}>
+    <div
+      className={`relative select-none touch-none ${className ?? ""}`}
+      role="img"
+      aria-label={title}
+    >
       <iframe
         title={title}
         src={src}
-        className="pointer-events-none absolute inset-0 h-full w-full border-0"
+        className="pointer-events-none absolute inset-0 z-0 h-full w-full border-0"
         loading="lazy"
         referrerPolicy="no-referrer-when-downgrade"
         tabIndex={-1}
+        aria-hidden="true"
       />
-      <div className="absolute inset-0 cursor-default" aria-hidden="true" />
+      <div
+        className="absolute inset-0 z-10 cursor-default"
+        aria-hidden="true"
+        onContextMenu={(e) => e.preventDefault()}
+      />
     </div>
   );
 }

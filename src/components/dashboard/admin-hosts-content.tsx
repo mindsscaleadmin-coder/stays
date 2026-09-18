@@ -16,7 +16,6 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import {
   buildHostListingStats,
   listingsForHost,
@@ -566,8 +565,7 @@ export function AdminHostsContent() {
   }
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
+          <div className="space-y-6">
         <div>
           <h2 className="text-xl font-bold text-gray-900 font-display">Host Control Panel</h2>
           <p className="text-gray-500 text-sm mt-1">
@@ -871,6 +869,6 @@ export function AdminHostsContent() {
           </div>
         )}
       </div>
-    </AdminDashboardShell>
+    
   );
 }

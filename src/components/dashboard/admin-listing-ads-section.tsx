@@ -7,8 +7,12 @@ import { useListingAds } from "@/lib/admin/use-listing-ads";
 const fieldClass =
   "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500";
 
-export function AdminListingAdsSection() {
+export function AdminListingAdsSection({ onNotice }: { onNotice?: (message: string) => void }) {
   const { ready, settings, updateAd, addAd, removeAd } = useListingAds();
+
+  function notice(text: string) {
+    onNotice?.(text);
+  }
 
   if (!ready || !settings) {
     return <p className="text-sm text-gray-400">Loading ads…</p>;
@@ -20,13 +24,15 @@ export function AdminListingAdsSection() {
         <div>
           <h3 className="font-display font-semibold text-gray-900">Listings sidebar</h3>
           <p className="text-sm text-gray-500 mt-0.5">
-            Ads shown on the search results column. Tall fills the sponsored card; short
-            fills the smaller slot.
+            Wired to search results — tall fills the sponsored card; short fills the smaller slot.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => addAd(emptyListingAd())}
+          onClick={() => {
+            addAd(emptyListingAd());
+            notice("Sidebar ad added.");
+          }}
           className="inline-flex items-center gap-1.5 text-sm font-semibold text-green-800 border border-green-200 hover:bg-green-50 px-3 py-1.5 rounded-lg"
         >
           <Plus className="w-4 h-4" /> Add ad
@@ -47,18 +53,22 @@ export function AdminListingAdsSection() {
                   <input
                     type="checkbox"
                     checked={ad.enabled}
-                    onChange={(e) => updateAd(ad.id, { enabled: e.target.checked })}
+                    onChange={(e) => {
+                      updateAd(ad.id, { enabled: e.target.checked });
+                      notice(`Ad ${e.target.checked ? "enabled" : "disabled"}.`);
+                    }}
                     className="rounded border-gray-300 text-green-600 focus:ring-green-500"
                   />
                   On
                 </label>
                 <select
                   value={ad.placement}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     updateAd(ad.id, {
                       placement: e.target.value === "short" ? "short" : "tall",
-                    })
-                  }
+                    });
+                    notice("Ad placement saved.");
+                  }}
                   className="border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm bg-white"
                 >
                   <option value="tall">Tall (sponsored)</option>
@@ -66,7 +76,10 @@ export function AdminListingAdsSection() {
                 </select>
                 <button
                   type="button"
-                  onClick={() => removeAd(ad.id)}
+                  onClick={() => {
+                    removeAd(ad.id);
+                    notice("Ad removed.");
+                  }}
                   className="ms-auto inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:text-red-800"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Remove
@@ -78,6 +91,7 @@ export function AdminListingAdsSection() {
                   <input
                     value={ad.eyebrow}
                     onChange={(e) => updateAd(ad.id, { eyebrow: e.target.value })}
+                    onBlur={() => notice("Ad saved.")}
                     className={fieldClass}
                   />
                 </label>
@@ -86,6 +100,7 @@ export function AdminListingAdsSection() {
                   <input
                     value={ad.title}
                     onChange={(e) => updateAd(ad.id, { title: e.target.value })}
+                    onBlur={() => notice("Ad saved.")}
                     className={fieldClass}
                   />
                 </label>
@@ -95,6 +110,7 @@ export function AdminListingAdsSection() {
                 <textarea
                   value={ad.body}
                   onChange={(e) => updateAd(ad.id, { body: e.target.value })}
+                  onBlur={() => notice("Ad saved.")}
                   rows={2}
                   className={`${fieldClass} resize-y`}
                 />
@@ -107,6 +123,7 @@ export function AdminListingAdsSection() {
                   <input
                     value={ad.ctaLabel}
                     onChange={(e) => updateAd(ad.id, { ctaLabel: e.target.value })}
+                    onBlur={() => notice("Ad saved.")}
                     className={fieldClass}
                   />
                 </label>
@@ -117,6 +134,7 @@ export function AdminListingAdsSection() {
                   <input
                     value={ad.ctaHref}
                     onChange={(e) => updateAd(ad.id, { ctaHref: e.target.value })}
+                    onBlur={() => notice("Ad saved.")}
                     className={fieldClass}
                   />
                 </label>
@@ -128,6 +146,7 @@ export function AdminListingAdsSection() {
                 <input
                   value={ad.imageUrl}
                   onChange={(e) => updateAd(ad.id, { imageUrl: e.target.value })}
+                  onBlur={() => notice("Ad saved.")}
                   placeholder="https://…"
                   className={fieldClass}
                 />

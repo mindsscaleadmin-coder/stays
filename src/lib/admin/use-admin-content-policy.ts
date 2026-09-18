@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { loadActiveSubmissions } from "@/lib/listings/submission-data";
-import { HOST_NOTIFICATIONS_SYNC_EVENT } from "@/lib/host/host-notifications-data";
+import { HOST_NOTIFICATIONS_SYNC_EVENT, pushPolicyAlertToAllHosts } from "@/lib/host/host-notifications-data";
 import {
   broadcastPolicyAlertViaApi,
   shouldUseSharedHostNotifications,
@@ -11,14 +11,22 @@ import {
   CONTENT_POLICY_SYNC_EVENT,
   countDraftAnnouncements,
   countDisabledTemplates,
-  createAndPushAnnouncement,
   getDefaultHouseRulesFromTemplates,
+  getEnabledHouseRuleTemplates,
   getHostSelectableCancellationPolicies,
   loadContentPolicy,
+  mergeParentPolicyPacks,
+  normalizeContentPolicy,
   newContentPolicyId,
-  pushPlatformAnnouncement,
   saveContentPolicy,
+  syncFeaturedListings,
+  CMS_HOMEPAGE_BLOCK_CATALOG,
 } from "./content-policy-data";
+import {
+  loadContentPolicyClient,
+  saveContentPolicyToApi,
+  shouldUseSharedContentPolicy,
+} from "./content-policy-api";
 import { PLATFORM_CONFIG_SYNC_EVENT } from "./platform-config-data";
 import type {
   BlogPost,
@@ -28,40 +36,68 @@ import type {
   MessageTemplate,
   PlatformAnnouncement,
   CancellationPolicyOption,
+  CmsContentSection,
 } from "./content-policy-types";
 import { normalizeAnnouncementAudience } from "./announcement-audience";
 
-export function useAdminContentPolicy() {
-  const [settings, setSettings] = useState<ContentPolicySettings>(() => loadContentPolicy());
-  const [ready, setReady] = useState(true);
+export function useAdminContentPolicy(taxonomyParents?: { id: string; name: string }[]) {
+  const [settings, setSettings] = useState<ContentPolicySettings>(() =>
+    loadContentPolicy(taxonomyParents)
+  );
+  const [ready, setReady] = useState(false);
+  const shared = shouldUseSharedContentPolicy();
 
-  const refresh = useCallback(() => {
-    setSettings(loadContentPolicy());
-  }, []);
+  const refresh = useCallback(async () => {
+    setSettings(await loadContentPolicyClient(taxonomyParents));
+    setReady(true);
+  }, [taxonomyParents]);
 
   useEffect(() => {
-    refresh();
-    setReady(true);
+    void refresh();
     function onSync() {
-      refresh();
+      void refresh();
     }
-    window.addEventListener(CONTENT_POLICY_SYNC_EVENT, refresh);
-    window.addEventListener(HOST_NOTIFICATIONS_SYNC_EVENT, refresh);
+    window.addEventListener(CONTENT_POLICY_SYNC_EVENT, onSync);
+    window.addEventListener(HOST_NOTIFICATIONS_SYNC_EVENT, onSync);
     window.addEventListener("storage", onSync);
     return () => {
-      window.removeEventListener(CONTENT_POLICY_SYNC_EVENT, refresh);
-      window.removeEventListener(HOST_NOTIFICATIONS_SYNC_EVENT, refresh);
+      window.removeEventListener(CONTENT_POLICY_SYNC_EVENT, onSync);
+      window.removeEventListener(HOST_NOTIFICATIONS_SYNC_EVENT, onSync);
       window.removeEventListener("storage", onSync);
     };
   }, [refresh]);
 
-  const patch = useCallback((updater: (prev: ContentPolicySettings) => ContentPolicySettings) => {
-    setSettings((prev) => {
-      const next = updater(prev);
+  const persist = useCallback(
+    async (next: ContentPolicySettings) => {
+      if (shared) {
+        try {
+          const saved = await saveContentPolicyToApi(next);
+          setSettings(saved);
+          window.dispatchEvent(new Event(CONTENT_POLICY_SYNC_EVENT));
+          return saved;
+        } catch {
+          saveContentPolicy(next);
+          setSettings(next);
+          return next;
+        }
+      }
       saveContentPolicy(next);
+      setSettings(next);
       return next;
-    });
-  }, []);
+    },
+    [shared]
+  );
+
+  const patch = useCallback(
+    (updater: (prev: ContentPolicySettings) => ContentPolicySettings) => {
+      setSettings((prev) => {
+        const next = updater(prev);
+        void persist(next);
+        return next;
+      });
+    },
+    [persist]
+  );
 
   const approvedListings = useMemo(
     () =>
@@ -81,19 +117,45 @@ export function useAdminContentPolicy() {
     [settings]
   );
 
+  const syncParentPolicyPacks = useCallback(() => {
+    if (!taxonomyParents?.length) return;
+    patch((prev) => ({
+      ...prev,
+      parentPolicyPacks: mergeParentPolicyPacks(prev, taxonomyParents),
+    }));
+  }, [patch, taxonomyParents]);
+
   return {
     ready,
     settings,
+    shared,
     approvedListings,
     draftAnnouncementCount,
     disabledTemplateCount,
     refresh,
-    saveHouseRuleTemplates: (houseRuleTemplates: HouseRuleTemplate[]) => {
-      patch((prev) => ({ ...prev, houseRuleTemplates }));
+    saveHouseRuleTemplates: (
+      parentId: string,
+      houseRuleTemplates: HouseRuleTemplate[]
+    ) => {
+      patch((prev) => ({
+        ...prev,
+        parentPolicyPacks: prev.parentPolicyPacks.map((pack) =>
+          pack.parentId === parentId ? { ...pack, houseRuleTemplates } : pack
+        ),
+      }));
     },
-    saveCancellationPolicies: (cancellationPolicies: CancellationPolicyOption[]) => {
-      patch((prev) => ({ ...prev, cancellationPolicies }));
+    saveCancellationPolicies: (
+      parentId: string,
+      cancellationPolicies: CancellationPolicyOption[]
+    ) => {
+      patch((prev) => ({
+        ...prev,
+        parentPolicyPacks: prev.parentPolicyPacks.map((pack) =>
+          pack.parentId === parentId ? { ...pack, cancellationPolicies } : pack
+        ),
+      }));
     },
+    syncParentPolicyPacks,
     addAnnouncement: (input: Omit<PlatformAnnouncement, "id" | "createdAt" | "status" | "pushedAt">) => {
       const item: PlatformAnnouncement = {
         ...input,
@@ -122,41 +184,67 @@ export function useAdminContentPolicy() {
       }));
     },
     pushAnnouncement: async (id: string) => {
-      const next = pushPlatformAnnouncement(id);
-      if (next && shouldUseSharedHostNotifications()) {
+      const announcement = settings.platformAnnouncements.find((a) => a.id === id);
+      if (!announcement || announcement.status === "sent") return;
+
+      const audience = normalizeAnnouncementAudience(announcement);
+      pushPolicyAlertToAllHosts(announcement.title, announcement.message, audience);
+
+      const pushedAt = new Date().toISOString();
+      await persist({
+        ...settings,
+        platformAnnouncements: settings.platformAnnouncements.map((a) =>
+          a.id === id ? { ...a, status: "sent" as const, pushedAt } : a
+        ),
+      });
+
+      if (shouldUseSharedHostNotifications()) {
         try {
           await broadcastPolicyAlertViaApi(
-            next.title,
-            next.message,
-            normalizeAnnouncementAudience(next)
+            announcement.title,
+            announcement.message,
+            audience
           );
         } catch {
-          // localStorage inbox already updated
+          // local inbox already updated
         }
       }
-      setSettings(loadContentPolicy());
     },
     pushAnnouncementNow: async (
       input: Omit<PlatformAnnouncement, "id" | "createdAt" | "status" | "pushedAt">
     ) => {
-      const next = createAndPushAnnouncement(input);
+      const audience = normalizeAnnouncementAudience(input);
+      pushPolicyAlertToAllHosts(input.title, input.message, audience);
+
+      const createdAt = new Date().toISOString();
+      const pushedAt = createdAt;
+      const item: PlatformAnnouncement = {
+        ...input,
+        ...audience,
+        id: newContentPolicyId("pa"),
+        createdAt,
+        status: "sent",
+        pushedAt,
+      };
+
+      await persist({
+        ...settings,
+        platformAnnouncements: [item, ...settings.platformAnnouncements],
+      });
+
       if (shouldUseSharedHostNotifications()) {
         try {
-          await broadcastPolicyAlertViaApi(
-            next.title,
-            next.message,
-            normalizeAnnouncementAudience(next)
-          );
+          await broadcastPolicyAlertViaApi(input.title, input.message, audience);
         } catch {
-          // localStorage inbox already updated
+          // local inbox already updated
         }
       }
-      setSettings(loadContentPolicy());
     },
     saveMessageTemplates: (messageTemplates: MessageTemplate[]) => {
       patch((prev) => ({ ...prev, messageTemplates }));
     },
     saveCms: (cms: CmsSettings) => {
+      syncFeaturedListings(cms.featuredListingIds);
       patch((prev) => ({ ...prev, cms }));
     },
     toggleFeaturedListing: (listingId: string) => {
@@ -164,10 +252,9 @@ export function useAdminContentPolicy() {
         const ids = new Set(prev.cms.featuredListingIds);
         if (ids.has(listingId)) ids.delete(listingId);
         else ids.add(listingId);
-        return {
-          ...prev,
-          cms: { ...prev.cms, featuredListingIds: Array.from(ids) },
-        };
+        const cms = { ...prev.cms, featuredListingIds: Array.from(ids) };
+        syncFeaturedListings(cms.featuredListingIds);
+        return { ...prev, cms };
       });
     },
     addBlogPost: (input: Omit<BlogPost, "id">) => {
@@ -206,41 +293,91 @@ export function useAdminContentPolicy() {
         },
       }));
     },
+    addCmsSection: (key: string) => {
+      const block = CMS_HOMEPAGE_BLOCK_CATALOG.find((item) => item.key === key);
+      if (!block) return;
+      patch((prev) => {
+        if (prev.cms.contentSections.some((section) => section.key === key)) return prev;
+        const sortOrder =
+          prev.cms.contentSections.reduce((max, section) => Math.max(max, section.sortOrder), 0) +
+          1;
+        return {
+          ...prev,
+          cms: {
+            ...prev.cms,
+            contentSections: [
+              ...prev.cms.contentSections,
+              {
+                id: newContentPolicyId("sec"),
+                key: block.key,
+                title: block.title,
+                subtitle: block.subtitle,
+                enabled: true,
+                sortOrder,
+              },
+            ].sort((a, b) => a.sortOrder - b.sortOrder),
+          },
+        };
+      });
+    },
+    updateCmsSection: (sectionId: string, sectionPatch: Partial<CmsContentSection>) => {
+      patch((prev) => ({
+        ...prev,
+        cms: {
+          ...prev.cms,
+          contentSections: prev.cms.contentSections.map((section) =>
+            section.id === sectionId ? { ...section, ...sectionPatch } : section
+          ),
+        },
+      }));
+    },
+    removeCmsSection: (sectionId: string) => {
+      patch((prev) => ({
+        ...prev,
+        cms: {
+          ...prev.cms,
+          contentSections: prev.cms.contentSections.filter((section) => section.id !== sectionId),
+        },
+      }));
+    },
   };
 }
 
 /** Lightweight hook for host-side policy template access */
-export function useContentPolicyOptions() {
+export function useContentPolicyOptions(parentCategory?: string | null) {
   const [settings, setSettings] = useState<ContentPolicySettings>(loadContentPolicy());
 
   useEffect(() => {
-    function refresh() {
-      setSettings(loadContentPolicy());
+    async function refresh() {
+      setSettings(await loadContentPolicyClient());
     }
-    refresh();
-    window.addEventListener(CONTENT_POLICY_SYNC_EVENT, refresh);
-    window.addEventListener(PLATFORM_CONFIG_SYNC_EVENT, refresh);
-    window.addEventListener("storage", refresh);
+    void refresh();
+    function onSync() {
+      void refresh();
+    }
+    window.addEventListener(CONTENT_POLICY_SYNC_EVENT, onSync);
+    window.addEventListener(PLATFORM_CONFIG_SYNC_EVENT, onSync);
+    window.addEventListener("storage", onSync);
     return () => {
-      window.removeEventListener(CONTENT_POLICY_SYNC_EVENT, refresh);
-      window.removeEventListener(PLATFORM_CONFIG_SYNC_EVENT, refresh);
-      window.removeEventListener("storage", refresh);
+      window.removeEventListener(CONTENT_POLICY_SYNC_EVENT, onSync);
+      window.removeEventListener(PLATFORM_CONFIG_SYNC_EVENT, onSync);
+      window.removeEventListener("storage", onSync);
     };
   }, []);
 
   const houseRuleTemplates = useMemo(
-    () => settings.houseRuleTemplates.filter((t) => t.enabled),
-    [settings.houseRuleTemplates]
+    () => getEnabledHouseRuleTemplates(settings, parentCategory),
+    [settings, parentCategory]
   );
 
   const cancellationPolicies = useMemo(
-    () => getHostSelectableCancellationPolicies(settings),
-    [settings]
+    () => getHostSelectableCancellationPolicies(settings, parentCategory),
+    [settings, parentCategory]
   );
 
   const defaultHouseRules = useMemo(
-    () => getDefaultHouseRulesFromTemplates(settings),
-    [settings]
+    () => getDefaultHouseRulesFromTemplates(settings, parentCategory),
+    [settings, parentCategory]
   );
 
   return {
@@ -252,18 +389,23 @@ export function useContentPolicyOptions() {
 
 /** Homepage CMS hook */
 export function useCmsSettings() {
-  const [cms, setCms] = useState(loadContentPolicy().cms);
+  // Match server HTML on first client render; load localStorage/API after mount.
+  const [cms, setCms] = useState(() => normalizeContentPolicy(null).cms);
 
   useEffect(() => {
-    function refresh() {
-      setCms(loadContentPolicy().cms);
+    async function refresh() {
+      const settings = await loadContentPolicyClient();
+      setCms(settings.cms);
     }
-    refresh();
-    window.addEventListener(CONTENT_POLICY_SYNC_EVENT, refresh);
-    window.addEventListener("storage", refresh);
+    void refresh();
+    function onSync() {
+      void refresh();
+    }
+    window.addEventListener(CONTENT_POLICY_SYNC_EVENT, onSync);
+    window.addEventListener("storage", onSync);
     return () => {
-      window.removeEventListener(CONTENT_POLICY_SYNC_EVENT, refresh);
-      window.removeEventListener("storage", refresh);
+      window.removeEventListener(CONTENT_POLICY_SYNC_EVENT, onSync);
+      window.removeEventListener("storage", onSync);
     };
   }, []);
 

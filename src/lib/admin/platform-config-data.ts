@@ -7,8 +7,8 @@ import type {
   PlatformConfig,
   PlatformFeatureToggles,
   SecuritySettings,
+  ServiceRegion,
 } from "./platform-config-types";
-import { BASE_CURRENCY } from "@/lib/currency";
 
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
 const STORAGE_KEY = "farm-stays-platform-config";
@@ -33,23 +33,81 @@ export const DEFAULT_HOST_BOUNDS: HostFeatureBounds = {
   allowExtraCharges: true,
 };
 
+/** All Indian states & UTs (LGD codes) for launch-region toggles. */
+export const INDIA_SERVICE_REGIONS: ServiceRegion[] = [
+  { id: "in-35", label: "Andaman And Nicobar Islands", countryCode: "IN", enabled: true },
+  { id: "in-28", label: "Andhra Pradesh", countryCode: "IN", enabled: true },
+  { id: "in-12", label: "Arunachal Pradesh", countryCode: "IN", enabled: true },
+  { id: "in-18", label: "Assam", countryCode: "IN", enabled: true },
+  { id: "in-10", label: "Bihar", countryCode: "IN", enabled: true },
+  { id: "in-04", label: "Chandigarh", countryCode: "IN", enabled: true },
+  { id: "in-22", label: "Chhattisgarh", countryCode: "IN", enabled: true },
+  { id: "in-07", label: "Delhi", countryCode: "IN", enabled: true },
+  { id: "in-30", label: "Goa", countryCode: "IN", enabled: true },
+  { id: "in-24", label: "Gujarat", countryCode: "IN", enabled: true },
+  { id: "in-06", label: "Haryana", countryCode: "IN", enabled: true },
+  { id: "in-02", label: "Himachal Pradesh", countryCode: "IN", enabled: true },
+  { id: "in-01", label: "Jammu And Kashmir", countryCode: "IN", enabled: true },
+  { id: "in-20", label: "Jharkhand", countryCode: "IN", enabled: true },
+  { id: "in-29", label: "Karnataka", countryCode: "IN", enabled: true },
+  { id: "in-32", label: "Kerala", countryCode: "IN", enabled: true },
+  { id: "in-37", label: "Ladakh", countryCode: "IN", enabled: true },
+  { id: "in-31", label: "Lakshadweep", countryCode: "IN", enabled: true },
+  { id: "in-23", label: "Madhya Pradesh", countryCode: "IN", enabled: true },
+  { id: "in-27", label: "Maharashtra", countryCode: "IN", enabled: true },
+  { id: "in-14", label: "Manipur", countryCode: "IN", enabled: true },
+  { id: "in-17", label: "Meghalaya", countryCode: "IN", enabled: true },
+  { id: "in-15", label: "Mizoram", countryCode: "IN", enabled: true },
+  { id: "in-13", label: "Nagaland", countryCode: "IN", enabled: true },
+  { id: "in-21", label: "Odisha", countryCode: "IN", enabled: true },
+  { id: "in-34", label: "Puducherry", countryCode: "IN", enabled: true },
+  { id: "in-03", label: "Punjab", countryCode: "IN", enabled: true },
+  { id: "in-08", label: "Rajasthan", countryCode: "IN", enabled: true },
+  { id: "in-11", label: "Sikkim", countryCode: "IN", enabled: true },
+  { id: "in-33", label: "Tamil Nadu", countryCode: "IN", enabled: true },
+  { id: "in-36", label: "Telangana", countryCode: "IN", enabled: true },
+  {
+    id: "in-38",
+    label: "The Dadra And Nagar Haveli And Daman And Diu",
+    countryCode: "IN",
+    enabled: true,
+  },
+  { id: "in-16", label: "Tripura", countryCode: "IN", enabled: true },
+  { id: "in-05", label: "Uttarakhand", countryCode: "IN", enabled: true },
+  { id: "in-09", label: "Uttar Pradesh", countryCode: "IN", enabled: true },
+  { id: "in-19", label: "West Bengal", countryCode: "IN", enabled: true },
+];
+
+function mergeIndiaServiceRegions(parsed: ServiceRegion[] | undefined): ServiceRegion[] {
+  if (!parsed?.length) return INDIA_SERVICE_REGIONS;
+  const byId = new Map(parsed.map((region) => [region.id, region]));
+  const legacyByLabel = new Map(
+    parsed
+      .filter((region) => region.countryCode === "IN")
+      .map((region) => [region.label.trim().toLowerCase(), region])
+  );
+
+  return INDIA_SERVICE_REGIONS.map((defaultRegion) => {
+    const existing =
+      byId.get(defaultRegion.id) ??
+      legacyByLabel.get(defaultRegion.label.trim().toLowerCase());
+    if (!existing) return defaultRegion;
+    return {
+      ...defaultRegion,
+      enabled: existing.enabled,
+    };
+  });
+}
+
 export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
   global: {
-    defaultCurrency: BASE_CURRENCY,
-    supportedCurrencies: ["AED", "SAR", "OMR", "QAR", "USD"],
+    defaultCurrency: "INR",
+    supportedCurrencies: ["INR", "USD"],
     supportedLanguages: [
       { code: "en", label: "English", enabled: true },
+      { code: "hi", label: "Hindi", enabled: false },
     ],
-    serviceRegions: [
-      { id: "ae-abu-dhabi", label: "Abu Dhabi", countryCode: "AE", enabled: true },
-      { id: "ae-dubai", label: "Dubai", countryCode: "AE", enabled: true },
-      { id: "ae-sharjah", label: "Sharjah", countryCode: "AE", enabled: true },
-      { id: "ae-al-ain", label: "Al Ain", countryCode: "AE", enabled: true },
-      { id: "ae-fujairah", label: "Fujairah", countryCode: "AE", enabled: true },
-      { id: "ae-rak", label: "Ras Al Khaimah", countryCode: "AE", enabled: true },
-      { id: "sa-riyadh", label: "Riyadh", countryCode: "SA", enabled: false },
-      { id: "om-muscat", label: "Muscat", countryCode: "OM", enabled: false },
-    ],
+    serviceRegions: INDIA_SERVICE_REGIONS,
   },
   features: {
     instantBookingPlatformWide: true,
@@ -71,16 +129,16 @@ export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
       enabled: true,
     },
     emailProvider: {
-      provider: "SendGrid",
-      apiKey: "SG.••••••••••••••••",
-      fromAddress: "noreply@greenfield.ae",
-      enabled: true,
+      provider: "Resend",
+      apiKey: "",
+      fromAddress: "Farm Stays <noreply@example.com>",
+      enabled: false,
     },
     smsProvider: {
       provider: "Twilio",
-      apiKey: "AC••••••••••••••••",
-      senderId: "Greenfield",
-      enabled: true,
+      apiKey: "",
+      senderId: "FarmStays",
+      enabled: false,
     },
     mapsApi: {
       provider: "Google Maps",
@@ -103,20 +161,28 @@ function dispatchSync() {
   }
 }
 
+function isLegacyGccLaunchConfig(global: Partial<GlobalSettings> | undefined): boolean {
+  const regions = global?.serviceRegions ?? [];
+  if (regions.length === 0) return false;
+  return regions.every((region) => region.countryCode !== "IN");
+}
+
 function mergeGlobal(parsed: Partial<GlobalSettings> | undefined): GlobalSettings {
+  if (isLegacyGccLaunchConfig(parsed)) {
+    return { ...DEFAULT_PLATFORM_CONFIG.global };
+  }
+
   return {
     defaultCurrency: parsed?.defaultCurrency ?? DEFAULT_PLATFORM_CONFIG.global.defaultCurrency,
     supportedCurrencies:
       parsed?.supportedCurrencies?.length
         ? parsed.supportedCurrencies
         : DEFAULT_PLATFORM_CONFIG.global.supportedCurrencies,
-    supportedLanguages: [
-      { code: "en", label: "English", enabled: true },
-    ],
-    serviceRegions:
-      parsed?.serviceRegions?.length
-        ? parsed.serviceRegions
-        : DEFAULT_PLATFORM_CONFIG.global.serviceRegions,
+    supportedLanguages:
+      parsed?.supportedLanguages?.length
+        ? parsed.supportedLanguages
+        : DEFAULT_PLATFORM_CONFIG.global.supportedLanguages,
+    serviceRegions: mergeIndiaServiceRegions(parsed?.serviceRegions),
   };
 }
 

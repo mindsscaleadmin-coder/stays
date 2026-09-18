@@ -18,8 +18,14 @@ import {
   listingGoLiveTasks,
   stayHint,
 } from "@/lib/host/host-daily-ops";
+import { OpsListBadges } from "@/components/dashboard/booking-ops/ops-list-badges";
+import { hostBookingDetailPath } from "@/lib/host/host-ops-adapter";
 import { formatBookingDate } from "@/lib/mock/dashboard-data";
 import type { HostBookingRecord } from "@/lib/host/host-booking-types";
+import {
+  formatNextSevenDaysMeta,
+  formatNextSevenDaysSubmeta,
+} from "@/lib/host/host-booking-list-utils";
 import { cn } from "@/lib/utils";
 
 function todayHeading() {
@@ -33,25 +39,32 @@ function todayHeading() {
 function StayRow({
   booking,
   meta,
+  submeta,
   actions,
 }: {
   booking: HostBookingRecord;
   meta: string;
+  submeta?: string;
   actions?: ReactNode;
 }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-gray-100 px-3.5 py-3">
       <div className="min-w-0 flex-1">
-        <Link
-          href={`/host/bookings/${encodeURIComponent(booking.id)}`}
-          className="text-sm font-semibold text-gray-900 hover:text-green-800"
-        >
-          {booking.guest}
-        </Link>
-        <p className="text-xs text-gray-500 mt-0.5 truncate">
-          {booking.property} · {meta}
-        </p>
-        <p className="text-[11px] text-gray-400 mt-0.5 truncate">{stayHint(booking)}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={hostBookingDetailPath(booking)}
+            className="text-sm font-semibold text-gray-900 hover:text-green-800"
+          >
+            {booking.guest}
+          </Link>
+          <OpsListBadges booking={booking} />
+        </div>
+        <p className="text-xs text-gray-500 mt-0.5 truncate">{meta}</p>
+        {submeta ? (
+          <p className="text-[11px] text-gray-400 mt-0.5 truncate">{submeta}</p>
+        ) : (
+          <p className="text-[11px] text-gray-400 mt-0.5 truncate">{stayHint(booking)}</p>
+        )}
       </div>
       {actions ? <div className="flex items-center gap-2 shrink-0">{actions}</div> : null}
     </div>
@@ -258,7 +271,8 @@ export function HostDailyOpsPanel() {
               <StayRow
                 key={booking.id}
                 booking={booking}
-                meta={`${formatBookingDate(booking.checkIn)} → ${formatBookingDate(booking.checkOut)}`}
+                meta={formatNextSevenDaysMeta(booking)}
+                submeta={formatNextSevenDaysSubmeta(booking)}
               />
             ))}
           </div>

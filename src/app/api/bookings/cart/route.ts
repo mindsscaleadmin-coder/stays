@@ -3,6 +3,7 @@ import { z } from "zod";
 import { BookingError } from "@/lib/booking/confirm-booking";
 import { createQuotedBooking } from "@/lib/booking/create-quoted-booking";
 import { markBookingPaid } from "@/lib/booking/mark-paid";
+import { captureBookingFinancials } from "@/lib/booking/capture-booking-financials";
 import { getStripe, isStripeConfigured, toStripeAmount } from "@/lib/stripe/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { requireSessionUser, AuthError, authErrorResponse } from "@/lib/auth/session";
@@ -191,6 +192,7 @@ export async function POST(request: Request) {
       const paid = [];
       for (const id of bookingIds) {
         const next = await markBookingPaid(id);
+        await captureBookingFinancials(id);
         void enqueueBookingConfirmedJob({ bookingId: next.id, guestId: next.guestId });
         paid.push(next);
       }

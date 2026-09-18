@@ -1,5 +1,13 @@
 import type { TaxonomyData } from "@/lib/admin/taxonomy-types";
-import { isExcludedFromListingForm, isFilterEnabled } from "@/lib/admin/taxonomy-types";
+import {
+  DEFAULT_CUSTOM_ITEMS,
+  findPropertyTab,
+  isExcludedFromListingForm,
+  isFilterEnabled,
+  PROPERTY_TAB_CANONICAL_ORDER,
+  type PropertyTabCanonicalId,
+} from "@/lib/admin/taxonomy-types";
+import { readPropertyCapacityFromFilters } from "@/lib/listings/guest-capacity";
 import type { ListingFilterValues } from "./submission-types";
 
 /** Amenity chips on the listing form are stored in advancedIds, not listing.amenities. */
@@ -95,6 +103,90 @@ export function validateListingFilters(
   return null;
 }
 
+function findCustomItemByNumericName(
+  taxonomy: TaxonomyData,
+  tabId: string,
+  count: number
+): string | null {
+  const target = String(Math.max(0, Math.round(count)));
+  const item = (taxonomy.customItems[tabId] ?? []).find(
+    (row) => row.enabled !== false && row.name.trim() === target
+  );
+  return item?.id ?? null;
+}
+
+/** Fill property-tab dropdown selections from saved filters or legacy room data. */
+export function backfillPropertyTabSelections(
+  taxonomy: TaxonomyData,
+  customSelections: Record<string, string>,
+  customFilters: { label: string; value: string }[],
+  singleRoom?: {
+    beds: number;
+    baths: number;
+    capacity: number;
+    typeId?: string;
+    typeName?: string;
+  } | null
+): Record<string, string> {
+  const next = { ...customSelections };
+  const capacity = singleRoom
+    ? {
+        beds: Math.max(1, singleRoom.beds),
+        baths: Math.max(1, singleRoom.baths),
+        maxGuests: Math.max(1, singleRoom.capacity),
+      }
+    : readPropertyCapacityFromFilters(customFilters);
+
+  const numericTabs: Array<{ canonical: PropertyTabCanonicalId; value: number }> = [
+    { canonical: "bedrooms", value: capacity.beds },
+    { canonical: "beds", value: capacity.beds },
+    { canonical: "baths", value: capacity.baths },
+    { canonical: "guests", value: capacity.maxGuests },
+  ];
+
+  for (const { canonical, value } of numericTabs) {
+    const tab = findPropertyTab(taxonomy, canonical);
+    if (!tab || next[tab.id]) continue;
+    const itemId = findCustomItemByNumericName(taxonomy, tab.id, value);
+    if (itemId) next[tab.id] = itemId;
+  }
+
+  const roomTypeTab = findPropertyTab(taxonomy, "roomType");
+  if (roomTypeTab && !next[roomTypeTab.id] && singleRoom) {
+    const items = taxonomy.customItems[roomTypeTab.id] ?? [];
+    const byId = singleRoom.typeId
+      ? items.find((row) => row.enabled !== false && row.id === singleRoom.typeId)
+      : null;
+    const byName = singleRoom.typeName
+      ? items.find(
+          (row) =>
+            row.enabled !== false &&
+            row.name.trim().toLowerCase() === singleRoom.typeName!.trim().toLowerCase()
+        )
+      : null;
+    const match = byId ?? byName;
+    if (match) next[roomTypeTab.id] = match.id;
+  }
+
+  return next;
+}
+
+export function validatePropertyFilterSelections(
+  taxonomy: TaxonomyData,
+  values: ListingFilterValues
+): string | null {
+  for (const canonicalId of PROPERTY_TAB_CANONICAL_ORDER) {
+    const tab = findPropertyTab(taxonomy, canonicalId);
+    if (!tab) continue;
+    const items = (taxonomy.customItems[tab.id] ?? []).filter((item) => item.enabled !== false);
+    if (items.length === 0) continue;
+    if (!values.customSelections[tab.id]) {
+      return `Please select ${tab.label.toLowerCase()}.`;
+    }
+  }
+  return null;
+}
+
 export function resolveListingLabels(
   taxonomy: TaxonomyData,
   values: ListingFilterValues
@@ -179,6 +271,7 @@ export function listingToFilterValues(
     advancedFilters: string[];
     highlightIds?: string[];
     featureIconIds?: string[];
+    rooms?: { beds: number; baths: number; capacity: number; typeId?: string; typeName?: string }[];
   }
 ): ListingFilterValues {
   const countryId = findByName(taxonomy.countries, listing.country);
@@ -236,6 +329,13 @@ export function listingToFilterValues(
     if (item) customSelections[tab.id] = item.id;
   }
 
+  const mergedCustomSelections = backfillPropertyTabSelections(
+    taxonomy,
+    customSelections,
+    listing.customFilters,
+    listing.rooms?.length === 1 ? listing.rooms[0] : null
+  );
+
   const advancedIds: string[] = [];
   for (const name of listing.advancedFilters) {
     const extra = taxonomy.extraFilters.find(
@@ -259,7 +359,7 @@ export function listingToFilterValues(
     parentId,
     categoryId,
     subcategoryId,
-    customSelections,
+    customSelections: mergedCustomSelections,
     advancedIds,
     highlightIds: listing.highlightIds ?? [],
     featureIconIds: listing.featureIconIds ?? [],

@@ -224,7 +224,10 @@ export function AdminTaxonomyProvider({ children }: { children: ReactNode }) {
             setData(merged);
             taxonomyCache = { at: Date.now(), data: merged };
           }
-          if (!wouldWipeLocal) {
+          if (
+            !wouldWipeLocal &&
+            taxonomySnapshotKey(merged) !== taxonomySnapshotKey(localData)
+          ) {
             saveTaxonomy(merged);
           }
           if (missingCount > 0) {

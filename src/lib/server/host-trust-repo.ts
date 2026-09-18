@@ -11,6 +11,7 @@ import type {
 import { getTrustAdminSettings } from "@/lib/server/trust-admin-repo";
 import { resolveHostName } from "@/lib/admin/trust-data";
 import type { PendingCertification, TrustBadgeDefinition } from "@/lib/admin/trust-data";
+import { seedTrustDemoIfEmpty } from "@/lib/server/trust-demo-seed";
 
 type StoredTrust = {
   certifications: FarmCertification[];
@@ -126,6 +127,8 @@ export async function reviewFarmCertification(
 }
 
 export async function listPendingCertifications(): Promise<PendingCertification[]> {
+  await seedTrustDemoIfEmpty();
+
   const rows = await prisma.hostTrust.findMany();
   const pending: PendingCertification[] = [];
 

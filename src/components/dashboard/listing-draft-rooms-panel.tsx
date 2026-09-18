@@ -4,6 +4,9 @@ import { useEffect, useRef } from "react";
 import Image from "next/image";
 import { BedDouble, Building2, Check, Home, ImagePlus, Layers, Plus, Trash2 } from "lucide-react";
 import { usePhotoTagsCatalog } from "@/lib/admin/use-photo-tags-catalog";
+import { useBedTypeFilterRow } from "@/components/dashboard/listing-advanced-filters-field";
+import type { ListingFilterValues } from "@/lib/listings/submission-types";
+import { DiningFormSection } from "@/components/dashboard/dining-form-section";
 import { cn } from "@/lib/utils";
 
 export const MAX_ROOM_PHOTOS = 4;
@@ -29,40 +32,22 @@ export type DraftListingRoom = {
   maxInfants: number;
   beds: number;
   baths: number;
+  /** Extra-filter id for bed type (Queen, King, …) when using multi-rate stays. */
+  bedTypeId: string;
   photos: DraftRoomPhoto[];
 };
 
-function clampDraftRoomGuests(
-  room: DraftListingRoom,
-  patch: Partial<Pick<DraftListingRoom, "maxGuests" | "maxAdults" | "maxChildren" | "maxInfants">>
-): Pick<DraftListingRoom, "maxGuests" | "maxAdults" | "maxChildren" | "maxInfants"> {
-  const maxInfants = Math.max(0, patch.maxInfants ?? room.maxInfants);
-  const changingTotal = patch.maxGuests !== undefined;
-  const changingAdults = patch.maxAdults !== undefined;
-  const changingChildren = patch.maxChildren !== undefined;
-
-  if (changingAdults) {
-    const maxGuests = room.maxGuests;
-    const maxAdults = Math.min(Math.max(1, patch.maxAdults!), maxGuests);
-    return { maxGuests, maxAdults, maxChildren: maxGuests - maxAdults, maxInfants };
-  }
-
-  if (changingChildren) {
-    const maxGuests = room.maxGuests;
-    const maxChildren = Math.min(Math.max(0, patch.maxChildren!), maxGuests - 1);
-    const maxAdults = Math.max(1, maxGuests - maxChildren);
-    return { maxGuests, maxAdults, maxChildren: maxGuests - maxAdults, maxInfants };
-  }
-
-  if (changingTotal) {
-    const maxGuests = Math.max(1, patch.maxGuests!);
-    const maxAdults = Math.min(Math.max(1, room.maxAdults), maxGuests);
-    return { maxGuests, maxAdults, maxChildren: maxGuests - maxAdults, maxInfants };
-  }
-
-  const maxGuests = room.maxGuests;
-  const maxAdults = Math.min(Math.max(1, room.maxAdults), maxGuests);
-  return { maxGuests, maxAdults, maxChildren: maxGuests - maxAdults, maxInfants };
+export function syncDraftRoomGuests(maxGuests: number): Pick<
+  DraftListingRoom,
+  "maxGuests" | "maxAdults" | "maxChildren" | "maxInfants"
+> {
+  const total = Math.max(1, maxGuests);
+  return {
+    maxGuests: total,
+    maxAdults: total,
+    maxChildren: total,
+    maxInfants: 0,
+  };
 }
 
 export function draftRoomPhotosFromListing(
@@ -106,6 +91,7 @@ export function createEmptyDraftRoom(): DraftListingRoom {
     maxInfants: 0,
     beds: 1,
     baths: 1,
+    bedTypeId: "",
     photos: [],
   };
 }
@@ -260,13 +246,16 @@ export function ListingDraftRoomsEditor({
   onRoomsChange,
   currency,
   currencySymbol,
+  filterValues,
 }: {
   rooms: DraftListingRoom[];
   onRoomsChange: (rooms: DraftListingRoom[]) => void;
   currency: string;
   currencySymbol?: string;
+  filterValues: ListingFilterValues;
 }) {
   const roomsRef = useRef(rooms);
+  const bedTypeRow = useBedTypeFilterRow(filterValues);
   roomsRef.current = rooms;
 
   useEffect(() => {
@@ -286,15 +275,11 @@ export function ListingDraftRoomsEditor({
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50/40 p-4 space-y-3">
-      <div>
-        <p className="text-sm font-semibold text-gray-900">Room types & rates</p>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Add each bookable room with its own description, photos (up to {MAX_ROOM_PHOTOS}), and
-          nightly rate.
-        </p>
-      </div>
-
+    <DiningFormSection
+      title="Room types & rates"
+      tier="required"
+      description={`Add each bookable room with its own description, photos (up to ${MAX_ROOM_PHOTOS}), and nightly rate.`}
+    >
       {rooms.map((room, index) => (
         <DraftRoomCard
           key={room.key}
@@ -302,6 +287,7 @@ export function ListingDraftRoomsEditor({
           index={index}
           currency={currency}
           currencySymbol={currencySymbol}
+          bedTypeRow={bedTypeRow}
           onPatch={(partial) => patchRoom(room.key, partial)}
           onRemove={() => removeRoom(room.key)}
           canRemove={rooms.length > 1}
@@ -311,12 +297,12 @@ export function ListingDraftRoomsEditor({
       <button
         type="button"
         onClick={() => onRoomsChange([...rooms, createEmptyDraftRoom()])}
-        className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-green-300 bg-green-50/50 px-3 py-2.5 text-sm font-semibold text-green-800 hover:bg-green-50 transition-colors"
+        className="inline-flex items-center gap-1.5 text-sm font-semibold text-green-800 hover:text-green-900"
       >
         <Plus className="w-4 h-4" />
         Add another room
       </button>
-    </div>
+    </DiningFormSection>
   );
 }
 
@@ -466,6 +452,7 @@ function DraftRoomCard({
   index,
   currency,
   currencySymbol,
+  bedTypeRow,
   onPatch,
   onRemove,
   canRemove,
@@ -474,13 +461,14 @@ function DraftRoomCard({
   index: number;
   currency: string;
   currencySymbol?: string;
+  bedTypeRow: { key: string; label: string; items: { id: string; name: string }[] } | null;
   onPatch: (partial: Partial<DraftListingRoom>) => void;
   onRemove: () => void;
   canRemove: boolean;
 }) {
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-3 shadow-sm">
+    <div className="border-b border-gray-100 pb-4 space-y-3 last:border-b-0">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
           Room {index + 1}
@@ -497,33 +485,21 @@ function DraftRoomCard({
         )}
       </div>
 
-      <label className="block">
-        <span className="block text-xs font-medium text-gray-600 mb-1">Room name</span>
-        <input
-          value={room.name}
-          onChange={(e) => onPatch({ name: e.target.value })}
-          placeholder="Garden cottage"
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-        />
-      </label>
-
-      <label className="block">
-        <span className="block text-xs font-medium text-gray-600 mb-1">Room description</span>
-        <textarea
-          value={room.description}
-          onChange={(e) => onPatch({ description: e.target.value })}
-          rows={4}
-          placeholder="What makes this room unique?"
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-y min-h-[96px]"
-        />
-      </label>
-
-      <div className="grid grid-cols-2 gap-2">
-        <label className="block">
-          <span className="block text-xs font-medium text-gray-600 mb-1">Nightly rate</span>
+      <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_11rem] gap-4">
+        <label className="block min-w-0">
+          <span className="block text-xs font-medium text-gray-600 mb-1.5">Room name</span>
+          <input
+            value={room.name}
+            onChange={(e) => onPatch({ name: e.target.value })}
+            placeholder="Garden cottage"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+          />
+        </label>
+        <label className="block min-w-0">
+          <span className="block text-xs font-medium text-gray-600 mb-1.5">Nightly rate</span>
           <div className="flex items-stretch">
-            <div className="inline-flex items-center gap-1 rounded-s-lg border border-gray-200 border-e-0 bg-gray-50 px-2 text-[11px] text-gray-700 shrink-0">
-              <span className="font-semibold">{currency}</span>
+            <div className="inline-flex items-center gap-1 rounded-s-lg border border-gray-200 border-e-0 bg-gray-50 px-2.5 text-xs text-gray-700 shrink-0">
+              <span className="font-semibold text-gray-900">{currency}</span>
               {currencySymbol ? <span className="text-gray-400">{currencySymbol}</span> : null}
             </div>
             <input
@@ -532,87 +508,83 @@ function DraftRoomCard({
               value={room.price}
               onChange={(e) => onPatch({ price: e.target.value })}
               placeholder="0"
-              className="w-full min-w-0 border border-gray-200 rounded-e-lg rounded-s-none px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full min-w-0 border border-gray-200 rounded-e-lg rounded-s-none px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
           </div>
         </label>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block">
-            <span className="block text-xs font-medium text-gray-600 mb-1">Beds</span>
-            <input
-              type="number"
-              min={1}
-              value={room.beds}
-              onChange={(e) => onPatch({ beds: Math.max(1, Number(e.target.value) || 1) })}
-              className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-            />
-          </label>
-          <label className="block">
-            <span className="block text-xs font-medium text-gray-600 mb-1">Baths</span>
-            <input
-              type="number"
-              min={1}
-              value={room.baths}
-              onChange={(e) => onPatch({ baths: Math.max(1, Number(e.target.value) || 1) })}
-              className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-            />
-          </label>
-        </div>
       </div>
 
-      <div>
-        <p className="text-[10px] text-gray-500 mb-1 leading-tight">
-          Total guests = adults + children. Set the split (e.g. 6 adults + 4 children = 10). Infants
-          are separate.
-        </p>
-        <div className="grid grid-cols-4 gap-1.5 items-end">
-          <label className="block min-w-0">
-            <span className="block text-[10px] font-medium text-gray-500 mb-0.5 leading-tight truncate">
-              Total guests
-            </span>
-            <input
-              type="number"
-              min={1}
-              value={room.maxGuests}
-              onChange={(e) =>
-                onPatch(
-                  clampDraftRoomGuests(room, {
-                    maxGuests: Math.max(1, Number(e.target.value) || 1),
-                  })
-                )
-              }
-              className="w-full h-7 border border-gray-200 rounded-md px-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500"
-            />
-          </label>
-          {(
-            [
-              { key: "maxAdults" as const, label: "Adults", min: 1 },
-              { key: "maxChildren" as const, label: "Children", min: 0 },
-              { key: "maxInfants" as const, label: "Infants", min: 0 },
-            ] as const
-          ).map((field) => (
-            <label key={field.key} className="block min-w-0">
-              <span className="block text-[10px] font-medium text-gray-500 mb-0.5 leading-tight truncate">
-                {field.label}
-              </span>
-              <input
-                type="number"
-                min={field.min}
-                max={field.key === "maxChildren" ? room.maxGuests - 1 : room.maxGuests}
-                value={room[field.key]}
-                onChange={(e) =>
-                  onPatch(
-                    clampDraftRoomGuests(room, {
-                      [field.key]: Math.max(field.min, Number(e.target.value) || field.min),
-                    })
-                  )
-                }
-                className="w-full h-7 border border-gray-200 rounded-md px-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
-            </label>
-          ))}
-        </div>
+      <label className="block">
+        <span className="block text-xs font-medium text-gray-600 mb-1.5">Room description</span>
+        <textarea
+          value={room.description}
+          onChange={(e) => onPatch({ description: e.target.value })}
+          rows={4}
+          placeholder="What makes this room unique?"
+          className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-y min-h-[96px]"
+        />
+      </label>
+
+      <div className="grid grid-cols-3 gap-2">
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1.5">Beds</span>
+          <input
+            type="number"
+            min={1}
+            value={room.beds}
+            onChange={(e) => onPatch({ beds: Math.max(1, Number(e.target.value) || 1) })}
+            className="w-full border border-gray-200 rounded-lg px-2 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+          />
+        </label>
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1.5">Baths</span>
+          <input
+            type="number"
+            min={1}
+            value={room.baths}
+            onChange={(e) => onPatch({ baths: Math.max(1, Number(e.target.value) || 1) })}
+            className="w-full border border-gray-200 rounded-lg px-2 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+          />
+        </label>
+        <label className="block">
+          <span className="block text-xs font-medium text-gray-600 mb-1.5">Max guests</span>
+          <input
+            type="number"
+            min={1}
+            value={room.maxGuests}
+            onChange={(e) =>
+              onPatch(syncDraftRoomGuests(Math.max(1, Number(e.target.value) || 1)))
+            }
+            className="w-full border border-gray-200 rounded-lg px-2 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+          />
+        </label>
       </div>
+
+      {bedTypeRow && bedTypeRow.items.length > 0 ? (
+        <div>
+          <p className="text-xs font-medium text-gray-600 mb-1.5">{bedTypeRow.label}</p>
+          <div className="flex flex-wrap gap-2">
+            {bedTypeRow.items.map((item) => {
+              const selected = room.bedTypeId === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onPatch({ bedTypeId: selected ? "" : item.id })}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors",
+                    selected
+                      ? "bg-gray-100 border-gray-300 text-gray-900"
+                      : "bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+                  )}
+                >
+                  {item.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <DraftRoomPhotosEditor
         roomName={room.name}

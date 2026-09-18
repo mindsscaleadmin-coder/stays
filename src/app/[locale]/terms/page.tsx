@@ -1,5 +1,13 @@
+import type { Metadata } from "next";
 import { setRequestLocale } from "next-intl/server";
 import { SiteInfoPage } from "@/components/layout/site-info-page";
+import { publicPageMetadata } from "@/lib/seo/site";
+
+export const metadata: Metadata = publicPageMetadata({
+  title: "Terms of service",
+  description: "Terms of service for using Greenfield Farm Stays.",
+  path: "/terms",
+});
 
 export default async function TermsPage({
   params,

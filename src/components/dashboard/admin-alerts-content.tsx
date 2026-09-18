@@ -14,18 +14,18 @@ import {
   Mail,
   Megaphone,
   MessageSquare,
+  RefreshCw,
   Search,
   Server,
   UserPlus,
   Wallet,
   X,
 } from "lucide-react";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import { useAdminAlerts } from "@/lib/admin/use-admin-alerts";
 import type { AdminAlert, AdminAlertCategory } from "@/lib/admin/admin-alerts-types";
 import {
   ADMIN_ALERT_CATEGORY_LABELS,
-  countByCategory,
+  ADMIN_ALERT_CURRENCY,
   countUnreadByCategory,
 } from "@/lib/admin/admin-alerts-data";
 import { cn } from "@/lib/utils";
@@ -89,6 +89,21 @@ const SECTIONS: {
     iconBg: "bg-red-100 text-red-700",
   },
 ];
+
+const SECTION_WIRING: Record<Exclude<TabId, "settings">, string> = {
+  all:
+    "Unified feed from host signups, listing queue, trust reviews, high-value bookings, promote payments, and system toggles. Read/dismiss state persists in Shared DB when enabled.",
+  host_payment:
+    "Live from host Promote purchases (Trending / Featured). Each payment creates an alert with a link to Advertisements admin.",
+  host_signup:
+    "New hosts within your signup window from the user registry. Open host profiles for KYC and directory onboarding.",
+  flagged_content:
+    "Pending listings, flagged listings, and flagged guest reviews from listing submissions and Reviews & Trust.",
+  high_value_tx:
+    `Bookings and ledger rows at or above the fraud threshold (${ADMIN_ALERT_CURRENCY}). Critical severity at 2× threshold. Opens Financial → Transactions.`,
+  system_health:
+    "Simulated payment gateway, email, and SMS status. Degraded or down services generate alerts until restored.",
+};
 
 const CATEGORY_ICONS: Record<AdminAlertCategory, React.ComponentType<{ className?: string }>> = {
   host_signup: UserPlus,
@@ -203,7 +218,8 @@ function AlertCard({
 export function AdminAlertsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const tabParam = searchParams.get("tab") as TabId | null;
+  const tabParamRaw = searchParams.get("tab");
+  const tabParam = (tabParamRaw === "system" ? "system_health" : tabParamRaw) as TabId | null;
   const validTabs: TabId[] = [
     "all",
     "host_payment",
@@ -217,10 +233,13 @@ export function AdminAlertsContent() {
 
   const {
     ready,
+    shared,
     alerts,
     settings,
+    dismissedCount,
     unreadCount,
     criticalCount,
+    refresh,
     markRead,
     markAllRead,
     dismiss,
@@ -242,8 +261,20 @@ export function AdminAlertsContent() {
     setTimeout(() => setMessage(""), 3000);
   }
 
-  const counts = useMemo(() => countByCategory(alerts), [alerts]);
   const unreadByCategory = useMemo(() => countUnreadByCategory(alerts), [alerts]);
+
+  const enabledCategoryCount = useMemo(
+    () => Object.values(settings.enabledCategories).filter(Boolean).length,
+    [settings.enabledCategories]
+  );
+
+  const systemIssueCount = useMemo(
+    () =>
+      (["paymentGateway", "emailService", "smsService"] as const).filter(
+        (key) => settings.systemHealth[key] !== "operational"
+      ).length,
+    [settings.systemHealth]
+  );
 
   const filteredAlerts = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -265,24 +296,24 @@ export function AdminAlertsContent() {
 
   if (!ready) {
     return (
-      <AdminDashboardShell>
-        <div className="flex items-center justify-center min-h-[320px]">
+              <div className="flex items-center justify-center min-h-[320px]">
           <Loader2 className="w-8 h-8 animate-spin text-green-600" />
         </div>
-      </AdminDashboardShell>
+      
     );
   }
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div className="space-y-6">
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">
               Notifications & Alerts
             </h2>
             <p className="text-gray-500 text-sm mt-1">
-              Browse by section to find host payments, signups, flags, fraud, and system issues.
+              India launch — host payments, signups, moderation flags, high-value bookings, and
+              system health in one feed. Alerts derive from live admin data; read/dismiss state
+              syncs when Shared DB is on.
               {unreadCount > 0 && (
                 <span className="text-amber-600 font-medium">
                   {" "}
@@ -293,6 +324,16 @@ export function AdminAlertsContent() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                refresh();
+                flash("Alerts refreshed.");
+              }}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50 px-3 py-2 rounded-lg"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Refresh
+            </button>
             <button
               type="button"
               onClick={() => setTab("settings")}
@@ -326,6 +367,71 @@ export function AdminAlertsContent() {
           </div>
         )}
 
+        {shared && (
+          <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+            Shared database — alert read/dismiss state and settings sync across admins via the{" "}
+            <code className="text-[10px] bg-white/80 px-1 rounded">admin-alerts</code> catalog key.
+            Derived notifications still recompute from listings, users, bookings, and promotions.
+          </p>
+        )}
+
+        <section className="bg-gradient-to-br from-green-50 to-white rounded-2xl border border-green-100 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-green-800">
+                Live wiring
+              </p>
+              <p className="text-sm text-gray-600 mt-1">
+                Read-only snapshot of alert sources. Host payments link to{" "}
+                <Link href="/admin/advertisements" className="text-green-700 font-medium hover:underline">
+                  Advertisements
+                </Link>
+                ; fraud rows link to{" "}
+                <Link href="/admin/financial?tab=transactions" className="text-green-700 font-medium hover:underline">
+                  Financial → Transactions
+                </Link>
+                ; flags link to{" "}
+                <Link href="/admin/listings?tab=queue" className="text-green-700 font-medium hover:underline">
+                  Listings
+                </Link>{" "}
+                and{" "}
+                <Link href="/admin/trust?tab=reviews" className="text-green-700 font-medium hover:underline">
+                  Reviews & Trust
+                </Link>
+                .
+              </p>
+            </div>
+            <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full bg-white border border-green-100 text-green-800">
+              {shared ? "Shared database" : "Local storage"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Dismissed</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{dismissedCount}</p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Fraud threshold</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">
+                {ADMIN_ALERT_CURRENCY} {settings.highValueThresholdAed.toLocaleString("en-IN")}
+              </p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Signup window</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">
+                {settings.newHostSignupDays} days
+              </p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Categories · system</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">
+                {enabledCategoryCount}/5 on · {systemIssueCount} issue
+                {systemIssueCount === 1 ? "" : "s"}
+              </p>
+            </div>
+          </div>
+        </section>
+
         {activeTab !== "settings" && (
           <>
             <div>
@@ -335,10 +441,6 @@ export function AdminAlertsContent() {
               <div className="flex flex-nowrap gap-3 overflow-x-auto pb-1">
                 {SECTIONS.map((section) => {
                   const Icon = section.icon;
-                  const total =
-                    section.id === "all"
-                      ? alerts.length
-                      : counts[section.id as AdminAlertCategory];
                   const unread =
                     section.id === "all"
                       ? unreadCount
@@ -364,20 +466,27 @@ export function AdminAlertsContent() {
                         >
                           <Icon className="w-4 h-4" />
                         </span>
-                        {unread > 0 && (
+                        {unread > 0 ? (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                            {unread} new
+                            {unread} unread
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                            Clear
                           </span>
                         )}
                       </div>
                       <p className="text-sm font-semibold text-gray-900 mt-3">{section.label}</p>
                       <p className="text-xs text-gray-500 mt-0.5">{section.description}</p>
-                      <p className="text-lg font-bold text-gray-900 mt-2 tabular-nums">{total}</p>
                     </button>
                   );
                 })}
               </div>
             </div>
+
+            <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
+              {SECTION_WIRING[activeTab as Exclude<TabId, "settings">]}
+            </p>
 
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <div className="relative flex-1 max-w-md">
@@ -456,23 +565,29 @@ export function AdminAlertsContent() {
 
         {activeTab === "settings" && (
           <div className="space-y-6">
+            <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
+              Threshold, category toggles, and simulated infrastructure status. Settings persist to
+              Shared DB when enabled; alert bodies still recompute from live listing, user, booking,
+              and promotion data.
+            </p>
+
             <section className="bg-white rounded-2xl border p-5 space-y-4">
               <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                 <Wallet className="w-4 h-4 text-green-700" /> Fraud monitoring threshold
               </h3>
               <label className="block max-w-xs">
                 <span className="text-xs text-gray-500 mb-1 block">
-                  High-value alert threshold (AED)
+                  High-value alert threshold ({ADMIN_ALERT_CURRENCY})
                 </span>
                 <input
                   type="number"
                   min={1000}
-                  step={500}
+                  step={1000}
                   value={settings.highValueThresholdAed}
                   onChange={(e) =>
                     saveSettings({
                       ...settings,
-                      highValueThresholdAed: Number(e.target.value) || 5000,
+                      highValueThresholdAed: Number(e.target.value) || 50000,
                     })
                   }
                   className={inputClass}
@@ -541,7 +656,8 @@ export function AdminAlertsContent() {
                 <Server className="w-4 h-4 text-green-700" /> System health status
               </h3>
               <p className="text-xs text-gray-500">
-                Simulated service status — toggling degraded/down generates admin alerts.
+                Simulated service status for India launch demos — toggling degraded/down generates
+                admin alerts until restored to operational.
               </p>
               {(
                 [
@@ -580,6 +696,6 @@ export function AdminAlertsContent() {
           </div>
         )}
       </div>
-    </AdminDashboardShell>
+    
   );
 }

@@ -29,7 +29,8 @@ import type {
   ListingPromotionKind,
 } from "@/lib/host/host-promotions-types";
 import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
-import { isEventsSubscriptionActive } from "@/lib/host/events-subscription";
+import { isDiningListing } from "@/lib/booking/is-dining-listing";
+import { isDirectorySubscriptionActive } from "@/lib/host/events-subscription";
 import { useEventsSubscriptionSettings } from "@/lib/host/use-events-subscription-settings";
 import { useHostPublicProfile } from "@/lib/host/use-host-public-profile";
 import { cn, formatAmount } from "@/lib/utils";
@@ -42,9 +43,6 @@ export function HostPromoteContent() {
   const submissions = useHostSubmissions(hostId, hostName);
   const { data: hostProfile } = useHostPublicProfile(hostId ?? undefined, hostName);
   const { freeDuringLaunch: eventsFree } = useEventsSubscriptionSettings();
-  /** Free launch phase counts as entitled — boosts are sold separately. */
-  const eventsSubActive =
-    eventsFree || isEventsSubscriptionActive(hostProfile?.eventsSubscriptionExpiresAt);
   const { ready: settingsReady, settings: promoSettings } = useHostPromotionsSettings();
 
   const listingOptions = useMemo(() => {
@@ -56,6 +54,29 @@ export function HostPromoteContent() {
   }, [submissions]);
 
   const [listingId, setListingId] = useState(listingOptions[0]?.id ?? "");
+  const selectedListingRow = submissions.find((l) => l.id === listingId);
+  const selectedDirectoryVertical = selectedListingRow
+    ? isDiningListing({
+        parentCategory: selectedListingRow.parentCategory,
+        type: selectedListingRow.type,
+        category: selectedListingRow.category,
+      })
+      ? ("dining" as const)
+      : ("events" as const)
+    : null;
+  const directorySubActive =
+    !selectedListingRow ||
+    !isDirectoryListing({
+      parentCategory: selectedListingRow.parentCategory,
+      type: selectedListingRow.type,
+      category: selectedListingRow.category,
+    }) ||
+    isDirectorySubscriptionActive(
+      selectedDirectoryVertical ?? "events",
+      hostProfile,
+      eventsFree
+    );
+
   const [kind, setKind] = useState<ListingPromotionKind>("trending");
   const [duration, setDuration] = useState<ListingPromotionDurationDays>(7);
   const [paying, setPaying] = useState(false);
@@ -118,7 +139,6 @@ export function HostPromoteContent() {
     }
   }, [packages, duration]);
 
-  const selectedListingRow = submissions.find((l) => l.id === listingId);
   const selectedIsDirectory = isDirectoryListing({
     parentCategory: selectedListingRow?.parentCategory,
     type: selectedListingRow?.type,
@@ -127,8 +147,10 @@ export function HostPromoteContent() {
 
   async function handlePay() {
     if (!listingId || !hostId || !selectedPkg) return;
-    if (selectedIsDirectory && !eventsSubActive) {
-      flash("Directory listings need an active yearly subscription before you can buy Featured or Trending.");
+    if (selectedIsDirectory && !directorySubActive) {
+      flash(
+        `${selectedDirectoryVertical === "dining" ? "Dining" : "Events"} directory listings need an active yearly subscription before you can buy Featured or Trending.`
+      );
       return;
     }
     setPaying(true);
@@ -150,7 +172,7 @@ export function HostPromoteContent() {
     }
     const promo = saved.promotion;
     flash(
-      `Paid AED ${formatAmount(promo.priceAed)} — ${
+      `Paid ${promoSettings?.currency ?? "INR"} ${formatAmount(promo.priceAed)} — ${
         promo.kind === "trending" ? "Trending" : "Featured"
       } is live until ${formatPromoEnds(promo.endsAt)}.`
     );
@@ -179,16 +201,16 @@ export function HostPromoteContent() {
         {selectedIsDirectory && (
           <div
             className={`text-sm rounded-xl px-4 py-3 border ${
-              eventsSubActive
+              directorySubActive
                 ? "bg-green-50 border-green-200 text-green-900"
                 : "bg-amber-50 border-amber-200 text-amber-950"
             }`}
           >
             {eventsFree
-              ? "Event listings are free during launch and already visible to guests. You can buy Featured or Trending to stand out — boosts never take a cut of the venue booking."
-              : eventsSubActive
-                ? "This Events listing can buy Featured or Trending like other listings. Boosts never take a cut of the venue booking."
-                : "This Events listing is hidden from guests until your yearly Events subscription is active. Ask admin to record payment, then you can buy Featured or Trending."}
+              ? `${selectedDirectoryVertical === "dining" ? "Dining" : "Events"} listings are free during launch and already visible to guests. You can buy Featured or Trending to stand out — boosts never take a cut of directory enquiries.`
+              : directorySubActive
+                ? `This ${selectedDirectoryVertical === "dining" ? "Dining" : "Events"} listing can buy Featured or Trending like other listings. Boosts never take a cut of directory enquiries.`
+                : `This ${selectedDirectoryVertical === "dining" ? "Dining" : "Events"} listing is hidden from guests until your yearly ${selectedDirectoryVertical === "dining" ? "Dining" : "Events"} subscription is active. Ask admin to record payment, then you can buy Featured or Trending.`}
           </div>
         )}
 
@@ -362,7 +384,7 @@ export function HostPromoteContent() {
                           {pkg.durationDays} days
                         </div>
                         <div className="text-xs font-semibold text-green-700 mt-0.5">
-                          AED {formatAmount(pkg.priceAed)}
+                          {promoSettings.currency} {formatAmount(pkg.priceAed)}
                         </div>
                       </button>
                     ))}
@@ -400,7 +422,7 @@ export function HostPromoteContent() {
                 ) : (
                   <>
                     <Zap className="w-4 h-4" />
-                    Pay AED {formatAmount(selectedPkg?.priceAed ?? 0)} &amp; go live
+                    Pay {promoSettings.currency} {formatAmount(selectedPkg?.priceAed ?? 0)} &amp; go live
                   </>
                 )}
               </button>
@@ -443,7 +465,7 @@ export function HostPromoteContent() {
                             </div>
                             <div className="text-end shrink-0">
                               <p className="font-semibold text-gray-800">
-                                AED {formatAmount(p.priceAed)}
+                                {promoSettings.currency} {formatAmount(p.priceAed)}
                               </p>
                               <p
                                 className={cn(

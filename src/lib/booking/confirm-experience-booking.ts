@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { DEFAULT_CANCELLATION_POLICY_ID } from "@/lib/booking/policies";
 import { BookingError } from "@/lib/booking/confirm-booking";
 import { createBookingReference } from "@/lib/booking/booking-reference";
 import { ensureExperienceSlot } from "@/lib/booking/experience-slots";
@@ -24,6 +25,7 @@ export async function confirmExperienceBooking(input: {
   totalPrice: number;
   policyId?: string;
   stripeSessionId?: string | null;
+  guestQuoteSnapshot?: string | null;
   /** Optional preloaded session (tests); otherwise loaded from listing pricing. */
   session?: ExperienceSessionTemplate;
 }) {
@@ -34,7 +36,7 @@ export async function confirmExperienceBooking(input: {
     sessionKey,
     guestCount,
     totalPrice,
-    policyId = "flexible",
+    policyId = DEFAULT_CANCELLATION_POLICY_ID,
   } = input;
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
@@ -154,6 +156,7 @@ export async function confirmExperienceBooking(input: {
           policyId: listingPolicy,
           expiresAt: null,
           stripeSessionId: input.stripeSessionId ?? null,
+          guestQuoteSnapshot: input.guestQuoteSnapshot ?? null,
           experienceSlotId: current.id,
         },
       });

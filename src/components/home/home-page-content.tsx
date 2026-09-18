@@ -108,6 +108,13 @@ export function HomePageContent() {
   );
   const sectionEnabled = (key: string) =>
     cms.contentSections.find((s) => s.key === key)?.enabled ?? true;
+  const sectionCopy = (key: string, fallbackTitle: string, fallbackSubtitle: string) => {
+    const section = cms.contentSections.find((s) => s.key === key);
+    return {
+      title: section?.title?.trim() || fallbackTitle,
+      subtitle: section?.subtitle?.trim() || fallbackSubtitle,
+    };
+  };
   const [wishlist, setWishlist] = useState<string[]>([]);
   const [pricingTick, setPricingTick] = useState(0);
   const [promoTick, setPromoTick] = useState(0);
@@ -420,9 +427,12 @@ export function HomePageContent() {
         <div className="mb-4 flex items-end justify-between gap-4">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-lg font-bold text-gray-900 font-display sm:text-xl">
-              <TrendingUp className="h-5 w-5 shrink-0 text-amber-500" /> {t("trendingTitle")}
+              <TrendingUp className="h-5 w-5 shrink-0 text-amber-500" />{" "}
+              {sectionCopy("trending", t("trendingTitle"), trendingSubtitle).title}
             </h2>
-            <p className="mt-0.5 text-sm text-gray-500">{trendingSubtitle}</p>
+            <p className="mt-0.5 text-sm text-gray-500">
+              {sectionCopy("trending", t("trendingTitle"), trendingSubtitle).subtitle}
+            </p>
           </div>
           <Link
             href="/listings?filter=trending&q=nearby"
@@ -474,9 +484,12 @@ export function HomePageContent() {
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display flex items-center gap-2">
-              <Zap className="w-5 h-5 text-red-500" /> {t("flashDealsTitle")}
+              <Zap className="w-5 h-5 text-red-500" />{" "}
+              {sectionCopy("flashDeals", t("flashDealsTitle"), flashSubtitle).title}
             </h2>
-            <p className="text-gray-500 text-sm mt-0.5">{flashSubtitle}</p>
+            <p className="text-gray-500 text-sm mt-0.5">
+              {sectionCopy("flashDeals", t("flashDealsTitle"), flashSubtitle).subtitle}
+            </p>
           </div>
           <Link href="/listings?filter=deals&q=nearby" className="text-green-700 text-sm font-semibold flex items-center gap-1 shrink-0">
             {tc("viewAll")} <ChevronRight className="w-4 h-4" />
@@ -537,8 +550,10 @@ export function HomePageContent() {
       {sectionEnabled("destinations") && destinationCards.length > 0 && (
       <section className="home-page-container home-section">
         <HomeBrowseSectionHeader
-          title={t("destinationsTitle")}
-          subtitle={t("destinationsSubtitle")}
+          title={sectionCopy("destinations", t("destinationsTitle"), t("destinationsSubtitle")).title}
+          subtitle={
+            sectionCopy("destinations", t("destinationsTitle"), t("destinationsSubtitle")).subtitle
+          }
           viewAllHref="/destinations"
           viewAllLabel={tc("viewAll")}
         />
@@ -559,8 +574,10 @@ export function HomePageContent() {
       {sectionEnabled("categories") && categoryCards.length > 0 && (
       <section className="home-page-container home-section">
         <HomeBrowseSectionHeader
-          title={t("categoriesTitle")}
-          subtitle={t("categoriesSubtitle")}
+          title={sectionCopy("categories", t("categoriesTitle"), t("categoriesSubtitle")).title}
+          subtitle={
+            sectionCopy("categories", t("categoriesTitle"), t("categoriesSubtitle")).subtitle
+          }
           viewAllHref="/listings"
           viewAllLabel={tc("viewAll")}
         />
@@ -581,8 +598,10 @@ export function HomePageContent() {
       {sectionEnabled("experiences") && experienceCards.length > 0 && (
       <section className="home-page-container home-section">
         <HomeBrowseSectionHeader
-          title={t("experiencesTitle")}
-          subtitle={t("experiencesSubtitle")}
+          title={sectionCopy("experiences", t("experiencesTitle"), t("experiencesSubtitle")).title}
+          subtitle={
+            sectionCopy("experiences", t("experiencesTitle"), t("experiencesSubtitle")).subtitle
+          }
           viewAllHref={
             experienceParentName
               ? `/listings?parent=${encodeURIComponent(experienceParentName)}`
@@ -607,8 +626,8 @@ export function HomePageContent() {
       {sectionEnabled("venues") && venueCards.length > 0 && (
       <section className="home-page-container home-section">
         <HomeBrowseSectionHeader
-          title={t("venuesTitle")}
-          subtitle={t("venuesSubtitle")}
+          title={sectionCopy("venues", t("venuesTitle"), t("venuesSubtitle")).title}
+          subtitle={sectionCopy("venues", t("venuesTitle"), t("venuesSubtitle")).subtitle}
           viewAllHref={
             venueParentName
               ? `/listings?parent=${encodeURIComponent(venueParentName)}`
@@ -634,11 +653,10 @@ export function HomePageContent() {
         <section className="home-page-container home-section">
           <div className="mb-5">
             <h2 className="text-xl font-bold text-gray-900 font-display">
-              {cms.contentSections.find((s) => s.key === "blog")?.title ?? "From the blog"}
+              {sectionCopy("blog", "From the blog", "Tips, guides, and farm stories").title}
             </h2>
             <p className="text-gray-500 text-sm mt-0.5">
-              {cms.contentSections.find((s) => s.key === "blog")?.subtitle ??
-                "Tips, guides, and farm stories"}
+              {sectionCopy("blog", "From the blog", "Tips, guides, and farm stories").subtitle}
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -667,7 +685,7 @@ export function HomePageContent() {
       {sectionEnabled("whyBook") && (
       <section className="home-page-container home-section mb-6">
         <h2 className="text-xl font-bold text-gray-900 font-display text-center mb-8">
-          {t("whyBookTitle")}
+          {sectionCopy("whyBook", t("whyBookTitle"), "").title}
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
           {(

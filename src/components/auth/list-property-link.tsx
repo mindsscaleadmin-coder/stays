@@ -7,6 +7,15 @@ import { useRouter } from "@/i18n/routing";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { canManageListings } from "@/lib/auth/roles";
+import { isDiningListing } from "@/lib/booking/is-dining-listing";
+import { isEventListing } from "@/lib/booking/is-event-listing";
+import { canAddDirectoryListing } from "@/lib/host/directory-space";
+import { HOST_PROFILES_SYNC_EVENT, loadHostPublicProfile } from "@/lib/host/host-profile-data";
+import { useEventsSubscriptionSettings } from "@/lib/host/use-events-subscription-settings";
+import {
+  resolveHostId,
+  useHostSubmissions,
+} from "@/lib/listings/use-listing-submissions";
 import {
   buildHostAuthPath,
   buildNewListingPath,
@@ -276,10 +285,7 @@ export function ListPropertyLink({
   const router = useRouter();
   const { user, loading } = useAuth();
   const { data: taxonomy } = useAdminTaxonomy();
-  const categories = useMemo(
-    () => resolveListPropertyCategories(taxonomy.parents),
-    [taxonomy.parents]
-  );
+  const hostId = resolveHostId(user);
 
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [subscriptionOpen, setSubscriptionOpen] = useState(false);
@@ -288,6 +294,22 @@ export function ListPropertyLink({
   );
   const [pendingCategory, setPendingCategory] = useState<ListPropertyCategoryOption | null>(
     null
+  );
+
+  const listingFlowActive =
+    categoryOpen || subscriptionOpen || Boolean(pendingCategory);
+  const submissions = useHostSubmissions(hostId, user?.email ?? undefined, {
+    load: listingFlowActive,
+  });
+  const {
+    freeDuringLaunch,
+    eventsPlans,
+    diningPlans,
+    comboOffer,
+  } = useEventsSubscriptionSettings({ enabled: listingFlowActive });
+  const categories = useMemo(
+    () => resolveListPropertyCategories(taxonomy.parents),
+    [taxonomy.parents]
   );
 
   const proceedToListing = useCallback(
@@ -322,6 +344,38 @@ export function ListPropertyLink({
         return;
       }
 
+      if (needsSubscription && !freeDuringLaunch) {
+        const vertical = category.key === "dining" ? ("dining" as const) : ("events" as const);
+        const hostProfile = hostId
+          ? loadHostPublicProfile(hostId, user?.email ?? "")
+          : null;
+        const currentCount = submissions.filter((listing) => {
+          const input = {
+            parentCategory: listing.parentCategory,
+            type: listing.type,
+            category: listing.category,
+          };
+          return vertical === "dining" ? isDiningListing(input) : isEventListing(input);
+        }).length;
+        const check = canAddDirectoryListing({
+          vertical,
+          currentCount,
+          profile: hostProfile,
+          settings: {
+            freeDuringLaunch,
+            eventsPlans,
+            diningPlans,
+            comboOffer: comboOffer ?? undefined,
+            yearlyFeeAed: 0,
+          },
+          freeDuringLaunch,
+        });
+        if (!check.allowed) {
+          window.alert(check.message ?? "Directory listing limit reached.");
+          return;
+        }
+      }
+
       if (needsSubscription) {
         setSubscriptionOpen(true);
         return;
@@ -329,7 +383,7 @@ export function ListPropertyLink({
 
       proceedToListing(category);
     },
-    [proceedToListing, router, user]
+    [proceedToListing, router, user, freeDuringLaunch, submissions, eventsPlans, diningPlans, comboOffer, hostId]
   );
 
   function handleCategorySelect(category: ListPropertyCategoryOption) {
@@ -351,9 +405,21 @@ export function ListPropertyLink({
     processCategorySelect(category);
   }, [loading, pendingCategory, processCategorySelect]);
 
-  function handleSubscriptionContinue(planId: string) {
+  async function handleSubscriptionContinue(planId: string) {
     if (!selectedCategory) return;
     setSubscriptionOpen(false);
+    if (hostId && planId) {
+      try {
+        await fetch(`/api/hosts/${encodeURIComponent(hostId)}/profile`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ preferredDirectoryPlanId: planId }),
+        });
+        window.dispatchEvent(new Event(HOST_PROFILES_SYNC_EVENT));
+      } catch {
+        // Continue to listing even if profile save fails offline
+      }
+    }
     proceedToListing(selectedCategory, planId);
   }
 

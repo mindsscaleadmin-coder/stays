@@ -74,7 +74,7 @@ export function AdminForgotPasswordContent() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@greenfield.ae"
+              placeholder="you@gmail.com"
               autoComplete="email"
             />
             <button

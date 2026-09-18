@@ -4,9 +4,10 @@ import type {
   ListingPromotionDurationDays,
   ListingPromotionKind,
 } from "@/lib/host/host-promotions-types";
-import { getEnabledPromotionPackageFromDb } from "@/lib/server/promotion-catalog-repo";
+import { getEnabledPromotionPackageFromDb, getPromotionCatalogSettings } from "@/lib/server/promotion-catalog-repo";
 import { createPropertyReference } from "@/lib/listings/property-reference";
 import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
+import { isDiningListing } from "@/lib/booking/is-dining-listing";
 
 function toDto(row: {
   id: string;
@@ -36,7 +37,7 @@ function toDto(row: {
     kind: row.kind as ListingPromotionKind,
     durationDays: row.durationDays as ListingPromotion["durationDays"],
     priceAed: row.priceAed,
-    currency: "AED",
+    currency: "INR",
     purchasedAt: row.purchasedAt.toISOString(),
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt.toISOString(),
@@ -196,6 +197,7 @@ export async function purchasePromotionInDb(input: {
 }): Promise<ListingPromotion | null> {
   const pkg = await getEnabledPromotionPackageFromDb(input.kind, input.durationDays);
   if (!pkg) return null;
+  const catalog = await getPromotionCatalogSettings();
 
   const listing = await prisma.listing.findUnique({
     where: { id: input.listingId },
@@ -212,11 +214,14 @@ export async function purchasePromotionInDb(input: {
       // ignore
     }
     if (isDirectoryListing({ parentCategory: listing.parentCategory, type, category })) {
-      const { isHostEventsSubscriptionActive } = await import("@/lib/server/host-profile-repo");
-      const ok = await isHostEventsSubscriptionActive(listing.hostId);
+      const { isHostDirectorySubscriptionActive } = await import("@/lib/server/host-profile-repo");
+      const vertical = isDiningListing({ parentCategory: listing.parentCategory, type, category })
+        ? "dining"
+        : "events";
+      const ok = await isHostDirectorySubscriptionActive(listing.hostId, vertical);
       if (!ok) {
         throw new Error(
-          "Events listings need an active yearly subscription before you can buy Featured or Trending."
+          `${vertical === "dining" ? "Dining" : "Events"} listings need an active yearly subscription before you can buy Featured or Trending.`
         );
       }
     }
@@ -246,7 +251,7 @@ export async function purchasePromotionInDb(input: {
     kind: input.kind,
     durationDays: input.durationDays,
     priceAed: pkg.priceAed,
-    currency: "AED",
+    currency: catalog.currency,
     purchasedAt: now.toISOString(),
     startsAt: (active ? now : start).toISOString(),
     endsAt: ends.toISOString(),

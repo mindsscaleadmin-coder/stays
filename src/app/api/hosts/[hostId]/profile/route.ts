@@ -55,6 +55,42 @@ export async function PATCH(
       ...(admin && body.eventsSubscriptionExpiresAt !== undefined
         ? { eventsSubscriptionExpiresAt: body.eventsSubscriptionExpiresAt }
         : {}),
+      ...(admin && body.diningSubscriptionExpiresAt !== undefined
+        ? { diningSubscriptionExpiresAt: body.diningSubscriptionExpiresAt }
+        : {}),
+      ...(admin && body.directoryComboExpiresAt !== undefined
+        ? { directoryComboExpiresAt: body.directoryComboExpiresAt }
+        : {}),
+      ...(admin && body.eventsVenueSpaces !== undefined
+        ? { eventsVenueSpaces: body.eventsVenueSpaces }
+        : {}),
+      ...(admin && body.eventsHallSpaces !== undefined
+        ? { eventsHallSpaces: body.eventsHallSpaces }
+        : {}),
+      ...(admin && body.diningOutletSpaces !== undefined
+        ? { diningOutletSpaces: body.diningOutletSpaces }
+        : {}),
+      ...(body.preferredDirectoryPlanId !== undefined
+        ? { preferredDirectoryPlanId: body.preferredDirectoryPlanId }
+        : {}),
+      ...(admin && body.directoryBillingEnforced !== undefined
+        ? { directoryBillingEnforced: body.directoryBillingEnforced }
+        : {}),
+      ...(admin && body.directoryBillingStatus !== undefined
+        ? { directoryBillingStatus: body.directoryBillingStatus }
+        : {}),
+      ...(admin && body.directoryBillingEnabledAt !== undefined
+        ? { directoryBillingEnabledAt: body.directoryBillingEnabledAt }
+        : {}),
+      ...(admin && body.directoryBillingPaidAt !== undefined
+        ? { directoryBillingPaidAt: body.directoryBillingPaidAt }
+        : {}),
+      ...(admin && body.directoryBillingNotes !== undefined
+        ? { directoryBillingNotes: body.directoryBillingNotes }
+        : {}),
+      ...(admin && body.directoryBillingGraceEndsAt !== undefined
+        ? { directoryBillingGraceEndsAt: body.directoryBillingGraceEndsAt }
+        : {}),
     });
 
     return NextResponse.json(

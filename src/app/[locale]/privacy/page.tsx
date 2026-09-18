@@ -1,5 +1,13 @@
+import type { Metadata } from "next";
 import { setRequestLocale } from "next-intl/server";
 import { SiteInfoPage } from "@/components/layout/site-info-page";
+import { publicPageMetadata } from "@/lib/seo/site";
+
+export const metadata: Metadata = publicPageMetadata({
+  title: "Privacy policy",
+  description: "How Greenfield Farm Stays collects, uses, and protects your personal information.",
+  path: "/privacy",
+});
 
 export default async function PrivacyPage({
   params,

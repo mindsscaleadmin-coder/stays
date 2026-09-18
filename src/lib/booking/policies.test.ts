@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_CANCELLATION_POLICY_ID,
   evaluateCancellationRefund,
   getCancellationRule,
   isPendingExpired,
@@ -97,6 +98,13 @@ describe("evaluateCancellationRefund", () => {
       now: new Date("2026-09-10T12:00:00"), // 21 days out
     });
     expect(result.refundPercent).toBe(100);
+  });
+});
+
+describe("getCancellationRule", () => {
+  it("defaults to moderate when policyId is missing", () => {
+    expect(getCancellationRule(null).id).toBe(DEFAULT_CANCELLATION_POLICY_ID);
+    expect(getCancellationRule(undefined).id).toBe("moderate");
   });
 });
 

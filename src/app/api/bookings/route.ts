@@ -6,6 +6,7 @@ import { createQuotedExperienceBooking } from "@/lib/booking/create-quoted-exper
 import { isExperienceListing } from "@/lib/booking/is-experience-listing";
 import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { markBookingPaid } from "@/lib/booking/mark-paid";
+import { captureBookingFinancials } from "@/lib/booking/capture-booking-financials";
 import {
   queryBookings,
   toGuestBookingSummary,
@@ -24,6 +25,8 @@ import { resolveSessionActor } from "@/lib/auth/resolve-actor";
 import { canAccessAdmin } from "@/lib/auth/roles";
 import { BASE_CURRENCY } from "@/lib/currency";
 import { getListingPricingMap } from "@/lib/server/listing-pricing-repo";
+import { listHostEventOpsBookings } from "@/lib/server/event-availability-repo";
+import { enrichHostOpsListRows } from "@/lib/server/host-ops-repo";
 import { checkBookingRateLimit, tooManyRequestsResponse } from "@/lib/rate-limit";
 
 function supabaseConfigured() {
@@ -83,10 +86,20 @@ export async function GET(request: Request) {
       });
     }
 
+    const hostBookings = rows.map((row) =>
+      toHostBookingRecord(row, pricingById.get(row.listingId)?.currency)
+    );
+    const eventOpsRows = hostId ? await listHostEventOpsBookings(hostId) : [];
+    const merged = [...hostBookings, ...eventOpsRows].sort((a, b) =>
+      (b.checkIn || b.bookedAt).localeCompare(a.checkIn || a.bookedAt)
+    );
+    const enriched =
+      hostId && merged.length > 0
+        ? await enrichHostOpsListRows(hostId, merged)
+        : merged;
+
     return NextResponse.json({
-      bookings: rows.map((row) =>
-        toHostBookingRecord(row, pricingById.get(row.listingId)?.currency)
-      ),
+      bookings: enriched,
       source: "prisma" as const,
     });
   } catch (error) {
@@ -307,6 +320,7 @@ export async function POST(request: Request) {
 
       if (body.demoPay) {
         const paid = await markBookingPaid(booking.id);
+        await captureBookingFinancials(paid.id);
         void enqueueBookingConfirmedJob({ bookingId: paid.id, guestId: paid.guestId });
         return NextResponse.json({
           booking: paid,
@@ -401,6 +415,7 @@ export async function POST(request: Request) {
 
     if (body.demoPay) {
       const paid = await markBookingPaid(booking.id);
+      await captureBookingFinancials(paid.id);
       void enqueueBookingConfirmedJob({ bookingId: paid.id, guestId: paid.guestId });
       return NextResponse.json({
         booking: paid,

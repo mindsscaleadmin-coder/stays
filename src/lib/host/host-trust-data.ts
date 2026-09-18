@@ -12,21 +12,21 @@ export function defaultForHost(hostId: string): HostTrustData {
     certifications: [
       {
         id: "cert-organic",
-        label: "Organic certified",
-        description: "Verified organic farming practices.",
+        label: "Organic certified (NPOP)",
+        description: "Verified under India's National Programme for Organic Production.",
         status: "verified",
         verifiedAt: "2025-11-10",
       },
       {
         id: "cert-eco",
         label: "Eco-tourism registered",
-        description: "Registered with national eco-tourism programme.",
+        description: "Recognised by state or national eco-tourism programmes.",
         status: "pending",
       },
       {
-        id: "cert-halal",
-        label: "Halal food service",
-        description: "Kitchen and dining meet halal standards.",
+        id: "cert-fssai",
+        label: "FSSAI registered",
+        description: "Food safety registration for on-site dining.",
         status: "none",
       },
     ],

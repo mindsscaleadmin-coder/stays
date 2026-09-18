@@ -5,6 +5,7 @@ import {
 } from "@/lib/auth/booking-access";
 import { withBookingAuth } from "@/lib/auth/with-booking-auth";
 import { markBookingPaid } from "@/lib/booking/mark-paid";
+import { captureBookingFinancials } from "@/lib/booking/capture-booking-financials";
 import { BookingError } from "@/lib/booking/confirm-booking";
 import { isStripeConfigured } from "@/lib/stripe/server";
 import { prisma } from "@/lib/prisma";
@@ -34,6 +35,7 @@ export const POST = withBookingAuth(async (_request, context, actor) => {
     }
 
     const paid = await markBookingPaid(id);
+    await captureBookingFinancials(paid.id);
     void enqueueBookingConfirmedJob({ bookingId: paid.id, guestId: paid.guestId });
     return NextResponse.json({ booking: paid });
   } catch (error) {

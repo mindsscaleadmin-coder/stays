@@ -1,4 +1,7 @@
 import type { HostBooking, HostBookingStatus } from "@/lib/mock/dashboard-data";
+import type { EventAvailabilityStatus } from "@/lib/events/event-availability-types";
+import type { HostBookingCategory } from "@/lib/host/booking-category";
+import type { HostOpsSourceType, OperationalStatus } from "@/lib/host/host-ops-types";
 
 export type CheckInOutStatus = "pending" | "checked_in" | "checked_out";
 export type RefundStatus = "none" | "pending" | "partial" | "full";
@@ -19,6 +22,22 @@ export interface HostBookingRecord extends HostBooking {
   hostId?: string;
   hostName?: string;
   listingId?: string;
+  guestId?: string;
+  category?: HostBookingCategory;
+  experienceSlotId?: string | null;
+  experienceSessionLabel?: string;
+  /** When set, this row is a dining/event enquiry rather than a paid booking. */
+  opsSourceType?: HostOpsSourceType;
+  eventOccasion?: string;
+  eventPartyType?: string;
+  eventSpaceName?: string;
+  dateFlexible?: boolean;
+  hostNote?: string;
+  eventEnquiryStatus?: EventAvailabilityStatus;
+  eventRespondedAt?: string;
+  assignedStaffId?: string | null;
+  assignedStaffName?: string | null;
+  operationalStatus?: OperationalStatus;
   /** ISO currency code for this booking (INR, AED, …). */
   currency?: string;
   propertyReference?: string;

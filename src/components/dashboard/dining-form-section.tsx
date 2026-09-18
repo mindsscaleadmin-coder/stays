@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { ChevronDown, Maximize2, Minimize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type DiningFormTier = "required" | "recommended" | "optional";
@@ -31,14 +32,12 @@ export function DiningFormTierBadge({ tier }: { tier: DiningFormTier }) {
 }
 
 export function DiningFormSection({
-  number,
   title,
   tier,
   description,
   children,
   className,
 }: {
-  number?: number;
   title: string;
   tier?: DiningFormTier;
   description?: string;
@@ -46,18 +45,13 @@ export function DiningFormSection({
   className?: string;
 }) {
   return (
-    <section className={cn("space-y-4", className)}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            {number != null ? (
-              <span className="text-xs font-bold text-gray-400 tabular-nums">{number}.</span>
-            ) : null}
-            <h3 className="font-display text-base font-bold text-gray-900">{title}</h3>
-            {tier ? <DiningFormTierBadge tier={tier} /> : null}
-          </div>
-          {description ? <p className="mt-1 text-xs text-gray-500 max-w-3xl">{description}</p> : null}
+    <section className={cn("pt-8 pb-8 border-b border-gray-200 last:border-b-0", className)}>
+      <div className="mb-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="font-display text-base font-bold text-gray-900">{title}</h3>
+          {tier ? <DiningFormTierBadge tier={tier} /> : null}
         </div>
+        {description ? <p className="mt-1 text-xs text-gray-500 max-w-3xl">{description}</p> : null}
       </div>
       <div className="space-y-4">{children}</div>
     </section>
@@ -76,19 +70,68 @@ export function DiningFormCard({
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "rounded-xl border border-gray-200 bg-gray-50/40 p-4 space-y-4",
-        className
-      )}
-    >
+    <div className={cn("space-y-4", className)}>
       {title ? (
         <div>
-          <p className="font-display text-sm font-semibold text-gray-900">{title}</p>
+          <p className="text-sm font-semibold text-gray-900">{title}</p>
           {description ? <p className="text-xs text-gray-500 mt-0.5">{description}</p> : null}
         </div>
       ) : null}
       {children}
+    </div>
+  );
+}
+
+export function DiningCollapsibleCard({
+  summary,
+  summaryDetail,
+  defaultExpanded = false,
+  expandLabel = "Expand",
+  collapseLabel = "Minimize",
+  children,
+  className,
+}: {
+  summary: string;
+  summaryDetail?: ReactNode;
+  defaultExpanded?: boolean;
+  expandLabel?: string;
+  collapseLabel?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  return (
+    <div className={cn("space-y-4", className)}>
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-gray-100">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-900">{summary}</p>
+          {summaryDetail ? (
+            <div className="mt-1 text-xs text-gray-500">{summaryDetail}</div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded((open) => !open)}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-800 hover:text-green-900 shrink-0"
+        >
+          {expanded ? (
+            <>
+              <Minimize2 className="w-3.5 h-3.5" />
+              {collapseLabel}
+            </>
+          ) : (
+            <>
+              <Maximize2 className="w-3.5 h-3.5" />
+              {expandLabel}
+            </>
+          )}
+          <ChevronDown
+            className={cn("w-3.5 h-3.5 transition-transform", expanded && "rotate-180")}
+          />
+        </button>
+      </div>
+      {expanded ? <div className="space-y-4">{children}</div> : null}
     </div>
   );
 }

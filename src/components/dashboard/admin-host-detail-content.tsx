@@ -19,7 +19,6 @@ import {
   Tag,
   UserRound,
 } from "lucide-react";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import {
   buildHostListingStats,
   findAdminHost,
@@ -169,8 +168,7 @@ export function AdminHostDetailContent({ hostId }: { hostId: string }) {
 
   if (ready && !host) {
     return (
-      <AdminDashboardShell>
-        <div className="bg-white rounded-2xl border p-8 text-center max-w-lg">
+              <div className="bg-white rounded-2xl border p-8 text-center max-w-lg">
           <h2 className="text-lg font-bold text-gray-900 mb-2">Host not found</h2>
           <p className="text-sm text-gray-500 mb-4">
             This host may have been removed or the link is invalid.
@@ -179,23 +177,21 @@ export function AdminHostDetailContent({ hostId }: { hostId: string }) {
             Back to Host Control Panel
           </Link>
         </div>
-      </AdminDashboardShell>
+      
     );
   }
 
   if (!host || !stats) {
     return (
-      <AdminDashboardShell>
-        <div className="bg-white rounded-2xl border p-8 text-center text-sm text-gray-400">
+              <div className="bg-white rounded-2xl border p-8 text-center text-sm text-gray-400">
           Loading host details…
         </div>
-      </AdminDashboardShell>
+      
     );
   }
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
+          <div className="space-y-6">
         <div>
           <Link
             href="/admin/hosts"
@@ -716,6 +712,6 @@ export function AdminHostDetailContent({ hostId }: { hostId: string }) {
           )}
         </section>
       </div>
-    </AdminDashboardShell>
+    
   );
 }

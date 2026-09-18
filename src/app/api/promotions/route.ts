@@ -12,6 +12,7 @@ import { BookingAccessError } from "@/lib/auth/booking-access";
 import { requireActor, requireAdmin } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
 import { getStripe, isStripeConfigured, toStripeAmount } from "@/lib/stripe/server";
+import { getPromotionCatalogSettings } from "@/lib/server/promotion-catalog-repo";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -114,6 +115,8 @@ export async function POST(request: Request) {
 
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
       const stripe = getStripe()!;
+      const catalog = await getPromotionCatalogSettings();
+      const currency = catalog.currency.toLowerCase();
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
         success_url: `${appUrl}/host/promote?listingId=${encodeURIComponent(listingId)}&promoId=${saved.id}&session_id={CHECKOUT_SESSION_ID}`,
@@ -123,8 +126,8 @@ export async function POST(request: Request) {
           {
             quantity: 1,
             price_data: {
-              currency: "aed",
-              unit_amount: toStripeAmount(saved.priceAed, "AED"),
+              currency,
+              unit_amount: toStripeAmount(saved.priceAed, catalog.currency),
               product_data: {
                 name: `${saved.kind === "featured" ? "Featured" : "Trending"} · ${saved.durationDays} days`,
                 description: saved.listingId,

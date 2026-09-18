@@ -9,25 +9,52 @@ export interface HostCommissionOverride {
   note?: string;
 }
 
-/** One paid tier of the Events directory, priced by how many venues a host lists. */
+/** One paid tier of a directory vertical, priced by listing capacity. */
 export interface EventsSubscriptionPlan {
   id: string;
   name: string;
-  /** Highest listing count this tier covers. null = unlimited. */
+  /** Venue/outlet listings included. null = unlimited. */
   maxListings: number | null;
+  /**
+   * Event-only: rentable spaces (halls, lawns, etc.) per venue listing.
+   * For multi-venue tiers this is the cap on each venue, not a shared pool.
+   * null = unlimited. Ignored for Dining tiers.
+   */
+  maxSpaces?: number | null;
   yearlyFeeAed: number;
   active: boolean;
 }
 
+/** Bundled yearly offer covering both Events and Dining directory access. */
+export interface DirectoryComboOffer {
+  enabled: boolean;
+  active: boolean;
+  name: string;
+  description: string;
+  yearlyFeeAed: number;
+  /** Included Events venue listings. null = unlimited. */
+  eventsSpaces: number | null;
+  /** Included rentable event spaces (halls, lawns). null = unlimited. */
+  eventsHallSpaces?: number | null;
+  /** Included Dining outlets. null = unlimited. */
+  diningSpaces: number | null;
+}
+
 export interface EventsSubscriptionSettings {
   /**
-   * Launch phase: approved Event listings are public and free — no subscription
+   * Launch phase: approved directory listings are public and free — no subscription
    * required. Turn this off to start enforcing the paid tiers below.
    */
   freeDuringLaunch: boolean;
-  /** Paid tiers, cheapest first. Applied once freeDuringLaunch is off. */
-  plans: EventsSubscriptionPlan[];
-  /** @deprecated Flat single fee kept for stored payload shape; use `plans`. */
+  /** Yearly tiers for Events / venue directory listings. */
+  eventsPlans: EventsSubscriptionPlan[];
+  /** Yearly tiers for Dining directory listings — separate capacity from Events. */
+  diningPlans: EventsSubscriptionPlan[];
+  /** Optional Events + Dining bundle — one yearly price for both verticals. */
+  comboOffer?: DirectoryComboOffer;
+  /** @deprecated Use `eventsPlans`. Kept for stored payload migration. */
+  plans?: EventsSubscriptionPlan[];
+  /** @deprecated Flat single fee kept for stored payload shape. */
   yearlyFeeAed: number;
 }
 
@@ -80,6 +107,7 @@ export interface AdminTransactionRow {
   taxLabel: string;
   netEarnings: number;
   payoutStatus: "pending" | "included" | "paid";
+  stripeProcessingFee?: number;
 }
 
 export interface RefundRequest {
@@ -100,6 +128,9 @@ export interface FinancialReport {
   platformRevenue: number;
   hostEarnings: number;
   taxCollected: number;
+  stripeFeesTotal: number;
+  payoutTransferCosts: number;
+  truePlatformMargin: number;
   outstandingPayouts: number;
   pendingRefunds: number;
   currency: string;

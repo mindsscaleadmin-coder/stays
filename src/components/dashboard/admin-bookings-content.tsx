@@ -19,7 +19,6 @@ import {
   UserX,
   X,
 } from "lucide-react";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import { BookingMessageThread } from "@/components/booking/booking-message-thread";
 import { formatBookingDate, STATUS_STYLES } from "@/lib/mock/dashboard-data";
 import { formatRate } from "@/lib/admin/booking-oversight-utils";
@@ -601,16 +600,15 @@ export function AdminBookingsContent() {
 
   if (!ready) {
     return (
-      <AdminDashboardShell>
-        <div className="flex items-center justify-center min-h-[320px]">
+              <div className="flex items-center justify-center min-h-[320px]">
           <Loader2 className="w-8 h-8 animate-spin text-green-600" />
         </div>
-      </AdminDashboardShell>
+      
     );
   }
 
   return (
-    <AdminDashboardShell>
+    <>
       <div className="space-y-6">
         <div>
           <h2 className="text-xl font-bold text-gray-900 font-display">Booking Oversight</h2>
@@ -911,6 +909,6 @@ export function AdminBookingsContent() {
           }}
         />
       )}
-    </AdminDashboardShell>
+    </>
   );
 }

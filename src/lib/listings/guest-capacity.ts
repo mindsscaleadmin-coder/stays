@@ -124,3 +124,81 @@ export function mergeGuestPartyLimits(parts: GuestPartyLimits[]): GuestPartyLimi
     { adults: 0, children: 0, infants: 0, total: 0 }
   );
 }
+
+const BEDS_LABEL = /^beds?$/i;
+const BEDROOMS_LABEL = /bedroom/i;
+const BATHS_LABEL = /bath/i;
+
+export type PropertyCapacity = {
+  beds: number;
+  baths: number;
+  maxGuests: number;
+  maxAdults: number;
+  maxChildren: number;
+  maxInfants: number;
+};
+
+export function defaultPropertyCapacity(): PropertyCapacity {
+  return {
+    beds: 1,
+    baths: 1,
+    maxGuests: 2,
+    maxAdults: 2,
+    maxChildren: 0,
+    maxInfants: 0,
+  };
+}
+
+function parseFilterCount(
+  filters: { label: string; value: string }[],
+  re: RegExp,
+  fallback: number
+): number {
+  const row = filters.find((f) => re.test(f.label.trim()) || re.test(f.label));
+  const n = Number(row?.value?.match(/\d+/)?.[0]);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+export function readPropertyCapacityFromFilters(
+  filters: { label: string; value: string }[] | undefined,
+  fallback: Partial<PropertyCapacity> = {}
+): PropertyCapacity {
+  const list = filters ?? [];
+  const base = { ...defaultPropertyCapacity(), ...fallback };
+  const beds = list.some((f) => BEDROOMS_LABEL.test(f.label))
+    ? parseFilterCount(list, BEDROOMS_LABEL, base.beds)
+    : parseFilterCount(list, BEDS_LABEL, base.beds);
+  const baths = parseFilterCount(list, BATHS_LABEL, base.baths);
+  const party = readGuestPartyFromFilters(list, base.maxGuests);
+  return {
+    beds: Math.max(1, beds),
+    baths: Math.max(1, baths),
+    maxGuests: party.total,
+    maxAdults: party.adults,
+    maxChildren: party.children,
+    maxInfants: party.infants,
+  };
+}
+
+export function writePropertyCapacityFilters(
+  filters: { label: string; value: string }[],
+  capacity: PropertyCapacity
+): { label: string; value: string }[] {
+  const withoutCapacity = filters.filter(
+    (f) =>
+      !BEDS_LABEL.test(f.label.trim()) &&
+      !BEDROOMS_LABEL.test(f.label) &&
+      !BATHS_LABEL.test(f.label)
+  );
+  const withParty = writeGuestPartyFilters(withoutCapacity, {
+    adults: capacity.maxAdults,
+    children: capacity.maxChildren,
+    infants: capacity.maxInfants,
+    total: capacity.maxGuests,
+  });
+  return [
+    ...withParty,
+    { label: "Beds", value: String(Math.max(1, capacity.beds)) },
+    { label: "Baths", value: String(Math.max(1, capacity.baths)) },
+  ];
+}

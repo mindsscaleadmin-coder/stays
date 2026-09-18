@@ -1,4 +1,5 @@
 import type { HostPublicProfile, HostPublicProfileInput } from "./host-profile-types";
+import { mergeHostProfileSubscriptionFields } from "./merge-host-profile-fields";
 import { emitSyncEvent } from "@/lib/emit-sync-event";
 
 const STORAGE_KEY = "farm-stays-host-profiles";
@@ -74,8 +75,7 @@ export function saveHostPublicProfile(
     logoWidth: input.logoWidth,
     logoHeight: input.logoHeight,
     instantBookEnabled: true,
-    eventsSubscriptionExpiresAt:
-      input.eventsSubscriptionExpiresAt?.trim() || stored?.eventsSubscriptionExpiresAt,
+    ...mergeHostProfileSubscriptionFields(input, stored),
   };
   store[hostId] = next;
   saveStore(store);

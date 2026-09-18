@@ -28,6 +28,11 @@ import {
 } from "@/lib/admin/listing-ads-data";
 import type { ListingAdsSettings } from "@/lib/admin/listing-ads-types";
 import {
+  DEFAULT_CONTENT_POLICY,
+  normalizeContentPolicy,
+} from "@/lib/admin/content-policy-data";
+import type { ContentPolicySettings } from "@/lib/admin/content-policy-types";
+import {
   DEFAULT_LISTING_QUALITY_RULES_STORE,
   normalizeListingQualityRulesStore,
 } from "@/lib/admin/listing-quality-rules-data";
@@ -51,6 +56,7 @@ export const CATALOG_KEYS = {
   hostVerifications: "host-verifications",
   guestVerifications: "guest-verifications",
   supportContact: "support-contact-settings",
+  contentPolicy: "content-policy",
 } as const;
 
 async function getPayload(key: string): Promise<string | null> {
@@ -290,6 +296,24 @@ export async function saveListingAdsToDb(
 ): Promise<ListingAdsSettings> {
   const next = normalizeListingAds(settings);
   await savePayload(CATALOG_KEYS.listingAds, next);
+  return next;
+}
+
+export async function getContentPolicyFromDb(): Promise<ContentPolicySettings> {
+  const raw = await getPayload(CATALOG_KEYS.contentPolicy);
+  if (!raw) return DEFAULT_CONTENT_POLICY;
+  try {
+    return normalizeContentPolicy(JSON.parse(raw) as Partial<ContentPolicySettings>);
+  } catch {
+    return DEFAULT_CONTENT_POLICY;
+  }
+}
+
+export async function saveContentPolicyToDb(
+  settings: ContentPolicySettings
+): Promise<ContentPolicySettings> {
+  const next = normalizeContentPolicy(settings);
+  await savePayload(CATALOG_KEYS.contentPolicy, next);
   return next;
 }
 

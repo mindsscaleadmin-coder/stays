@@ -61,6 +61,16 @@ sequenceDiagram
 - **Slow queries:** Prisma extension logs operations >200ms (`src/lib/prisma.ts`).
 - **Read replicas (future):** route read-only profile/dashboard queries via a read URL — structure repos in `src/lib/server/` to accept an optional read client.
 
+## Database Portability Rules
+
+These rules keep us free to migrate off Supabase to another Postgres host later without a rewrite.
+
+1. **Keep all queries through Prisma** — never write raw SQL using Supabase-only functions (`auth.uid()`, RPC calls) directly in business logic; ties queries to Supabase's auth layer and won't run on plain Postgres.
+2. **Isolate Supabase-specific code** — keep using the `isSupabaseConfigured()` pattern for any Supabase feature (Storage, Realtime) so it can be swapped without touching unrelated code.
+3. **Abstract file storage calls** — wrap all file upload/download logic in one module (`src/lib/storage/`) instead of calling the Supabase Storage SDK directly from components or pages; a single adapter is all that changes when we move to S3, R2, or local disk.
+4. **Keep schema changes in Prisma migrations only** — never add custom functions, triggers, or RLS policies through the Supabase dashboard SQL editor; dashboard-only DDL is invisible to the repo and breaks restores on any non-Supabase host.
+5. **Test a backup/restore dry run periodically** — run `pg_dump` against the Supabase database and confirm it restores cleanly; proves the exit path works before a migration is urgent.
+
 ## Caching (cache-aside)
 
 | Key | TTL | Invalidation |

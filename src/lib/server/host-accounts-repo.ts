@@ -18,7 +18,15 @@ import type {
 } from "@/lib/host/host-accounts-types";
 import type { FinancialHostOption } from "@/lib/admin/financial-data";
 import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
-import { BASE_CURRENCY } from "@/lib/currency";
+import { parseFinancialSnapshot } from "@/lib/booking/financial-snapshot";
+import {
+  estimateGuestQuoteSnapshot,
+  parseGuestQuoteSnapshot,
+} from "@/lib/booking/guest-quote-snapshot";
+import { defaultForListing } from "@/lib/host/host-pricing-data";
+import { getListingPricing } from "@/lib/server/listing-pricing-repo";
+import { currencyForCountryName, normalizeCurrency } from "@/lib/currency";
+import { LAUNCH_CURRENCY, LAUNCH_TAX_LABEL, LAUNCH_TAX_PCT } from "@/lib/tax/launch-market";
 
 type StoredAccounts = {
   payoutAccount: HostPayoutAccount | null;
@@ -57,7 +65,7 @@ function parseListingMeta(payload: string): {
       category?: string;
     };
     return {
-      currency: p.currency || BASE_CURRENCY,
+      currency: p.currency || LAUNCH_CURRENCY,
       country: p.country?.trim() || "",
       parentCategory: p.parentCategory?.trim() || "",
       type: p.type?.trim() || "",
@@ -65,7 +73,7 @@ function parseListingMeta(payload: string): {
     };
   } catch {
     return {
-      currency: BASE_CURRENCY,
+      currency: LAUNCH_CURRENCY,
       country: "",
       parentCategory: "",
       type: "",
@@ -121,6 +129,7 @@ function paidBookingIds(stored: StoredAccounts): Set<string> {
 
 type LedgerBooking = {
   id: string;
+  listingId: string;
   bookingReference: string;
   totalPrice: number;
   paymentStatus: string;
@@ -128,25 +137,73 @@ type LedgerBooking = {
   cancelledAt: Date | null;
   cancelReason: string | null;
   createdAt: Date;
+  guestQuoteSnapshot: string | null;
+  financialSnapshot: string | null;
   guest: { fullName: string };
-  listing: { hostId: string; title: string; payload: string; host: { fullName: string } };
+  listing: {
+    hostId: string;
+    title: string;
+    payload: string;
+    country: string | null;
+    host: { fullName: string };
+  };
 };
 
-function toTransaction(
+type PricingCache = Map<string, Awaited<ReturnType<typeof getListingPricing>>>;
+
+async function pricingForListing(listingId: string, cache: PricingCache) {
+  if (cache.has(listingId)) return cache.get(listingId)!;
+  const pricing = (await getListingPricing(listingId)) ?? defaultForListing(listingId);
+  cache.set(listingId, pricing);
+  return pricing;
+}
+
+async function resolveTaxForRow(row: LedgerBooking, currency: string, cache: PricingCache) {
+  const financial = parseFinancialSnapshot(row.financialSnapshot);
+  const guest = parseGuestQuoteSnapshot(row.guestQuoteSnapshot);
+  if (financial) {
+    return { taxAmount: financial.taxAmount, taxLabel: financial.taxLabel };
+  }
+  if (guest) {
+    return { taxAmount: guest.taxAmount, taxLabel: guest.taxLabel };
+  }
+  const pricing = await pricingForListing(row.listingId, cache);
+  const meta = parseListingMeta(row.listing.payload);
+  const estimate = estimateGuestQuoteSnapshot({
+    totalPrice: row.totalPrice,
+    currency,
+    taxPct: pricing?.taxPct ?? LAUNCH_TAX_PCT,
+    taxLabel: pricing?.taxLabel ?? LAUNCH_TAX_LABEL,
+  });
+  return { taxAmount: estimate.taxAmount, taxLabel: estimate.taxLabel };
+}
+
+async function toTransaction(
   row: LedgerBooking,
   settings: FinancialSettings,
-  included: Set<string>
-): AdminTransactionRow {
+  included: Set<string>,
+  pricingCache: PricingCache
+): Promise<AdminTransactionRow> {
   const meta = parseListingMeta(row.listing.payload);
   const hostId = row.listing.hostId;
-  const pct = commissionPct(settings, hostId, meta);
+  const currency = normalizeCurrency(
+    meta.currency || currencyForCountryName(row.listing.country || meta.country)
+  );
+  const financial = parseFinancialSnapshot(row.financialSnapshot);
+  const pct = financial?.platformFeePct ?? commissionPct(settings, hostId, meta);
   const refunded = row.paymentStatus.toLowerCase().includes("refund");
   const refundAmount = row.refundAmount ?? 0;
   const remaining = Math.max(0, row.totalPrice - (refunded ? refundAmount : 0));
-  const platformFee = Math.round(((remaining > 0 ? remaining : row.totalPrice) * pct) / 100 * 100) / 100;
-  const net = refunded && refundAmount >= row.totalPrice
-    ? 0
-    : Math.round((remaining - (remaining > 0 ? platformFee : 0)) * 100) / 100;
+  const platformFee =
+    financial?.platformFee ??
+    Math.round(((remaining > 0 ? remaining : row.totalPrice) * pct) / 100 * 100) / 100;
+  const net =
+    financial?.hostNetEarnings ??
+    (refunded && refundAmount >= row.totalPrice
+      ? 0
+      : Math.round((remaining - (remaining > 0 ? platformFee : 0)) * 100) / 100);
+
+  const { taxAmount, taxLabel } = await resolveTaxForRow(row, currency, pricingCache);
 
   let payoutStatus: HostTransaction["payoutStatus"] = "pending";
   if (included.has(row.id)) payoutStatus = "paid";
@@ -161,14 +218,15 @@ function toTransaction(
     guestName: row.guest.fullName,
     property: row.listing.title,
     bookingRef: row.bookingReference,
-    currency: meta.currency,
+    currency,
     grossAmount: row.totalPrice,
     platformFeePct: pct,
     platformFee,
-    taxAmount: 0,
-    taxLabel: "VAT",
+    taxAmount,
+    taxLabel,
     netEarnings: net,
     payoutStatus,
+    stripeProcessingFee: financial?.stripeProcessingFee,
   };
 }
 
@@ -192,7 +250,7 @@ function upcomingForHost(
     hostName,
     scheduledDate,
     amount: Math.round(amount * 100) / 100,
-    currency: pending[0]?.currency ?? BASE_CURRENCY,
+    currency: pending[0]?.currency ?? LAUNCH_CURRENCY,
     bookingCount: pending.length,
     sourceStatus: "scheduled",
     adminStatus: state?.adminStatus ?? "pending_review",
@@ -248,19 +306,40 @@ async function loadPaidBookings(hostId?: string): Promise<LedgerBooking[]> {
       paymentStatus: { in: ["paid", "refund_pending", "refunded"] },
       ...(hostId ? { listing: { hostId } } : {}),
     },
-    include: {
+    select: {
+      id: true,
+      listingId: true,
+      bookingReference: true,
+      totalPrice: true,
+      paymentStatus: true,
+      refundAmount: true,
+      cancelledAt: true,
+      cancelReason: true,
+      createdAt: true,
+      guestQuoteSnapshot: true,
+      financialSnapshot: true,
       guest: { select: { fullName: true } },
       listing: {
         select: {
           hostId: true,
           title: true,
           payload: true,
+          country: true,
           host: { select: { fullName: true } },
         },
       },
     },
     orderBy: { createdAt: "desc" },
   });
+}
+
+async function mapTransactions(
+  rows: LedgerBooking[],
+  settings: FinancialSettings,
+  included: Set<string>
+): Promise<AdminTransactionRow[]> {
+  const pricingCache: PricingCache = new Map();
+  return Promise.all(rows.map((row) => toTransaction(row, settings, included, pricingCache)));
 }
 
 export async function getHostAccountsPayload(hostId: string): Promise<StoredAccounts> {
@@ -302,7 +381,7 @@ export async function markPayoutBatchPaid(payoutId: string): Promise<void> {
   const stored = await getHostAccountsPayload(hostId);
   const rows = await loadPaidBookings(hostId);
   const included = paidBookingIds(stored);
-  const txs = rows.map((row) => toTransaction(row, settings, included));
+  const txs = await mapTransactions(rows, settings, included);
   const pending = txs.filter((tx) => tx.payoutStatus === "pending" && tx.netEarnings > 0);
   if (pending.length === 0) return;
 
@@ -310,7 +389,7 @@ export async function markPayoutBatchPaid(payoutId: string): Promise<void> {
     id: payoutId,
     paidDate,
     amount: Math.round(pending.reduce((s, tx) => s + tx.netEarnings, 0) * 100) / 100,
-    currency: pending[0]?.currency ?? BASE_CURRENCY,
+    currency: pending[0]?.currency ?? LAUNCH_CURRENCY,
     reference: payoutId.toUpperCase(),
     method: stored.payoutAccount?.method ?? "bank",
     status: "paid",
@@ -333,7 +412,7 @@ export async function getHostAccountsData(hostId: string): Promise<HostAccountsD
   const stored = await getHostAccountsPayload(hostId);
   const rows = await loadPaidBookings(hostId);
   const included = paidBookingIds(stored);
-  const txs = rows.map((row) => toTransaction(row, settings, included));
+  const txs = await mapTransactions(rows, settings, included);
   const hostName = rows[0]?.listing.host.fullName || hostId;
   const upcoming = upcomingForHost(hostId, hostName, txs, settings);
   const history = historyForHost(hostId, stored, settings);
@@ -395,8 +474,12 @@ export async function getPlatformLedger(): Promise<PlatformLedger> {
     })
   );
 
-  const transactions = rows.map((row) =>
-    toTransaction(row, settings, paidBookingIds(storedByHost.get(row.listing.hostId) ?? { payoutAccount: null }))
+  const pricingCache: PricingCache = new Map();
+  const transactions = await Promise.all(
+    rows.map((row) => {
+      const included = paidBookingIds(storedByHost.get(row.listing.hostId) ?? { payoutAccount: null });
+      return toTransaction(row, settings, included, pricingCache);
+    })
   );
 
   const payouts: AdminPayoutItem[] = [];
@@ -420,6 +503,15 @@ export async function getPlatformLedger(): Promise<PlatformLedger> {
 
   const refunds = refundsFromBookings(rows);
   const report = computeFinancialReport(transactions, payouts, refunds);
+  let payoutTransferCosts = 0;
+  for (const stored of storedByHost.values()) {
+    for (const batch of stored.paidBatches ?? []) {
+      payoutTransferCosts += batch.transferFee ?? 0;
+    }
+  }
+  report.payoutTransferCosts = payoutTransferCosts;
+  report.truePlatformMargin =
+    report.platformRevenue - report.stripeFeesTotal - payoutTransferCosts;
 
   return {
     transactions,

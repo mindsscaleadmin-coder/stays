@@ -1,14 +1,17 @@
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "./send";
+import { buildGuestInvoiceHtml, buildGuestInvoiceText } from "./guest-receipt";
+import {
+  estimateGuestQuoteSnapshot,
+  parseGuestQuoteSnapshot,
+} from "@/lib/booking/guest-quote-snapshot";
+import { getListingPricing } from "@/lib/server/listing-pricing-repo";
+import { defaultForListing } from "@/lib/host/host-pricing-data";
+import { currencyForCountryName, normalizeCurrency } from "@/lib/currency";
+import { LAUNCH_CURRENCY, LAUNCH_TAX_LABEL, LAUNCH_TAX_PCT } from "@/lib/tax/launch-market";
 
 function appUrl() {
   return (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
-}
-
-function formatStayDates(checkIn: Date, checkOut: Date) {
-  const fmt = (d: Date) =>
-    d.toISOString().slice(0, 10);
-  return `${fmt(checkIn)} → ${fmt(checkOut)}`;
 }
 
 export async function deliverWelcomeEmail(input: {
@@ -24,27 +27,63 @@ export async function deliverWelcomeEmail(input: {
   });
 }
 
-export async function deliverBookingConfirmedEmail(bookingId: string) {
+export async function deliverInvoiceEmail(bookingId: string) {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: {
-      listing: { select: { title: true } },
+      listing: { select: { title: true, payload: true, country: true } },
       guest: { select: { email: true, fullName: true } },
     },
   });
   if (!booking?.guest?.email) return { sent: false };
 
-  const title = booking.listing.title;
-  const dates = formatStayDates(booking.checkIn, booking.checkOut ?? booking.checkIn);
-  const total = `${booking.paymentStatus === "paid" ? "Paid" : "Due"} · ${booking.totalPrice}`;
-  const tripsUrl = `${appUrl()}/account?tab=bookings`;
-  const name = booking.guest.fullName || "there";
-  const reference = booking.bookingReference;
+  const pricing =
+    (await getListingPricing(booking.listingId)) ?? defaultForListing(booking.listingId);
+  let listingCurrency = LAUNCH_CURRENCY;
+  let listingCountry = booking.listing.country ?? "";
+  try {
+    const payload = JSON.parse(booking.listing.payload) as { currency?: string; country?: string };
+    listingCurrency = payload.currency || listingCurrency;
+    listingCountry = payload.country || listingCountry;
+  } catch {
+    // use defaults
+  }
+  const currency = normalizeCurrency(
+    pricing.currency || listingCurrency || currencyForCountryName(listingCountry)
+  );
+
+  const quote =
+    parseGuestQuoteSnapshot(booking.guestQuoteSnapshot) ??
+    estimateGuestQuoteSnapshot({
+      totalPrice: booking.totalPrice,
+      currency,
+      taxPct: pricing.taxPct ?? LAUNCH_TAX_PCT,
+      taxLabel: pricing.taxLabel ?? LAUNCH_TAX_LABEL,
+    });
+
+  const guestName = booking.guest.fullName?.trim() || "Guest";
+  const tripsUrl = `${appUrl()}/account?tab=bookings&booking=${encodeURIComponent(booking.id)}`;
+  const invoiceInput = {
+    bookingReference: booking.bookingReference,
+    issuedAt: booking.createdAt,
+    guestName,
+    propertyTitle: booking.listing.title,
+    checkIn: booking.checkIn,
+    checkOut: booking.checkOut,
+    guestCount: booking.guestCount,
+    quote,
+    tripsUrl,
+  };
 
   return sendEmail({
     to: booking.guest.email,
-    subject: `${reference} · Your stay is confirmed · ${title}`,
-    text: `Hi ${name},\n\nYour booking at ${title} is confirmed.\nBooking reference: ${reference}\n${dates}\n${total}\n\nUse ${reference} when contacting the host or support.\n\nView it: ${tripsUrl}\n`,
-    html: `<p>Hi ${name},</p><p>Your booking at <strong>${title}</strong> is confirmed.</p><p><strong>Booking reference: ${reference}</strong><br/>${dates}<br/>${total}</p><p>Use ${reference} when contacting the host or support.</p><p><a href="${tripsUrl}">View your trips</a></p>`,
+    subject: `${booking.bookingReference} · Your receipt · ${booking.listing.title}`,
+    text: buildGuestInvoiceText(invoiceInput),
+    html: buildGuestInvoiceHtml(invoiceInput),
   });
+}
+
+/** @deprecated Use deliverInvoiceEmail — kept as alias for worker compatibility during transition. */
+export async function deliverBookingConfirmedEmail(bookingId: string) {
+  return deliverInvoiceEmail(bookingId);
 }

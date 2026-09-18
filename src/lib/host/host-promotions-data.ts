@@ -1,5 +1,5 @@
 import { emitSyncEvent } from "@/lib/emit-sync-event";
-import { getPromotionPackageFromSettings } from "@/lib/admin/host-promotions-settings-data";
+import { getPromotionPackageFromSettings, loadHostPromotionsSettings } from "@/lib/admin/host-promotions-settings-data";
 import { mergePromotedIds, setCachedPromotedIds } from "@/lib/listings/promotions-cache";
 import {
   purchasePromotionViaApi,
@@ -143,7 +143,7 @@ export async function purchasePromotion(input: {
     kind: input.kind,
     durationDays: input.durationDays,
     priceAed: pkg.priceAed,
-    currency: "AED",
+    currency: loadHostPromotionsSettings().currency,
     purchasedAt: now.toISOString(),
     startsAt: (existing ? now : start).toISOString(),
     endsAt: ends.toISOString(),

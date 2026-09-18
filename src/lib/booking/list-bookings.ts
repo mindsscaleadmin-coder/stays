@@ -8,6 +8,10 @@ import type { HostBookingStatus } from "@/lib/mock/dashboard-data";
 import { parseAuditLog } from "@/lib/booking/booking-audit";
 import { mapDisputeStatus, mapRefundStatusFromRow } from "@/lib/booking/booking-ops";
 import { BASE_CURRENCY, currencyForCountryName, normalizeCurrency } from "@/lib/currency";
+import {
+  formatExperienceSessionLabel,
+  resolveHostBookingCategory,
+} from "@/lib/host/booking-category";
 
 function ymd(d: Date): string {
   const y = d.getFullYear();
@@ -134,6 +138,8 @@ type BookingRow = {
   disputeResolvedAt: Date | null;
   noShow: boolean;
   auditLog: string;
+  experienceSlotId: string | null;
+  experienceSlot: { sessionKey: string } | null;
   guest: {
     fullName: string;
     email: string | null;
@@ -149,12 +155,15 @@ type BookingRow = {
     country?: string | null;
     state?: string | null;
     district?: string | null;
+    parentCategory?: string | null;
+    category?: string | null;
   };
 };
 
 const bookingInclude = {
   guest: true,
   listing: true,
+  experienceSlot: { select: { sessionKey: true } },
 } as const;
 
 export async function listingIdsOwnedByHost(hostId: string): Promise<string[]> {
@@ -221,10 +230,24 @@ export function toHostBookingRecord(
       .filter(Boolean)
       .join(", ");
 
+  const category = resolveHostBookingCategory({
+    parentCategory: row.listing.parentCategory,
+    category: row.listing.category,
+    payload: row.listing.payload,
+    experienceSlotId: row.experienceSlotId,
+  });
+  const sessionKey = row.experienceSlot?.sessionKey ?? "";
+
   return {
     id: row.id,
     bookingReference: row.bookingReference,
     listingId: row.listingId,
+    guestId: row.guestId,
+    category,
+    experienceSlotId: row.experienceSlotId,
+    experienceSessionLabel: sessionKey
+      ? formatExperienceSessionLabel(sessionKey)
+      : undefined,
     hostId: row.listing.hostId,
     hostName: meta.hostName,
     guest: row.guest.fullName,

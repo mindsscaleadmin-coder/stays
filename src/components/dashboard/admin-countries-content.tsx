@@ -13,7 +13,6 @@ import {
   X,
 } from "lucide-react";
 import { Link } from "@/i18n/routing";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import {
   getCountryGeoPreset,
@@ -303,8 +302,7 @@ export function AdminCountriesContent() {
   const showForm = creating || editingId !== null;
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
+          <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">Countries</h2>
@@ -757,7 +755,7 @@ export function AdminCountriesContent() {
           </ul>
         </div>
       </div>
-    </AdminDashboardShell>
+    
   );
 }
 

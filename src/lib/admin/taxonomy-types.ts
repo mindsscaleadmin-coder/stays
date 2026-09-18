@@ -296,6 +296,29 @@ export function isDefaultPropertyTab(id: string): boolean {
   return DEFAULT_PROPERTY_TABS.some((t) => t.id === id);
 }
 
+export const PROPERTY_TAB_CANONICAL_ORDER = [
+  "roomType",
+  "bedrooms",
+  "beds",
+  "baths",
+  "guests",
+] as const;
+
+export type PropertyTabCanonicalId = (typeof PROPERTY_TAB_CANONICAL_ORDER)[number];
+
+/** Resolve an enabled main tab for a canonical property filter (room type, beds, …). */
+export function findPropertyTab(
+  taxonomy: Pick<TaxonomyData, "mainTabs">,
+  canonicalId: PropertyTabCanonicalId | string
+): FilterTab | null {
+  return (
+    taxonomy.mainTabs.find((tab) => {
+      if (tab.enabled === false) return false;
+      return tab.id === canonicalId || resolvePropertyTabId(tab) === canonicalId;
+    }) ?? null
+  );
+}
+
 /** Keep admin Active/label overrides when re-merging built-in tabs. */
 function mergeStoredTab(canonical: FilterTab, stored?: FilterTab): FilterTab {
   if (!stored) return applyExtraTabListingSection({ ...canonical });

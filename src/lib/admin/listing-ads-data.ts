@@ -12,7 +12,7 @@ export const DEFAULT_LISTING_ADS: ListingAdsSettings = {
       placement: "tall",
       eyebrow: "Sponsored",
       title: "List your farm stay",
-      body: "Reach guests looking for premium stays across the Emirates.",
+      body: "Reach guests searching for farm stays and unique stays across India.",
       ctaLabel: "Get started",
       ctaHref: "/host/signup",
       imageUrl: "",

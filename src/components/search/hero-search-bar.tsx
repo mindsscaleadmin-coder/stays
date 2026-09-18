@@ -347,7 +347,10 @@ export function HeroSearchBar({
             checkOut={checkOut}
             minDate={minDate}
             onCheckInChange={setCheckIn}
-            onCheckOutChange={setCheckOut}
+            onCheckOutChange={(value) => {
+              setCheckOut(value);
+              if (value) setOpenPanel("who");
+            }}
           />
         </div>
 

@@ -11,7 +11,9 @@ import { loadTaxonomy } from "@/lib/admin/taxonomy-data";
 import type { TaxonomyData } from "@/lib/admin/taxonomy-types";
 import { applyGuestReviewRatings } from "@/lib/booking/stay-reviews-data";
 import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
-import { isEventsSubscriptionActive } from "@/lib/host/events-subscription";
+import { isDiningListing } from "@/lib/booking/is-dining-listing";
+import { isEventListing } from "@/lib/booking/is-event-listing";
+import { isHostDirectoryPublic } from "@/lib/host/directory-billing";
 import { eventsDirectoryIsFree } from "@/lib/admin/events-subscription";
 import { loadFinancialSettings } from "@/lib/admin/financial-data";
 import { loadHostPublicProfile } from "@/lib/host/host-profile-data";
@@ -151,11 +153,19 @@ export function getPublicListings(): Stay[] {
     .map(submissionToStay)
     .map((stay) => applyPaidFeaturedBadge(stay))
     .filter((stay) => {
-      if (freeDirectory || !isDirectoryListing(stay)) return true;
+      if (!isDirectoryListing(stay)) return true;
       const hostId = stay.hostId?.trim();
       if (!hostId) return false;
-      return isEventsSubscriptionActive(
-        loadHostPublicProfile(hostId).eventsSubscriptionExpiresAt
+      const profile = loadHostPublicProfile(hostId);
+      if (isEventListing(stay)) {
+        return isHostDirectoryPublic(profile, "events", freeDirectory);
+      }
+      if (isDiningListing(stay)) {
+        return isHostDirectoryPublic(profile, "dining", freeDirectory);
+      }
+      return (
+        isHostDirectoryPublic(profile, "events", freeDirectory) ||
+        isHostDirectoryPublic(profile, "dining", freeDirectory)
       );
     });
 

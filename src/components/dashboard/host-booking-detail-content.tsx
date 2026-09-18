@@ -2,35 +2,55 @@
 
 import { useMemo, useState } from "react";
 import { Link } from "@/i18n/routing";
-import {
-  ArrowLeft,
-  CalendarDays,
-  Clock,
-  DoorClosed,
-  DoorOpen,
-  Loader2,
-  Mail,
-  MapPin,
-  Phone,
-  Printer,
-  User,
-  type LucideIcon,
-} from "lucide-react";
+import { ArrowLeft, Loader2, Printer } from "lucide-react";
 import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell";
 import { BookingMessageThread } from "@/components/booking/booking-message-thread";
+import { OpsBookingSection } from "@/components/dashboard/booking-ops/ops-booking-section";
+import { OpsCardRow } from "@/components/dashboard/booking-ops/ops-card-row";
+import { OpsCustomerSection } from "@/components/dashboard/booking-ops/ops-customer-section";
+import { OpsActivityTimeline } from "@/components/dashboard/booking-ops/ops-activity-timeline";
+import { OpsCompletionActions } from "@/components/dashboard/booking-ops/ops-completion-actions";
+import { OpsDetailHeader } from "@/components/dashboard/booking-ops/ops-detail-header";
+import { OpsPrivateNotes } from "@/components/dashboard/booking-ops/ops-private-notes";
+import { OpsSectionCard } from "@/components/dashboard/booking-ops/ops-section-card";
+import { OpsStaffAssign } from "@/components/dashboard/booking-ops/ops-staff-assign";
 import { formatBookingDate, STATUS_STYLES } from "@/lib/mock/dashboard-data";
 import { useHostBookings } from "@/lib/host/use-host-bookings";
 import type { RefundStatus } from "@/lib/host/host-booking-types";
 import { displaySpecialRequests, getBookingTimeline } from "@/lib/host/host-booking-utils";
 import { getCancellationRule } from "@/lib/booking/policies";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useBookingOps } from "@/lib/host/use-booking-ops";
+import { useHostGuestSummary } from "@/lib/host/use-host-guest-summary";
+import { resolveHostId } from "@/lib/listings/host-listings-utils";
 import { cn } from "@/lib/utils";
 
 export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
   const id = decodeURIComponent(bookingId);
   const { user } = useAuth();
-  const { booking, ready, cancel, checkIn, checkOut, update, previewCancelRefund } =
-    useHostBookings(id);
+  const hostId = resolveHostId(user);
+  const {
+    booking,
+    bookings,
+    ready,
+    refresh,
+    cancel,
+    checkIn,
+    checkOut,
+    update,
+    previewCancelRefund,
+  } = useHostBookings(id);
+  const {
+    view: opsView,
+    saving: opsSaving,
+    error: opsError,
+    patch: patchOps,
+  } = useBookingOps(id, hostId);
+  const { summary: guestSummary, ready: guestSummaryReady } = useHostGuestSummary(
+    hostId,
+    booking,
+    bookings
+  );
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -99,15 +119,6 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
 
   const policy = getCancellationRule(booking.policyId);
 
-  const canCheckIn =
-    booking.status === "confirmed" &&
-    booking.checkInStatus === "pending" &&
-    booking.paymentStatus === "Paid" &&
-    (timeline === "ongoing" || timeline === "upcoming");
-  const canCheckOut = booking.status === "confirmed" && booking.checkInStatus === "checked_in";
-  const canCancel =
-    booking.status === "confirmed" || booking.status === "pending";
-
   async function handleCancelSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!cancelReason.trim()) return;
@@ -173,218 +184,66 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
             {message}
           </div>
         )}
-
-        <section className="rounded-2xl border overflow-hidden print:hidden border-gray-200 bg-white">
-          <div className="p-5 sm:p-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="flex items-start gap-3.5 min-w-0">
-                <div
-                  className="w-12 h-12 rounded-2xl bg-[var(--brand-green)] text-white flex items-center justify-center text-lg font-bold shrink-0"
-                  aria-hidden
-                >
-                  {booking.guest
-                    .split(" ")
-                    .filter(Boolean)
-                    .slice(0, 2)
-                    .map((part) => part[0]?.toUpperCase())
-                    .join("") || "G"}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-green)]">
-                    Stay
-                  </p>
-                  <h1 className="text-2xl font-bold text-gray-900 font-display mt-0.5 tracking-tight">
-                    {booking.guest}
-                  </h1>
-                  <p className="text-sm text-gray-500 mt-1">{booking.property}</p>
-                  <p className="text-xs text-gray-400 mt-1 font-mono">
-                    Ref {booking.bookingReference || booking.id}
-                    {booking.propertyReference ? ` · Property ${booking.propertyReference}` : ""}
-                  </p>
-                </div>
-              </div>
-              <div className="text-end">
-                <span
-                  className={`inline-flex text-[10px] font-bold px-2.5 py-1 rounded-full capitalize ${STATUS_STYLES[booking.status]}`}
-                >
-                  {booking.status}
-                </span>
-                <p className="text-xl font-bold text-gray-900 mt-2 tabular-nums">{booking.total}</p>
-                <p className="text-[11px] text-gray-500 mt-0.5">
-                  {booking.paymentStatus}
-                  {booking.currency ? ` · ${booking.currency}` : ""}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <HeroStat
-                icon={CalendarDays}
-                label="Check-in"
-                value={formatBookingDate(booking.checkIn)}
-              />
-              <HeroStat
-                icon={CalendarDays}
-                label="Check-out"
-                value={formatBookingDate(booking.checkOut)}
-              />
-              <HeroStat icon={User} label="Guests" value={`${booking.guests}`} />
-              <HeroStat icon={Clock} label="Nights" value={`${booking.nights}`} />
-            </div>
-
-            {booking.status === "expired" && (
-              <p className="mt-4 text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
-                This booking expired before it could be completed.
-              </p>
-            )}
+        {opsError && (
+          <div className="bg-red-50 border border-red-100 text-red-800 text-sm rounded-2xl px-4 py-3 print:hidden">
+            {opsError}
           </div>
+        )}
 
-          {(canCheckIn || canCheckOut || canCancel) && (
-            <div className="px-5 sm:px-6 py-3.5 border-t border-gray-100/80 bg-white/80 flex flex-wrap items-center gap-2">
-              {canCheckIn && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true);
-                    try {
-                      await checkIn(booking.id);
-                      flash("Guest checked in.");
-                    } catch (error) {
-                      flash(error instanceof Error ? error.message : "Could not check in guest.");
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 text-sm bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-50"
-                >
-                  <DoorOpen className="w-4 h-4" />
-                  Check in
-                </button>
-              )}
-              {canCheckOut && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true);
-                    try {
-                      await checkOut(booking.id);
-                      flash("Guest checked out. Stay marked completed.");
-                    } catch (error) {
-                      flash(error instanceof Error ? error.message : "Could not check out guest.");
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                  className="inline-flex items-center gap-1.5 text-sm bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl font-semibold disabled:opacity-50"
-                >
-                  <DoorClosed className="w-4 h-4" />
-                  Check out
-                </button>
-              )}
-              <span className="flex-1" />
-              {canCancel && (
-                <button
-                  type="button"
-                  onClick={openCancel}
-                  className="inline-flex items-center gap-1.5 text-sm text-red-700 hover:bg-red-50 px-3 py-2 rounded-xl font-semibold"
-                >
-                  Cancel stay
-                </button>
-              )}
-            </div>
-          )}
-        </section>
+        <OpsDetailHeader booking={booking} />
 
         <div className="grid grid-cols-1 xl:grid-cols-5 gap-5 print:hidden">
           <div className="xl:col-span-3 space-y-5">
-            <section className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 mb-4">
-                Stay
-              </h2>
-              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-                <CardRow label="Booking ref" value={booking.bookingReference || booking.id} />
-                {booking.propertyReference ? (
-                  <CardRow label="Property ref" value={booking.propertyReference} />
-                ) : null}
-                <CardRow label="Property" value={booking.property} />
-                <CardRow label="Room" value={booking.roomType} />
-                <CardRow
-                  label="Location"
-                  value={booking.propertyLocation}
-                  icon={MapPin}
-                />
-                <CardRow label="Booked" value={formatBookingDate(booking.bookedAt)} />
-                <CardRow
-                  label="Dates"
-                  value={`${formatBookingDate(booking.checkIn)} → ${formatBookingDate(booking.checkOut)}`}
-                />
-                <CardRow label="Nights" value={String(booking.nights)} />
-              </dl>
-            </section>
+            <OpsCustomerSection
+              booking={booking}
+              guestSummary={guestSummary}
+              guestSummaryLoading={!guestSummaryReady}
+            />
+            <OpsBookingSection booking={booking} />
 
-            <section className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 mb-4">
-                Guest
-              </h2>
-              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-                <CardRow label="Name" value={booking.guest} />
-                <CardRow
-                  label="Party"
-                  value={`${booking.guests} (${booking.adults} adults${booking.children ? `, ${booking.children} children` : ""})`}
+            {hostId ? (
+              <>
+                <OpsStaffAssign
+                  hostId={hostId}
+                  assignedStaffId={opsView.ops?.assignedStaffId ?? null}
+                  assignedStaffName={opsView.assignedStaffName}
+                  saving={opsSaving}
+                  onAssign={async (staffId) => {
+                    const result = await patchOps({ assignedStaffId: staffId });
+                    if (result) {
+                      await refresh({ force: true });
+                      flash(staffId ? "Staff assigned." : "Staff unassigned.");
+                    }
+                  }}
                 />
-                {booking.guestEmail ? <CardRow label="Email" value={booking.guestEmail} /> : null}
-                {booking.guestPhone ? <CardRow label="Phone" value={booking.guestPhone} /> : null}
-                {booking.guestCountry ? <CardRow label="Country" value={booking.guestCountry} /> : null}
-              </dl>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {booking.guestEmail && (
-                  <a
-                    href={`mailto:${booking.guestEmail}`}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 border border-gray-200 rounded-full px-3 py-1.5 hover:border-green-300"
-                  >
-                    <Mail className="w-3.5 h-3.5" /> Email
-                  </a>
-                )}
-                {booking.guestPhone && (
-                  <a
-                    href={`tel:${booking.guestPhone}`}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 border border-gray-200 rounded-full px-3 py-1.5 hover:border-green-300"
-                  >
-                    <Phone className="w-3.5 h-3.5" /> Call
-                  </a>
-                )}
-              </div>
-              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <NoteBlock label="Special requests" value={specialRequests || "None provided."} />
-                <NoteBlock
-                  label="Dietary needs"
-                  value={booking.dietaryNeeds?.trim() || "None provided."}
+                <OpsPrivateNotes
+                  notes={opsView.ops?.privateNotes ?? ""}
+                  saving={opsSaving}
+                  onSave={async (privateNotes) => {
+                    const result = await patchOps({ privateNotes });
+                    if (result) await refresh({ force: true });
+                  }}
                 />
-              </div>
-            </section>
+              </>
+            ) : null}
 
-            <section className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 mb-4">
-                Payment
-              </h2>
+            <OpsSectionCard title="Payment">
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-                <CardRow
+                <OpsCardRow
                   label="Listed nightly"
                   value={`${booking.nightlyRate} × ${booking.nights}`}
                 />
                 {booking.averageNightlyTotal ? (
-                  <CardRow
+                  <OpsCardRow
                     label="Avg / night (incl. fees)"
                     value={booking.averageNightlyTotal}
                   />
                 ) : null}
-                <CardRow label="Cleaning" value={booking.cleaningFee} />
-                <CardRow label="Service" value={booking.serviceFee} />
-                <CardRow label="Method" value={booking.paymentMethod} />
-                <CardRow label="Status" value={booking.paymentStatus} />
-                {booking.currency ? <CardRow label="Currency" value={booking.currency} /> : null}
+                <OpsCardRow label="Cleaning" value={booking.cleaningFee} />
+                <OpsCardRow label="Service" value={booking.serviceFee} />
+                <OpsCardRow label="Method" value={booking.paymentMethod} />
+                <OpsCardRow label="Status" value={booking.paymentStatus} />
+                {booking.currency ? <OpsCardRow label="Currency" value={booking.currency} /> : null}
               </dl>
               <p className="mt-3 text-[11px] text-gray-500 leading-relaxed">
                 Total may include room selection, seasonal rates, discounts, extras, and tax from
@@ -396,10 +255,57 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
                 </span>
                 <span className="text-lg font-bold text-gray-900 tabular-nums">{booking.total}</span>
               </div>
-            </section>
+            </OpsSectionCard>
+
+            <OpsActivityTimeline booking={booking} />
           </div>
 
           <div className="xl:col-span-2 space-y-5">
+            <OpsCompletionActions
+              booking={booking}
+              timeline={timeline}
+              busy={busy}
+              onCheckIn={async () => {
+                setBusy(true);
+                try {
+                  await checkIn(booking.id);
+                  await refresh({ force: true });
+                  flash("Guest checked in.");
+                } catch (error) {
+                  flash(error instanceof Error ? error.message : "Could not check in guest.");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              onCheckOut={async () => {
+                setBusy(true);
+                try {
+                  await checkOut(booking.id);
+                  await refresh({ force: true });
+                  flash("Guest checked out. Stay marked completed.");
+                } catch (error) {
+                  flash(error instanceof Error ? error.message : "Could not check out guest.");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              onMarkCompleted={async () => {
+                setBusy(true);
+                try {
+                  await checkOut(booking.id);
+                  await refresh({ force: true });
+                  flash("Experience marked completed. Guest can leave a review.");
+                } catch (error) {
+                  flash(
+                    error instanceof Error ? error.message : "Could not mark booking completed."
+                  );
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              onCancel={openCancel}
+            />
+
             <BookingMessageThread
               bookingId={booking.id}
               viewerRole="host"
@@ -409,27 +315,6 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
               subtitle={booking.guest}
               compact
             />
-
-            {booking.status !== "pending" && (
-              <section className="bg-white rounded-2xl border border-gray-200 p-5">
-                <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 mb-3">
-                  Arrival
-                </h2>
-                <p className="text-sm font-semibold text-gray-900 capitalize">
-                  {booking.checkInStatus.replace("_", " ")}
-                </p>
-                {booking.checkedInAt && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    In {new Date(booking.checkedInAt).toLocaleString()}
-                  </p>
-                )}
-                {booking.checkedOutAt && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Out {new Date(booking.checkedOutAt).toLocaleString()}
-                  </p>
-                )}
-              </section>
-            )}
 
             <section className="bg-white rounded-2xl border border-gray-200 p-5">
               <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 mb-3">
@@ -697,55 +582,6 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
         }
       `}</style>
     </HostDashboardShell>
-  );
-}
-
-function HeroStat({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-xl border border-gray-100 bg-white/70 px-3 py-2.5">
-      <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-        <Icon className="w-3 h-3" />
-        {label}
-      </p>
-      <p className="text-sm font-semibold text-gray-900 mt-1 tabular-nums">{value}</p>
-    </div>
-  );
-}
-
-function CardRow({
-  label,
-  value,
-  icon: Icon,
-}: {
-  label: string;
-  value: string;
-  icon?: LucideIcon;
-}) {
-  return (
-    <div>
-      <dt className="text-[11px] font-medium text-gray-400">{label}</dt>
-      <dd className="text-sm font-semibold text-gray-900 mt-0.5 flex items-start gap-1.5">
-        {Icon ? <Icon className="w-3.5 h-3.5 text-gray-400 mt-0.5 shrink-0" /> : null}
-        <span>{value}</span>
-      </dd>
-    </div>
-  );
-}
-
-function NoteBlock({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl bg-gray-50 border border-gray-100 px-3.5 py-3">
-      <p className="text-[11px] font-semibold text-gray-400 mb-1">{label}</p>
-      <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{value}</p>
-    </div>
   );
 }
 

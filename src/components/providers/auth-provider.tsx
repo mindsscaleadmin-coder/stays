@@ -35,7 +35,7 @@ import {
   shouldUseSharedHostStaff,
 } from "@/lib/host/host-staff-api";
 import type { HostStaffRole } from "@/lib/host/host-staff-types";
-import { ensureSuperAdminStaff, getStaffByEmail, verifyAdminStaffPassword } from "@/lib/admin/staff-data";
+import { ensureSuperAdminStaff, getStaffByEmail, saveStaffMember, verifyAdminStaffPassword } from "@/lib/admin/staff-data";
 import {
   adminStaffLoginViaApi,
   fetchAdminStaffByEmailFromApi,
@@ -483,12 +483,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             role: "admin",
             permissions: [...DEFAULT_PERMISSIONS.admin],
             active: true,
+            password: input.password,
           });
         } catch {
           ensureSuperAdminStaff(input.email, input.fullName);
+          saveStaffMember({
+            name: input.fullName,
+            email: input.email.trim().toLowerCase(),
+            role: "admin",
+            permissions: [...DEFAULT_PERMISSIONS.admin],
+            active: true,
+            password: input.password,
+          });
         }
       } else {
-        ensureSuperAdminStaff(input.email, input.fullName);
+        saveStaffMember({
+          name: input.fullName,
+          email: input.email.trim().toLowerCase(),
+          role: "admin",
+          permissions: [...DEFAULT_PERMISSIONS.admin],
+          active: true,
+          password: input.password,
+        });
       }
       const newUser = createDemoUser({
         email: input.email,
@@ -698,38 +714,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAdmin = user ? canAccessAdmin(user.roles) && !impersonating : false;
   const isHost = user ? canManageListings(user.roles) : false;
-  const accountStatus = user ? getUserAccountStatus(user.id, user.email) : null;
+  const accountStatus = useMemo(() => {
+    if (!user || isAdmin) return null;
+    return getUserAccountStatus(user.id, user.email);
+  }, [user, isAdmin]);
   const isHostAccountRestricted = accountStatus
     ? isHostAccountLocked(accountStatus)
     : false;
 
+  const authValue = useMemo(
+    () => ({
+      user,
+      loading,
+      isDemo,
+      isAdmin,
+      isHost,
+      signInWithEmail,
+      signInAdminWithEmail,
+      signInHostWithEmail,
+      signUpWithEmail,
+      signUpAdminWithEmail,
+      signUpHostWithEmail,
+      signInWithGoogle,
+      sendPhoneOtp,
+      verifyPhoneOtp,
+      sendPasswordResetEmail,
+      updatePassword,
+      updateProfile,
+      signOut,
+      impersonating,
+      startImpersonatingHost,
+      stopImpersonating,
+      isHostAccountRestricted,
+    }),
+    [
+      user,
+      loading,
+      isDemo,
+      isAdmin,
+      isHost,
+      signInWithEmail,
+      signInAdminWithEmail,
+      signInHostWithEmail,
+      signUpWithEmail,
+      signUpAdminWithEmail,
+      signUpHostWithEmail,
+      signInWithGoogle,
+      sendPhoneOtp,
+      verifyPhoneOtp,
+      sendPasswordResetEmail,
+      updatePassword,
+      updateProfile,
+      signOut,
+      impersonating,
+      startImpersonatingHost,
+      stopImpersonating,
+      isHostAccountRestricted,
+    ]
+  );
+
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        isDemo,
-        isAdmin,
-        isHost,
-        signInWithEmail,
-        signInAdminWithEmail,
-        signInHostWithEmail,
-        signUpWithEmail,
-        signUpAdminWithEmail,
-        signUpHostWithEmail,
-        signInWithGoogle,
-        sendPhoneOtp,
-        verifyPhoneOtp,
-        sendPasswordResetEmail,
-        updatePassword,
-        updateProfile,
-        signOut,
-        impersonating,
-        startImpersonatingHost,
-        stopImpersonating,
-        isHostAccountRestricted,
-      }}
-    >
+    <AuthContext.Provider value={authValue}>
       {children}
     </AuthContext.Provider>
   );

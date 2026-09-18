@@ -1,5 +1,14 @@
+import type { Metadata } from "next";
 import { setRequestLocale } from "next-intl/server";
 import { SiteInfoPage } from "@/components/layout/site-info-page";
+import { publicPageMetadata } from "@/lib/seo/site";
+
+export const metadata: Metadata = publicPageMetadata({
+  title: "About",
+  description:
+    "Learn how Greenfield Farm Stays connects guests with verified farms, homestays, and rural stays.",
+  path: "/about",
+});
 
 export default async function AboutPage({
   params,

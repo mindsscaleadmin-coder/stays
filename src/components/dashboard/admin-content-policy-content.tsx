@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useRouter } from "@/i18n/routing";
+import { Link, useRouter } from "@/i18n/routing";
 import {
   BookOpen,
   FileText,
@@ -17,10 +17,10 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { useAdminContentPolicy } from "@/lib/admin/use-admin-content-policy";
 import { newContentPolicyId } from "@/lib/admin/content-policy-data";
+import { CMS_HOMEPAGE_BLOCK_CATALOG } from "@/lib/admin/content-policy-data";
 import {
   formatAudienceLabel,
   isAllHostsAudience,
@@ -98,14 +98,26 @@ export function AdminContentPolicyContent() {
   const tabParam = searchParams.get("tab") as TabId | null;
   const activeTab: TabId = TABS.some((t) => t.id === tabParam) ? tabParam! : "policies";
 
+  const { data: taxonomy } = useAdminTaxonomy();
+
+  const taxonomyParentsForPolicy = useMemo(
+    () =>
+      taxonomy.parents
+        .filter((parent) => isFilterEnabled(parent))
+        .map((parent) => ({ id: parent.id, name: parent.name })),
+    [taxonomy.parents]
+  );
+
   const {
     ready,
     settings,
+    shared,
     approvedListings,
     draftAnnouncementCount,
     disabledTemplateCount,
     saveHouseRuleTemplates,
     saveCancellationPolicies,
+    syncParentPolicyPacks,
     addAnnouncement,
     removeAnnouncement,
     pushAnnouncement,
@@ -117,15 +129,51 @@ export function AdminContentPolicyContent() {
     updateBlogPost,
     removeBlogPost,
     toggleCmsSection,
-  } = useAdminContentPolicy();
+    addCmsSection,
+    updateCmsSection,
+    removeCmsSection,
+  } = useAdminContentPolicy(taxonomyParentsForPolicy);
 
-  const { data: taxonomy } = useAdminTaxonomy();
+  const enabledParents = useMemo(
+    () => taxonomy.parents.filter((parent) => isFilterEnabled(parent)),
+    [taxonomy.parents]
+  );
+
+  const [selectedParentId, setSelectedParentId] = useState("");
+
+  useEffect(() => {
+    if (!taxonomyParentsForPolicy.length) return;
+    syncParentPolicyPacks();
+  }, [taxonomyParentsForPolicy, syncParentPolicyPacks]);
+
+  useEffect(() => {
+    if (!enabledParents.length) return;
+    setSelectedParentId((prev) =>
+      enabledParents.some((p) => p.id === prev) ? prev : enabledParents[0].id
+    );
+  }, [enabledParents]);
+
+  const selectedPack = useMemo(
+    () =>
+      settings.parentPolicyPacks.find((pack) => pack.parentId === selectedParentId) ??
+      settings.parentPolicyPacks[0],
+    [selectedParentId, settings.parentPolicyPacks]
+  );
   const [message, setMessage] = useState("");
   const [annTitle, setAnnTitle] = useState("");
   const [annMessage, setAnnMessage] = useState("");
   const [annCountries, setAnnCountries] = useState<string[]>([]);
   const [annParents, setAnnParents] = useState<string[]>([]);
   const [annCategories, setAnnCategories] = useState<string[]>([]);
+  const [newSectionKey, setNewSectionKey] = useState("");
+
+  const availableHomepageBlocks = useMemo(
+    () =>
+      CMS_HOMEPAGE_BLOCK_CATALOG.filter(
+        (block) => !settings.cms.contentSections.some((section) => section.key === block.key)
+      ),
+    [settings.cms.contentSections]
+  );
 
   const setTab = useCallback(
     (tab: TabId) => router.replace(`/admin/content?tab=${tab}`),
@@ -141,6 +189,32 @@ export function AdminContentPolicyContent() {
     () => settings.cms.blogPosts.filter((p) => p.published).length,
     [settings.cms.blogPosts]
   );
+
+  const summary = useMemo(() => {
+    const enabledRules = settings.parentPolicyPacks.reduce(
+      (sum, pack) => sum + pack.houseRuleTemplates.filter((t) => t.enabled).length,
+      0
+    );
+    const enabledPolicies = settings.parentPolicyPacks.reduce(
+      (sum, pack) => sum + pack.cancellationPolicies.filter((p) => p.enabled).length,
+      0
+    );
+    const activeTemplates = settings.messageTemplates.filter((t) => t.enabled).length;
+    const sentAnnouncements = settings.platformAnnouncements.filter(
+      (a) => a.status === "sent"
+    ).length;
+    const cmsSectionsOn = settings.cms.contentSections.filter((s) => s.enabled).length;
+    return {
+      policyPacks: settings.parentPolicyPacks.length,
+      enabledRules,
+      enabledPolicies,
+      activeTemplates,
+      sentAnnouncements,
+      cmsSectionsOn,
+      featuredCount: settings.cms.featuredListingIds.length,
+      heroMode: settings.cms.heroEnabled ? "Custom copy" : "Default copy",
+    };
+  }, [settings]);
 
   const countryOptions = useMemo(
     () =>
@@ -193,24 +267,25 @@ export function AdminContentPolicyContent() {
 
   if (!ready) {
     return (
-      <AdminDashboardShell>
-        <div className="flex items-center justify-center min-h-[320px]">
+              <div className="flex items-center justify-center min-h-[320px]">
           <Loader2 className="w-8 h-8 animate-spin text-green-600" />
         </div>
-      </AdminDashboardShell>
+      
     );
   }
 
   function updateHouseRule(index: number, patch: Partial<HouseRuleTemplate>) {
-    const next = [...settings.houseRuleTemplates];
+    if (!selectedPack) return;
+    const next = [...selectedPack.houseRuleTemplates];
     next[index] = { ...next[index], ...patch };
-    saveHouseRuleTemplates(next);
+    saveHouseRuleTemplates(selectedPack.parentId, next);
   }
 
   function updateCancellation(index: number, patch: Partial<CancellationPolicyOption>) {
-    const next = [...settings.cancellationPolicies];
+    if (!selectedPack) return;
+    const next = [...selectedPack.cancellationPolicies];
     next[index] = { ...next[index], ...patch };
-    saveCancellationPolicies(next);
+    saveCancellationPolicies(selectedPack.parentId, next);
   }
 
   function updateTemplate(index: number, patch: Partial<MessageTemplate>) {
@@ -220,16 +295,25 @@ export function AdminContentPolicyContent() {
   }
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
+          <div className="space-y-6">
         <div>
           <h2 className="text-xl font-bold text-gray-900 font-display">Content & Policy Control</h2>
           <p className="text-gray-500 text-sm mt-1">
-            House rules templates, cancellation policies, host announcements, message templates, and homepage CMS.
+            Per-category house rules and cancellation tiers, host announcements, transactional
+            messages, and homepage CMS. Changes sync to{" "}
+            <Link href="/host/house-rules" className="text-green-700 font-medium hover:underline">
+              Host → House rules
+            </Link>
+            , host overviews, and the{" "}
+            <Link href="/" className="text-green-700 font-medium hover:underline">
+              public homepage
+            </Link>
+            .
             {draftAnnouncementCount > 0 && (
               <span className="text-amber-600 font-medium">
                 {" "}
-                {draftAnnouncementCount} announcement{draftAnnouncementCount === 1 ? "" : "s"} not yet pushed.
+                {draftAnnouncementCount} announcement{draftAnnouncementCount === 1 ? "" : "s"} not
+                yet pushed.
               </span>
             )}
           </p>
@@ -241,18 +325,85 @@ export function AdminContentPolicyContent() {
           </div>
         )}
 
+        <section className="bg-gradient-to-br from-green-50 to-white rounded-2xl border border-green-100 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-green-800">
+                Live wiring
+              </p>
+              <p className="text-sm text-gray-600 mt-1">
+                India launch — policy packs by parent category, host inbox announcements, and CMS
+                blocks on the homepage.
+              </p>
+            </div>
+            <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-1 rounded-full bg-white border border-green-100 text-green-800">
+              {shared ? "Shared database" : "Local storage"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Policy packs</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{summary.policyPacks} categories</p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Rules & policies</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">
+                {summary.enabledRules} rules · {summary.enabledPolicies} tiers
+              </p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Announcements</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">
+                {summary.sentAnnouncements} sent · {draftAnnouncementCount} draft
+              </p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Email & SMS</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">
+                {summary.activeTemplates} active
+              </p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">Homepage hero</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">{summary.heroMode}</p>
+            </div>
+            <div className="bg-white/80 border border-green-100 rounded-xl px-3 py-3">
+              <p className="text-[10px] uppercase tracking-wide text-gray-500">CMS sections</p>
+              <p className="text-sm font-semibold text-gray-900 mt-1">
+                {summary.cmsSectionsOn} visible · {summary.featuredCount} featured
+              </p>
+            </div>
+          </div>
+        </section>
+
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            { label: "Rule templates", value: settings.houseRuleTemplates.filter((t) => t.enabled).length, icon: Shield },
-            { label: "Cancel policies", value: settings.cancellationPolicies.filter((p) => p.enabled).length, icon: FileText },
+            {
+              label: "Rule templates",
+              value: summary.enabledRules,
+              icon: Shield,
+            },
+            {
+              label: "Cancel policies",
+              value: summary.enabledPolicies,
+              icon: FileText,
+            },
             { label: "Draft announcements", value: draftAnnouncementCount, icon: Megaphone },
             { label: "Published blog posts", value: publishedBlogCount, icon: BookOpen },
-          ].map((s) => (
-            <div key={s.label} className="rounded-2xl border bg-white p-4 shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{s.label}</p>
-              <p className="text-2xl font-bold font-display text-gray-900 mt-1">{s.value}</p>
-            </div>
-          ))}
+          ].map((s) => {
+            const Icon = s.icon;
+            return (
+              <div key={s.label} className="rounded-2xl border bg-white p-4 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Icon className="w-4 h-4 text-green-700" />
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                    {s.label}
+                  </p>
+                </div>
+                <p className="text-2xl font-bold font-display text-gray-900 mt-1">{s.value}</p>
+              </div>
+            );
+          })}
         </div>
 
         <div className="flex flex-wrap gap-2 border-b pb-1">
@@ -283,23 +434,60 @@ export function AdminContentPolicyContent() {
           ))}
         </div>
 
-        {activeTab === "policies" && (
+        {activeTab === "policies" && selectedPack && (
           <div className="space-y-6">
+            <section className="bg-gradient-to-br from-green-50 to-white rounded-2xl border border-green-100 p-4 space-y-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-green-800">
+                  Parent category
+                </p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Each parent category has its own house rules and cancellation tiers. Hosts only
+                  see the pack that matches their listing type.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {enabledParents.map((parent) => {
+                  const pack = settings.parentPolicyPacks.find((p) => p.parentId === parent.id);
+                  const ruleCount = pack?.houseRuleTemplates.filter((t) => t.enabled).length ?? 0;
+                  const policyCount = pack?.cancellationPolicies.filter((p) => p.enabled).length ?? 0;
+                  return (
+                    <button
+                      key={parent.id}
+                      type="button"
+                      onClick={() => setSelectedParentId(parent.id)}
+                      className={cn(
+                        "text-sm font-medium px-3 py-2 rounded-xl border transition-colors",
+                        selectedParentId === parent.id
+                          ? "border-green-700 bg-white text-green-800 shadow-sm"
+                          : "border-green-100 bg-white/70 text-gray-600 hover:border-green-200"
+                      )}
+                    >
+                      {parent.name}
+                      <span className="block text-[10px] font-normal text-gray-500 mt-0.5">
+                        {ruleCount} rules · {policyCount} policies
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
             <section className="bg-white rounded-2xl border p-5 space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-green-700" /> House rules templates
+                    <Shield className="w-4 h-4 text-green-700" /> House rules — {selectedPack.parentName}
                   </h3>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Hosts pick from these when configuring listings — synced to host listing editor.
+                    Hosts in {selectedPack.parentName} pick from these when configuring listings.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
-                    saveHouseRuleTemplates([
-                      ...settings.houseRuleTemplates,
+                    saveHouseRuleTemplates(selectedPack.parentId, [
+                      ...selectedPack.houseRuleTemplates,
                       {
                         id: newContentPolicyId("hr"),
                         title: "New rule",
@@ -315,7 +503,7 @@ export function AdminContentPolicyContent() {
                 </button>
               </div>
               <div className="space-y-3">
-                {settings.houseRuleTemplates.map((rule, index) => (
+                {selectedPack.houseRuleTemplates.map((rule, index) => (
                   <article key={rule.id} className="border border-gray-100 rounded-xl p-4 bg-gray-50/50 space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
@@ -334,7 +522,10 @@ export function AdminContentPolicyContent() {
                         <button
                           type="button"
                           onClick={() => {
-                            saveHouseRuleTemplates(settings.houseRuleTemplates.filter((r) => r.id !== rule.id));
+                            saveHouseRuleTemplates(
+                              selectedPack.parentId,
+                              selectedPack.houseRuleTemplates.filter((r) => r.id !== rule.id)
+                            );
                             flash("Template removed.");
                           }}
                           className="p-1 rounded text-gray-400 hover:text-red-600"
@@ -346,12 +537,14 @@ export function AdminContentPolicyContent() {
                     <input
                       value={rule.title}
                       onChange={(e) => updateHouseRule(index, { title: e.target.value })}
+                      onBlur={() => flash(`Rule "${rule.title}" saved.`)}
                       placeholder="Rule title"
                       className={inputClass}
                     />
                     <textarea
                       value={rule.description}
                       onChange={(e) => updateHouseRule(index, { description: e.target.value })}
+                      onBlur={() => flash(`Rule "${rule.title}" saved.`)}
                       rows={2}
                       placeholder="Rule description"
                       className={cn(inputClass, "resize-none")}
@@ -365,17 +558,17 @@ export function AdminContentPolicyContent() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-green-700" /> Cancellation policy options
+                    <FileText className="w-4 h-4 text-green-700" /> Cancellation — {selectedPack.parentName}
                   </h3>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Tiers hosts can choose from when setting listing policies.
+                    Tiers {selectedPack.parentName} hosts can choose when setting listing policies.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
-                    saveCancellationPolicies([
-                      ...settings.cancellationPolicies,
+                    saveCancellationPolicies(selectedPack.parentId, [
+                      ...selectedPack.cancellationPolicies,
                       {
                         id: newContentPolicyId("cp"),
                         label: "Custom policy",
@@ -394,12 +587,13 @@ export function AdminContentPolicyContent() {
                 </button>
               </div>
               <div className="space-y-3">
-                {settings.cancellationPolicies.map((policy, index) => (
+                {selectedPack.cancellationPolicies.map((policy, index) => (
                   <article key={policy.id} className="border border-gray-100 rounded-xl p-4 space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <input
                         value={policy.label}
                         onChange={(e) => updateCancellation(index, { label: e.target.value })}
+                        onBlur={() => flash(`Policy "${policy.label}" saved.`)}
                         className={cn(inputClass, "font-semibold")}
                       />
                       <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 shrink-0">
@@ -415,12 +609,14 @@ export function AdminContentPolicyContent() {
                     <input
                       value={policy.shortDescription}
                       onChange={(e) => updateCancellation(index, { shortDescription: e.target.value })}
+                      onBlur={() => flash(`Policy "${policy.label}" saved.`)}
                       placeholder="Short description for host picker"
                       className={inputClass}
                     />
                     <textarea
                       value={policy.fullText}
                       onChange={(e) => updateCancellation(index, { fullText: e.target.value })}
+                      onBlur={() => flash(`Policy "${policy.label}" saved.`)}
                       rows={3}
                       placeholder="Full policy text shown to guests"
                       className={cn(inputClass, "resize-none")}
@@ -461,6 +657,11 @@ export function AdminContentPolicyContent() {
 
         {activeTab === "announcements" && (
           <div className="space-y-4">
+            <p className="text-xs text-gray-500">
+              Pushed announcements appear on matching host overviews and in the host notification
+              inbox. Target by country, parent category, or listing category — leave a group empty
+              to include all hosts in that dimension.
+            </p>
             <section className="bg-white rounded-2xl border p-5 space-y-4">
               <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                 <Megaphone className="w-4 h-4 text-green-700" /> Host announcement
@@ -636,8 +837,10 @@ export function AdminContentPolicyContent() {
           <div className="space-y-3">
             <p className="text-xs text-gray-500 flex items-start gap-1.5">
               <Mail className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              Automated templates for booking confirmations, reminders, payouts, and policy notices. Use{" "}
-              <code className="text-[10px] bg-gray-100 px-1 rounded">{`{{variableName}}`}</code> placeholders.
+              Automated templates for booking confirmations, reminders, payouts, and policy notices.
+              Use{" "}
+              <code className="text-[10px] bg-gray-100 px-1 rounded">{`{{variableName}}`}</code>{" "}
+              placeholders. Edits save automatically when you leave a field.
             </p>
             {settings.messageTemplates.map((tpl, index) => (
               <article key={tpl.id} className="bg-white rounded-2xl border p-4 sm:p-5 space-y-3">
@@ -656,13 +859,17 @@ export function AdminContentPolicyContent() {
                   <input
                     value={tpl.name}
                     onChange={(e) => updateTemplate(index, { name: e.target.value })}
+                    onBlur={() => flash(`${tpl.name} saved.`)}
                     className={cn(inputClass, "flex-1 min-w-[140px] font-semibold")}
                   />
                   <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 ms-auto">
                     <input
                       type="checkbox"
                       checked={tpl.enabled}
-                      onChange={(e) => updateTemplate(index, { enabled: e.target.checked })}
+                      onChange={(e) => {
+                        updateTemplate(index, { enabled: e.target.checked });
+                        flash(`${tpl.name} ${e.target.checked ? "enabled" : "disabled"}.`);
+                      }}
                       className="rounded border-gray-300 text-green-600 focus:ring-green-500"
                     />
                     Active
@@ -672,6 +879,7 @@ export function AdminContentPolicyContent() {
                   <input
                     value={tpl.subject ?? ""}
                     onChange={(e) => updateTemplate(index, { subject: e.target.value })}
+                    onBlur={() => flash(`${tpl.name} subject saved.`)}
                     placeholder="Email subject"
                     className={inputClass}
                   />
@@ -679,6 +887,7 @@ export function AdminContentPolicyContent() {
                 <textarea
                   value={tpl.body}
                   onChange={(e) => updateTemplate(index, { body: e.target.value })}
+                  onBlur={() => flash(`${tpl.name} body saved.`)}
                   rows={4}
                   className={cn(inputClass, "resize-none font-mono text-xs")}
                 />
@@ -692,15 +901,29 @@ export function AdminContentPolicyContent() {
 
         {activeTab === "cms" && (
           <div className="space-y-6">
+            <p className="text-xs text-gray-500">
+              Homepage copy and curated sections for the India launch. Preview on the{" "}
+              <Link href="/" className="text-green-700 font-medium hover:underline">
+                public homepage
+              </Link>
+              . Featured listings sync the featured flag on approved listings.
+            </p>
             <section className="bg-white rounded-2xl border p-5 space-y-4">
               <h3 className="font-semibold text-gray-900 flex items-center gap-2">
                 <Globe className="w-4 h-4 text-green-700" /> Homepage hero
               </h3>
+              <p className="text-xs text-gray-500">
+                Default hero targets India. Enable override to replace the headline shown on the
+                homepage.
+              </p>
               <label className="inline-flex items-center gap-2 text-sm text-gray-700">
                 <input
                   type="checkbox"
                   checked={settings.cms.heroEnabled}
-                  onChange={(e) => saveCms({ ...settings.cms, heroEnabled: e.target.checked })}
+                  onChange={(e) => {
+                    saveCms({ ...settings.cms, heroEnabled: e.target.checked });
+                    flash(e.target.checked ? "Custom hero enabled." : "Using default hero copy.");
+                  }}
                   className="rounded border-gray-300 text-green-600 focus:ring-green-500"
                 />
                 Override default hero with CMS copy
@@ -709,24 +932,28 @@ export function AdminContentPolicyContent() {
                 <input
                   value={settings.cms.heroTitle}
                   onChange={(e) => saveCms({ ...settings.cms, heroTitle: e.target.value })}
+                  onBlur={() => flash("Hero line 1 saved.")}
                   placeholder="Hero line 1"
                   className={inputClass}
                 />
                 <input
                   value={settings.cms.heroHighlight}
                   onChange={(e) => saveCms({ ...settings.cms, heroHighlight: e.target.value })}
+                  onBlur={() => flash("Hero highlight saved.")}
                   placeholder="Highlighted phrase"
                   className={inputClass}
                 />
                 <input
                   value={settings.cms.heroTitleEnd}
                   onChange={(e) => saveCms({ ...settings.cms, heroTitleEnd: e.target.value })}
+                  onBlur={() => flash("Hero line end saved.")}
                   placeholder="Hero line end"
                   className={inputClass}
                 />
                 <input
                   value={settings.cms.heroSubtitle}
                   onChange={(e) => saveCms({ ...settings.cms, heroSubtitle: e.target.value })}
+                  onBlur={() => flash("Hero subtitle saved.")}
                   placeholder="Subtitle"
                   className={inputClass}
                 />
@@ -735,10 +962,11 @@ export function AdminContentPolicyContent() {
 
             <section className="bg-white rounded-2xl border p-5 space-y-4">
               <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-green-700" /> Featured farms
+                <Sparkles className="w-4 h-4 text-green-700" /> Featured listings
               </h3>
               <p className="text-xs text-gray-500">
-                Curated listings promoted on homepage — syncs featured flag on approved listings.
+                Curated listings promoted on the homepage — syncs the featured flag on approved
+                listings.
               </p>
               <div className="space-y-2">
                 {approvedListings.length === 0 ? (
@@ -759,7 +987,7 @@ export function AdminContentPolicyContent() {
                           checked={featured}
                           onChange={() => {
                             toggleFeaturedListing(listing.id);
-                            flash(featured ? "Removed from featured." : "Added to featured farms.");
+                            flash(featured ? "Removed from featured." : "Added to featured listings.");
                           }}
                           className="rounded border-gray-300 text-green-600 focus:ring-green-500"
                         />
@@ -851,37 +1079,128 @@ export function AdminContentPolicyContent() {
               </div>
             </section>
 
-            <section className="bg-white rounded-2xl border p-5 space-y-3">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-green-700" /> Homepage sections
-              </h3>
-              <p className="text-xs text-gray-500">Toggle visibility of homepage content blocks.</p>
-              {settings.cms.contentSections.map((section) => (
-                <label
-                  key={section.id}
-                  className="flex items-center justify-between gap-3 border border-gray-100 rounded-xl px-4 py-3 cursor-pointer"
-                >
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{section.title}</p>
-                    {section.subtitle && (
-                      <p className="text-xs text-gray-500">{section.subtitle}</p>
-                    )}
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={section.enabled}
-                    onChange={() => {
-                      toggleCmsSection(section.id);
-                      flash(`${section.title} ${section.enabled ? "hidden" : "shown"}.`);
+            <section className="bg-white rounded-2xl border p-5 space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-green-700" /> Homepage sections
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Each row maps to a homepage block. Toggle visibility, edit the headline copy, or
+                    add a block type you removed earlier. New block types beyond this list require
+                    engineering on the homepage.
+                  </p>
+                </div>
+              </div>
+
+              {availableHomepageBlocks.length > 0 && (
+                <div className="flex flex-wrap items-end gap-2 border border-dashed border-gray-200 rounded-xl p-3 bg-gray-50/50">
+                  <label className="flex-1 min-w-[180px]">
+                    <span className="text-xs font-medium text-gray-600">Add homepage block</span>
+                    <select
+                      value={newSectionKey}
+                      onChange={(e) => setNewSectionKey(e.target.value)}
+                      className={cn(inputClass, "mt-1")}
+                    >
+                      <option value="">Choose block type…</option>
+                      {availableHomepageBlocks.map((block) => (
+                        <option key={block.key} value={block.key}>
+                          {block.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!newSectionKey}
+                    onClick={() => {
+                      const block = CMS_HOMEPAGE_BLOCK_CATALOG.find((b) => b.key === newSectionKey);
+                      addCmsSection(newSectionKey);
+                      setNewSectionKey("");
+                      flash(`${block?.title ?? "Section"} added to homepage CMS.`);
                     }}
-                    className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-                  />
-                </label>
-              ))}
+                    className="text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-3 py-2 rounded-lg inline-flex items-center gap-1 disabled:opacity-50"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add section
+                  </button>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {[...settings.cms.contentSections]
+                  .sort((a, b) => a.sortOrder - b.sortOrder)
+                  .map((section) => {
+                    const blockMeta = CMS_HOMEPAGE_BLOCK_CATALOG.find(
+                      (block) => block.key === section.key
+                    );
+                    return (
+                      <article
+                        key={section.id}
+                        className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50/40"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                              Block key: {section.key}
+                            </p>
+                            {blockMeta && (
+                              <p className="text-[11px] text-gray-500 mt-0.5">{blockMeta.description}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <label className="inline-flex items-center gap-1.5 text-xs text-gray-600">
+                              <input
+                                type="checkbox"
+                                checked={section.enabled}
+                                onChange={() => {
+                                  toggleCmsSection(section.id);
+                                  flash(`${section.title} ${section.enabled ? "hidden" : "shown"}.`);
+                                }}
+                                className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                              />
+                              Visible
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                removeCmsSection(section.id);
+                                flash(`${section.title} removed from CMS list.`);
+                              }}
+                              className="p-1 rounded text-gray-400 hover:text-red-600"
+                              aria-label={`Remove ${section.title}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <input
+                            value={section.title}
+                            onChange={(e) =>
+                              updateCmsSection(section.id, { title: e.target.value })
+                            }
+                            onBlur={() => flash(`${section.title} headline saved.`)}
+                            placeholder="Section title"
+                            className={inputClass}
+                          />
+                          <input
+                            value={section.subtitle}
+                            onChange={(e) =>
+                              updateCmsSection(section.id, { subtitle: e.target.value })
+                            }
+                            onBlur={() => flash(`${section.title} subtitle saved.`)}
+                            placeholder="Section subtitle (optional)"
+                            className={inputClass}
+                          />
+                        </div>
+                      </article>
+                    );
+                  })}
+              </div>
             </section>
           </div>
         )}
       </div>
-    </AdminDashboardShell>
+    
   );
 }

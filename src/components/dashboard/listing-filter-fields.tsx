@@ -5,10 +5,14 @@ import { SlidersHorizontal } from "lucide-react";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { filterActiveCountries } from "@/lib/admin/country-utils";
 import {
+  DEFAULT_CUSTOM_ITEMS,
+  findPropertyTab,
   isExcludedFromListingForm,
   isFilterEnabled,
   isSubcategoryExtensionTab,
   mergeMainTabs,
+  PROPERTY_TAB_CANONICAL_ORDER,
+  resolvePropertyTabId,
 } from "@/lib/admin/taxonomy-types";
 import type { FilterTab } from "@/lib/admin/taxonomy-types";
 import { extraFilterMatchesScope } from "@/lib/admin/extra-filter-scope";
@@ -696,6 +700,74 @@ export function ListingFilterFields({
     <div className="space-y-5 pt-1 border-t border-gray-100">
       {categoryLocationSection}
       {extrasSection}
+    </div>
+  );
+}
+
+/** Room type, bedrooms, beds, baths, and guests — admin Filter tabs for whole-property stays. */
+export function ListingPropertyFilterFields({
+  values = EMPTY_LISTING_FILTERS,
+  onChange,
+}: {
+  values?: ListingFilterValues;
+  onChange: (values: ListingFilterValues) => void;
+}) {
+  const { data } = useAdminTaxonomy();
+  const safeValues = values ?? EMPTY_LISTING_FILTERS;
+  const { customSelections } = safeValues;
+
+  const propertyTabs = useMemo(() => {
+    return PROPERTY_TAB_CANONICAL_ORDER.map((canonicalId) => {
+      const tab = findPropertyTab(data, canonicalId);
+      return tab ? { canonicalId, tab } : null;
+    }).filter((row): row is { canonicalId: (typeof PROPERTY_TAB_CANONICAL_ORDER)[number]; tab: FilterTab } =>
+      Boolean(row)
+    );
+  }, [data]);
+
+  function patchCustomSelections(next: Record<string, string>) {
+    onChange({ ...safeValues, customSelections: next });
+  }
+
+  if (propertyTabs.length === 0) return null;
+
+  return (
+    <div className="space-y-3 mt-4 pt-4 border-t border-gray-100">
+      <div>
+        <p className="text-sm font-semibold text-gray-900">Property details</p>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Same options as Admin → Settings → Filter (Room Types, Bedrooms, Beds, Baths, Guests).
+          Shown on search and your listing page.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {propertyTabs.map(({ tab }) => {
+          const canonicalId = resolvePropertyTabId(tab) ?? tab.id;
+          const fallbackItems =
+            DEFAULT_CUSTOM_ITEMS[canonicalId as keyof typeof DEFAULT_CUSTOM_ITEMS] ?? [];
+          const items = [...(data.customItems[tab.id] ?? fallbackItems)]
+            .filter((item) => item.enabled !== false)
+            .sort((a, b) =>
+              a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+            );
+
+          return (
+            <FilterSelect
+              key={tab.id}
+              label={tab.label}
+              id={`listing-property-${tab.id}`}
+              value={customSelections[tab.id] ?? ""}
+              onChange={(value) =>
+                patchCustomSelections({ ...customSelections, [tab.id]: value })
+              }
+              options={items.map((item) => ({ value: item.id, label: item.name }))}
+              placeholder={items.length ? `Select ${tab.label.toLowerCase()}` : "No options yet"}
+              disabled={items.length === 0}
+              required
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }

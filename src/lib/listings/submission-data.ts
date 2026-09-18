@@ -1,3 +1,4 @@
+import { DEFAULT_CANCELLATION_POLICY_ID } from "@/lib/booking/policies";
 import type {
   AddListingRoomInput,
   ListingReviewStatus,
@@ -48,6 +49,8 @@ export function normalizeSubmittedListing(
     amenities: listing.amenities ?? [],
     farmActivities: listing.farmActivities ?? [],
     houseRules: listing.houseRules ?? [],
+    cancellationPolicyId:
+      listing.cancellationPolicyId ?? DEFAULT_CANCELLATION_POLICY_ID,
     rooms: listing.rooms ?? [],
     venueDetails: listing.venueDetails,
     diningDetails: listing.diningDetails,
@@ -163,13 +166,13 @@ export function newListingId(): string {
 
 export function submitListing(input: SubmitListingInput): string {
   const id = newListingId();
-  const listing: SubmittedListing = {
+  const listing: SubmittedListing = normalizeSubmittedListing({
     ...input,
     id,
     status: "pending",
     submittedAt: new Date().toISOString(),
     rooms: input.rooms ?? [],
-  };
+  });
 
   const stored = loadStored();
   saveStored([listing, ...stored]);

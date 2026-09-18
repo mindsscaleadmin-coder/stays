@@ -64,8 +64,20 @@ export function usePendingListingBadgeCount(): number | null {
   }, []);
 
   useEffect(() => {
-    setCount(getPendingCount());
-    refresh();
+    // Defer count work so sidebar paint is not blocked on initial admin load.
+    const schedule =
+      typeof requestIdleCallback !== "undefined"
+        ? (cb: () => void) => requestIdleCallback(cb, { timeout: 2000 })
+        : (cb: () => void) => window.setTimeout(cb, 0);
+    const cancelSchedule =
+      typeof cancelIdleCallback !== "undefined"
+        ? (id: number) => cancelIdleCallback(id)
+        : (id: number) => window.clearTimeout(id);
+
+    const idleId = schedule(() => {
+      setCount(getPendingCount());
+      refresh();
+    });
 
     function onStorage(e: StorageEvent) {
       if (
@@ -86,6 +98,7 @@ export function usePendingListingBadgeCount(): number | null {
     }, 60_000);
 
     return () => {
+      cancelSchedule(idleId);
       window.removeEventListener(LISTINGS_SYNC_EVENT, onListingsSync);
       window.removeEventListener("storage", onStorage);
       window.clearInterval(poll);

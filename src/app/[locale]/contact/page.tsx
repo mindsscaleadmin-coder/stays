@@ -1,6 +1,14 @@
+import type { Metadata } from "next";
 import { setRequestLocale } from "next-intl/server";
 import { SiteInfoPage } from "@/components/layout/site-info-page";
 import { SupportContactPhone } from "@/components/layout/support-contact-phone";
+import { publicPageMetadata } from "@/lib/seo/site";
+
+export const metadata: Metadata = publicPageMetadata({
+  title: "Contact",
+  description: "Get in touch with the Greenfield Farm Stays team. We usually reply within one business day.",
+  path: "/contact",
+});
 
 export default async function ContactPage({
   params,

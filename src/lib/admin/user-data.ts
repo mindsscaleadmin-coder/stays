@@ -69,10 +69,13 @@ function loadStored(): AdminUserRecord[] {
 function saveStored(users: AdminUserRecord[]) {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
+  usersCache = null;
   dispatchSync();
 }
 
-export function loadAllUsers(): AdminUserRecord[] {
+let usersCache: AdminUserRecord[] | null = null;
+
+function buildAllUsers(): AdminUserRecord[] {
   const stored = loadStored();
   if (stored.length === 0) return [...SEED_USERS];
   const storedIds = new Set(stored.map((u) => u.id));
@@ -80,6 +83,21 @@ export function loadAllUsers(): AdminUserRecord[] {
   return [...stored, ...seeds].sort(
     (a, b) => new Date(b.joinedAt).getTime() - new Date(a.joinedAt).getTime()
   );
+}
+
+export function loadAllUsers(): AdminUserRecord[] {
+  if (usersCache) return usersCache;
+  usersCache = buildAllUsers();
+  return usersCache;
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener(USERS_SYNC_EVENT, () => {
+    usersCache = null;
+  });
+  window.addEventListener("storage", (e) => {
+    if (e.key === STORAGE_KEY) usersCache = null;
+  });
 }
 
 /** Look up an admin user by id or email (case-insensitive). */

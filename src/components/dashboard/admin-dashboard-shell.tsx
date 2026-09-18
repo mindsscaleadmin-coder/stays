@@ -1,15 +1,39 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { usePathname } from "@/i18n/routing";
-import { DashboardShell } from "./dashboard-shell";
+import {
+  DashboardMainColumn,
+  DashboardSidebarColumn,
+} from "./dashboard-shell";
 import { ADMIN_NAV } from "./admin-nav";
 import {
   getAdminSettingsSidebarNav,
   isAdminSettingsPath,
 } from "./admin-settings-shell";
 import { ListingControlNavNotice } from "./listing-control-nav-notice";
+import { PendingRefundNavNotice } from "./pending-refund-nav-notice";
 import { useAdminStaffAccess } from "@/lib/admin/use-admin-staff-access";
+
+const ADMIN_NAV_WITH_LISTING_NOTICE = ADMIN_NAV.map((item) => {
+  if (item.href === "/admin/listings") {
+    return { ...item, Trailing: ListingControlNavNotice };
+  }
+  if (item.href === "/admin/financial") {
+    return { ...item, Trailing: PendingRefundNavNotice };
+  }
+  return item;
+});
+
+const ADMIN_EXACT_HREFS = ["/admin"];
 
 const AdminShellMountedContext = createContext(false);
 
@@ -24,30 +48,47 @@ export function AdminDashboardShell({ children }: { children: ReactNode }) {
   }
   return (
     <AdminShellMountedContext.Provider value={true}>
-      <AdminDashboardShellChrome>{children}</AdminDashboardShellChrome>
+      <AdminDashboardLayout>{children}</AdminDashboardLayout>
     </AdminShellMountedContext.Provider>
   );
 }
 
-function AdminDashboardShellChrome({ children }: { children: ReactNode }) {
+function AdminDashboardLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const openSidebar = useCallback(() => setSidebarOpen(true), []);
+
+  return (
+    <div className="min-h-[calc(100vh-120px)] bg-gray-100 lg:flex lg:items-start">
+      <AdminSidebar
+        pathname={pathname}
+        sidebarOpen={sidebarOpen}
+        onCloseSidebar={closeSidebar}
+      />
+      <DashboardMainColumn onOpenSidebar={openSidebar}>{children}</DashboardMainColumn>
+    </div>
+  );
+}
+
+const AdminSidebar = memo(function AdminSidebar({
+  pathname,
+  sidebarOpen,
+  onCloseSidebar,
+}: {
+  pathname: string;
+  sidebarOpen: boolean;
+  onCloseSidebar: () => void;
+}) {
   const { staff, roleLabel, canAccessPath, ready } = useAdminStaffAccess();
   const inSettings = isAdminSettingsPath(pathname);
 
   const navItems = useMemo(() => {
     if (inSettings) return getAdminSettingsSidebarNav();
-
-    // Only filter once staff permissions are known — filtering with null staff hid every link.
-    const visible =
-      ready && staff
-        ? ADMIN_NAV.filter((item) => canAccessPath(item.href))
-        : ADMIN_NAV;
-
-    return visible.map((item) =>
-      item.href === "/admin/listings"
-        ? { ...item, Trailing: ListingControlNavNotice }
-        : item
-    );
+    if (ready && staff) {
+      return ADMIN_NAV_WITH_LISTING_NOTICE.filter((item) => canAccessPath(item.href));
+    }
+    return ADMIN_NAV_WITH_LISTING_NOTICE;
   }, [canAccessPath, inSettings, ready, staff]);
 
   const title = inSettings ? "Settings" : "Admin";
@@ -58,8 +99,14 @@ function AdminDashboardShellChrome({ children }: { children: ReactNode }) {
       : "Platform management";
 
   return (
-    <DashboardShell title={title} subtitle={subtitle} navItems={navItems}>
-      {children}
-    </DashboardShell>
+    <DashboardSidebarColumn
+      pathname={pathname}
+      title={title}
+      subtitle={subtitle}
+      navItems={navItems}
+      exactHrefs={ADMIN_EXACT_HREFS}
+      sidebarOpen={sidebarOpen}
+      onCloseSidebar={onCloseSidebar}
+    />
   );
-}
+});

@@ -16,7 +16,6 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
-import { AdminDashboardShell } from "./admin-dashboard-shell";
 import { AdminAnalyticsSectionView } from "./admin-analytics-section";
 import { formatPlatformMoney } from "@/lib/admin/platform-analytics-data";
 import { useAdminPlatformAnalytics } from "@/lib/admin/use-admin-platform-analytics";
@@ -147,11 +146,10 @@ export function AdminAnalyticsContent() {
 
   if (!ready) {
     return (
-      <AdminDashboardShell>
-        <div className="flex items-center justify-center min-h-[320px]">
+              <div className="flex items-center justify-center min-h-[320px]">
           <Loader2 className="w-8 h-8 animate-spin text-green-600" />
         </div>
-      </AdminDashboardShell>
+      
     );
   }
 
@@ -160,8 +158,7 @@ export function AdminAnalyticsContent() {
   const maxGrowth = Math.max(...monthlyTrends.map((d) => d.newHosts + d.newListings), 1);
 
   return (
-    <AdminDashboardShell>
-      <div className="space-y-6">
+          <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-gray-900 font-display">
@@ -451,6 +448,6 @@ export function AdminAnalyticsContent() {
           </div>
         )}
       </div>
-    </AdminDashboardShell>
+    
   );
 }
