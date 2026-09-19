@@ -34,21 +34,39 @@ function scopeSpecificity(item: ListingTaxonomyScope): number {
   return 0;
 }
 
+export function listingTaxonomyTier(scope: ListingTaxonomyScope): number {
+  const normalized = normalizeListingTaxonomyScope(scope);
+  if (normalized.subcategoryId) return 3;
+  if (normalized.categoryId) return 2;
+  if (normalized.parentId) return 1;
+  return 0;
+}
+
+export function hasListingTaxonomySelection(scope: ListingTaxonomyScope): boolean {
+  const normalized = normalizeListingTaxonomyScope(scope);
+  return Boolean(normalized.parentId || normalized.categoryId);
+}
+
 /**
  * Resolve options at the most specific configured level for the current
- * selection. Subcategory options replace category options, category options
- * replace parent options, and parent options replace global fallbacks.
+ * selection. Walk from the listing's taxonomy tier down to global fallbacks.
  */
 export function resolveListingSettingsForTaxonomy<T extends ListingTaxonomyScope>(
   items: T[],
   listing: ListingTaxonomyScope
 ): T[] {
-  const matches = items.filter((item) =>
-    listingSettingMatchesTaxonomy(item, listing)
-  );
-  if (matches.length === 0) return [];
-  const mostSpecific = Math.max(...matches.map(scopeSpecificity));
-  return matches.filter((item) => scopeSpecificity(item) === mostSpecific);
+  const normalized = normalizeListingTaxonomyScope(listing);
+  const listingTier = listingTaxonomyTier(normalized);
+
+  for (let tier = listingTier; tier >= 0; tier -= 1) {
+    const tierItems = items.filter(
+      (item) =>
+        listingSettingMatchesTaxonomy(item, normalized) && scopeSpecificity(item) === tier
+    );
+    if (tierItems.length > 0) return tierItems;
+  }
+
+  return [];
 }
 
 export function normalizeListingTaxonomyScope(

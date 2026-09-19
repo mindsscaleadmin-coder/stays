@@ -55,18 +55,50 @@ export function useHostSupport(hostId: string | undefined, hostName?: string) {
   return {
     ready,
     data,
-    submitTicket: (subject: string, message: string) => {
+    submitTicket: (
+      subjectOrInput:
+        | string
+        | {
+            subject: string;
+            message: string;
+            priority?: "low" | "normal" | "high" | "critical";
+            bookingRef?: string;
+            property?: string;
+            requesterEmail?: string;
+          },
+      maybeMessage?: string
+    ) => {
       if (!hostId) return null;
+      const payload =
+        typeof subjectOrInput === "string"
+          ? { subject: subjectOrInput, message: maybeMessage || "" }
+          : subjectOrInput;
+
       if (shared) {
-        void createHostSupportTicketViaApi(hostId, { subject, message, hostName })
+        void createHostSupportTicketViaApi(hostId, {
+          ...payload,
+          hostName,
+        })
           .then((tickets) => setData({ hostId, tickets }))
           .catch(() => {
-            const next = createSupportTicket(hostId, subject, message, hostName);
+            const next = createSupportTicket(
+              hostId,
+              payload.subject,
+              payload.message,
+              hostName,
+              payload
+            );
             setData(next);
           });
         return data;
       }
-      const next = createSupportTicket(hostId, subject, message, hostName);
+      const next = createSupportTicket(
+        hostId,
+        payload.subject,
+        payload.message,
+        hostName,
+        payload
+      );
       setData(next);
       return next;
     },

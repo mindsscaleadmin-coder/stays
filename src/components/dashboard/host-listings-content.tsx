@@ -11,6 +11,7 @@ import { HostListingFlashDealBar } from "@/components/dashboard/host-listing-fla
 import { STATUS_STYLES } from "@/lib/booking/display";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
+import { currencyForCountryName } from "@/lib/currency";
 import { nightlyFromListing } from "@/lib/listings/submission-to-stay";
 import {
   filterHostListings,
@@ -489,12 +490,13 @@ function ListingCard({
     : "stay";
   const isEvent = mode === "event";
   const isStay = mode === "stay";
+  const currency = currencyForCountryName(submission?.country);
   const rateLabel =
     nightly > 0
       ? isEvent
-        ? `AED ${Math.round(nightly).toLocaleString()} display`
-        : `AED ${Math.round(nightly).toLocaleString()}/night`
-      : "AED —";
+        ? `${currency} ${Math.round(nightly).toLocaleString()} display`
+        : `${currency} ${Math.round(nightly).toLocaleString()}/night`
+      : `${currency} —`;
   const categoryBits = [submission?.category, submission?.subcategory].filter(Boolean);
 
   return (

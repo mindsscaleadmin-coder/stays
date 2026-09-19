@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   assertGuestOwnsBooking,
   isDemoApiMode,
+  isDemoPayAllowed,
 } from "@/lib/auth/booking-access";
 import { withBookingAuth } from "@/lib/auth/with-booking-auth";
 import { markBookingPaid } from "@/lib/booking/mark-paid";
@@ -17,6 +18,13 @@ import { enqueueBookingConfirmedJob } from "@/lib/queue/enqueue";
  */
 export const POST = withBookingAuth(async (_request, context, actor) => {
   try {
+    if (!isDemoPayAllowed()) {
+      return NextResponse.json(
+        { error: "Demo payment is not available in this environment" },
+        { status: 403 }
+      );
+    }
+
     if (isStripeConfigured()) {
       return NextResponse.json(
         { error: "Use Stripe Checkout when Stripe is configured" },

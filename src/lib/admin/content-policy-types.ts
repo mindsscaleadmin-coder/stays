@@ -52,6 +52,7 @@ export interface BlogPost {
   id: string;
   title: string;
   excerpt: string;
+  body?: string;
   slug: string;
   published: boolean;
   publishedAt?: string;

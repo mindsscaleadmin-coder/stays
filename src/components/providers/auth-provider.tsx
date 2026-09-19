@@ -11,7 +11,7 @@ import {
 } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
-import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { isAuthMisconfiguredInProduction, isSupabaseConfigured } from "@/lib/supabase/config";
 import {
   clearDemoUser,
   createDemoUser,
@@ -119,8 +119,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<GuestUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [impersonating, setImpersonating] = useState(false);
+  const authMisconfigured = isAuthMisconfiguredInProduction();
   const supabaseEnabled = isSupabaseConfigured();
-  const isDemo = !supabaseEnabled;
+  const isDemo = !supabaseEnabled && !authMisconfigured;
 
   const supabase = useMemo(
     () => (supabaseEnabled ? createClient() : null),
@@ -129,6 +130,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     async function init() {
+      if (authMisconfigured) {
+        setLoading(false);
+        return;
+      }
+
       if (supabase) {
         const { data } = await supabase.auth.getSession();
         setUser(data.session?.user ? mapSupabaseUser(data.session.user) : null);
@@ -161,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     init();
-  }, [supabase]);
+  }, [authMisconfigured, supabase]);
 
   const signInWithEmail = useCallback(
     async (email: string, password: string) => {
@@ -773,6 +779,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isHostAccountRestricted,
     ]
   );
+
+  if (authMisconfigured) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
+        <div className="max-w-md rounded-xl border border-red-200 bg-white p-8 text-center shadow-sm">
+          <h1 className="text-lg font-semibold text-slate-900">Authentication not configured</h1>
+          <p className="mt-3 text-sm text-slate-600">
+            This production deployment is missing Supabase environment variables. Set{" "}
+            <code className="rounded bg-slate-100 px-1">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
+            <code className="rounded bg-slate-100 px-1">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>{" "}
+            before serving traffic.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <AuthContext.Provider value={authValue}>

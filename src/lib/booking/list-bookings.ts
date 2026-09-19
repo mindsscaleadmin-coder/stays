@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { asMoneyNumber } from "@/lib/money/prisma-decimal";
 import { catalogListingsForHost } from "@/lib/listings/catalog-listing-hosts";
 import type { CheckInOutStatus, HostBookingRecord } from "@/lib/host/host-booking-types";
 import type { GuestBookingSummary } from "@/lib/guest/guest-bookings-data";
@@ -207,11 +208,24 @@ export async function queryBookings(opts: {
           ...hostListingFilter,
         };
 
-  return prisma.booking.findMany({
+  const rows = await prisma.booking.findMany({
     where,
     include: bookingInclude,
     orderBy: { createdAt: "desc" },
   });
+
+  return rows.map((row) => ({
+    ...row,
+    totalPrice: asMoneyNumber(row.totalPrice),
+    refundAmount: row.refundAmount != null ? asMoneyNumber(row.refundAmount) : null,
+    listing: {
+      ...row.listing,
+      pricePerNight:
+        row.listing.pricePerNight != null
+          ? asMoneyNumber(row.listing.pricePerNight)
+          : null,
+    },
+  }));
 }
 
 export function toHostBookingRecord(

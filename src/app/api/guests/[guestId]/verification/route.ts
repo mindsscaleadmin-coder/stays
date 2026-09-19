@@ -7,7 +7,7 @@ import {
   hostDataErrorResponse,
   requireGuestSelfOrAdmin,
 } from "@/lib/auth/listing-access";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePlatformStaff } from "@/lib/auth/guards";
 import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError, isDemoApiMode } from "@/lib/auth/booking-access";
 import { getRequestId } from "@/lib/observability/logger";
@@ -77,7 +77,7 @@ export async function PATCH(
   const requestId = getRequestId(request);
   try {
     if (!isDemoApiMode()) {
-      await requireAdmin();
+      await requirePlatformStaff("approve_kyc");
     }
     const { guestId } = await context.params;
     const body = (await request.json()) as { status?: string; reviewNote?: string };

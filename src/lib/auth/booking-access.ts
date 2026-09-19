@@ -25,6 +25,11 @@ export function isDemoApiMode() {
   return !isSupabaseConfigured();
 }
 
+/** Demo payment (skip Stripe) — local dev only when Supabase is not configured. */
+export function isDemoPayAllowed(): boolean {
+  return isDemoApiMode();
+}
+
 /**
  * JWT / metadata roles only. Do not use for admin checks — use resolveSessionActor.
  * `admin` in user_metadata is ignored because sign-up can set it.
@@ -72,7 +77,7 @@ export function assertBookingParticipant(
   throw new BookingAccessError("Access denied");
 }
 
-export function resolveCancelActor(
+export function resolveBookingMessageSender(
   booking: { guestId: string; listing: { hostId: string } },
   actor: { id: string; roles: string[]; staffHostId?: string }
 ): "guest" | "host" | "admin" {
@@ -82,7 +87,18 @@ export function resolveCancelActor(
     (Boolean(actor.staffHostId) && booking.listing.hostId === actor.staffHostId);
   if (hostsListing && canManageListings(actor.roles)) return "host";
   if (booking.guestId === actor.id && canBook(actor.roles)) return "guest";
-  throw new BookingAccessError("You cannot cancel this booking");
+  throw new BookingAccessError("Access denied");
+}
+
+export function resolveCancelActor(
+  booking: { guestId: string; listing: { hostId: string } },
+  actor: { id: string; roles: string[]; staffHostId?: string }
+): "guest" | "host" | "admin" {
+  try {
+    return resolveBookingMessageSender(booking, actor);
+  } catch {
+    throw new BookingAccessError("You cannot cancel this booking");
+  }
 }
 
 export function bookingAccessResponse(

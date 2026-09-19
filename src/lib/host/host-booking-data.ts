@@ -20,6 +20,7 @@ import {
   refundStatusFromBand,
 } from "@/lib/booking/policies";
 import { updateGuestBookingStatus } from "@/lib/guest/guest-bookings-data";
+import { LAUNCH_CURRENCY } from "@/lib/tax/launch-market";
 const BOOKINGS_KEY = "farm-stays-host-bookings";
 const INSTANT_BOOK_KEY = "farm-stays-host-instant-book-enabled";
 export const HOST_BOOKINGS_SYNC_EVENT = "farm-stays-host-bookings-updated";
@@ -90,7 +91,7 @@ const SEED_ENRICHMENTS: Partial<
     specialRequests: "Cancelled due to travel change.",
     checkInStatus: "pending",
     refundStatus: "full",
-    refundAmount: "AED 2,280",
+    refundAmount: "INR 2,280",
     disputeStatus: "resolved",
     disputeSummary: "Refund amount disagreement",
     disputeResolution: "Full refund issued per cancellation policy.",
@@ -108,7 +109,7 @@ const SEED_ENRICHMENTS: Partial<
         at: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
         actor: "Admin",
         action: "Dispute resolved",
-        detail: "Full refund AED 2,280 processed",
+        detail: "Full refund INR 2,280 processed",
       },
     ],
   },
@@ -154,10 +155,10 @@ const EXTRA_SEED: HostBooking[] = [
     guests: 5,
     adults: 5,
     children: 0,
-    nightlyRate: "AED 1,700",
-    cleaningFee: "AED 250",
-    serviceFee: "AED 400",
-    total: "AED 7,350",
+    nightlyRate: "INR 1,700",
+    cleaningFee: "INR 250",
+    serviceFee: "INR 400",
+    total: "INR 7,350",
     paymentStatus: "Paid",
     paymentMethod: "Amex ···· 3005",
     bookedAt: "2026-07-01",
@@ -179,10 +180,10 @@ const EXTRA_SEED: HostBooking[] = [
     guests: 2,
     adults: 2,
     children: 0,
-    nightlyRate: "AED 850",
-    cleaningFee: "AED 100",
-    serviceFee: "AED 150",
-    total: "AED 1,950",
+    nightlyRate: "INR 850",
+    cleaningFee: "INR 100",
+    serviceFee: "INR 150",
+    total: "INR 1,950",
     paymentStatus: "Paid",
     paymentMethod: "Visa ···· 8822",
     bookedAt: "2026-07-02",
@@ -240,13 +241,68 @@ function mergeRecords(stored: HostBookingRecord[]): HostBookingRecord[] {
   return Array.from(map.values()).sort((a, b) => b.bookedAt.localeCompare(a.bookedAt));
 }
 
+function replaceAedInString(s?: string): string | undefined {
+  if (!s) return s;
+  return s.replace(/\bAED\b/g, LAUNCH_CURRENCY);
+}
+
+function sanitizeHostBookingRecord(b: HostBookingRecord): { record: HostBookingRecord; changed: boolean } {
+  let changed = false;
+  let currency = b.currency;
+  if (currency === "AED") {
+    currency = LAUNCH_CURRENCY;
+    changed = true;
+  }
+  const total = replaceAedInString(b.total) ?? b.total;
+  if (total !== b.total) changed = true;
+  const nightlyRate = replaceAedInString(b.nightlyRate) ?? b.nightlyRate;
+  if (nightlyRate !== b.nightlyRate) changed = true;
+  const cleaningFee = replaceAedInString(b.cleaningFee) ?? b.cleaningFee;
+  if (cleaningFee !== b.cleaningFee) changed = true;
+  const serviceFee = replaceAedInString(b.serviceFee) ?? b.serviceFee;
+  if (serviceFee !== b.serviceFee) changed = true;
+  const refundAmount = replaceAedInString(b.refundAmount);
+  if (refundAmount !== b.refundAmount) changed = true;
+
+  const auditLog = (b.auditLog ?? []).map((entry) => {
+    const detail = replaceAedInString(entry.detail) ?? entry.detail;
+    if (detail !== entry.detail) changed = true;
+    return detail !== entry.detail ? { ...entry, detail } : entry;
+  });
+
+  return {
+    record: changed
+      ? {
+          ...b,
+          currency: currency ?? LAUNCH_CURRENCY,
+          total,
+          nightlyRate,
+          cleaningFee,
+          serviceFee,
+          refundAmount,
+          auditLog,
+        }
+      : b,
+    changed,
+  };
+}
+
 export function loadHostBookings(): HostBookingRecord[] {
   if (typeof window === "undefined") return defaultBookings();
   try {
     const raw = localStorage.getItem(BOOKINGS_KEY);
-    const rows = raw
-      ? mergeRecords(JSON.parse(raw) as HostBookingRecord[])
-      : defaultBookings();
+    if (!raw) return defaultBookings();
+    const parsed = JSON.parse(raw) as HostBookingRecord[];
+    let anyChanged = false;
+    const sanitized = parsed.map((row) => {
+      const { record, changed } = sanitizeHostBookingRecord(row);
+      if (changed) anyChanged = true;
+      return record;
+    });
+    if (anyChanged) {
+      localStorage.setItem(BOOKINGS_KEY, JSON.stringify(sanitized));
+    }
+    const rows = mergeRecords(sanitized);
     return applyLocalPendingExpiry(rows);
   } catch {
     return defaultBookings();
@@ -427,7 +483,7 @@ export function cancelHostBooking(
     input.refundStatus ||
     (preview ? refundStatusFromBand(preview.band) : "none");
   const currency =
-    existing?.currency || existing?.total.match(/^([A-Z]{3})\b/)?.[1] || "AED";
+    existing?.currency || existing?.total.match(/^([A-Z]{3})\b/)?.[1] || LAUNCH_CURRENCY;
   const refundAmount =
     input.refundAmount ||
     (preview && preview.refundAmount > 0

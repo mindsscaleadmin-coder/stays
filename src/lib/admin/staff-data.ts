@@ -138,8 +138,10 @@ export function verifyAdminStaffPassword(
     if (member.password === pass) return { ok: true, member };
     return { ok: false, error: "Invalid email or password." };
   }
-  // Super Admin without a set password: demo allows any password
-  if (member.role === "admin") return { ok: true, member };
+  // Local dev only — production/staging must use shared staff API with real passwords.
+  if (process.env.NODE_ENV === "development" && member.role === "admin") {
+    return { ok: true, member };
+  }
   return {
     ok: false,
     error:

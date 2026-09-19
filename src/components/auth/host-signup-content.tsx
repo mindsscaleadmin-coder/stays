@@ -192,7 +192,7 @@ export function HostSignupContent() {
           type="tel"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
-          placeholder="+971 50 123 4567"
+          placeholder="+91 98 1234 5678"
         />
         <HostAuthInput
           label={t("password")}

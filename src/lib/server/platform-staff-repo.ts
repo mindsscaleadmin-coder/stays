@@ -82,6 +82,12 @@ export async function getPlatformStaffByEmail(
   return row ? toMember(row, opts?.maskPassword !== false) : undefined;
 }
 
+export async function getPlatformStaffById(id: string): Promise<StaffMember | undefined> {
+  await seedPlatformStaffIfEmpty();
+  const row = await prisma.platformStaff.findUnique({ where: { id } });
+  return row ? toMember(row) : undefined;
+}
+
 export async function savePlatformStaff(input: StaffMemberInput): Promise<StaffMember> {
   await seedPlatformStaffIfEmpty();
   const email = input.email.trim().toLowerCase();

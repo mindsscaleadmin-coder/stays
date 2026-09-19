@@ -56,6 +56,7 @@ export const CATALOG_KEYS = {
   hostVerifications: "host-verifications",
   guestVerifications: "guest-verifications",
   supportContact: "support-contact-settings",
+  seoSettings: "seo-settings",
   contentPolicy: "content-policy",
 } as const;
 

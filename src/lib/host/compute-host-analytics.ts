@@ -1,4 +1,5 @@
 import type { HostAnalyticsData, HostOverviewStats } from "./host-analytics-types";
+import { LAUNCH_CURRENCY } from "@/lib/tax/launch-market";
 
 export type AnalyticsListing = {
   id: string;
@@ -226,7 +227,7 @@ export function computeHostAnalytics(input: {
         label: "Avg nightly rate",
         yours: Math.round(yoursNightly),
         nearbyAvg: Math.round(nearbyNightly),
-        unit: "AED",
+        unit: LAUNCH_CURRENCY,
       },
       {
         label: "Guest rating",

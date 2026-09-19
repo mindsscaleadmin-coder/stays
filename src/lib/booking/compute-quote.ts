@@ -1,5 +1,5 @@
 import { countNights } from "@/lib/host/calculate-stay-price";
-import { BASE_CURRENCY, normalizeCurrency } from "@/lib/currency";
+import { DISPLAY_DEFAULT_CURRENCY, normalizeCurrency } from "@/lib/currency";
 
 export type BookingQuoteInput = {
   checkIn: string;
@@ -45,7 +45,7 @@ export function computeBookingQuote(input: BookingQuoteInput): BookingQuote {
   const extrasTotal = Math.max(0, Math.min(Number(input.extrasTotal) || 0, 50_000));
   const taxAmount = Math.max(0, Math.min(Number(input.taxAmount) || 0, 100_000));
   const total = accommodation + experiencesTotal + extrasTotal;
-  const currency = normalizeCurrency(input.currency || BASE_CURRENCY);
+  const currency = normalizeCurrency(input.currency || DISPLAY_DEFAULT_CURRENCY);
 
   const lines: { label: string; amount: number }[] = [
     {
@@ -58,9 +58,6 @@ export function computeBookingQuote(input: BookingQuoteInput): BookingQuote {
   }
   if (extrasTotal > 0) {
     lines.push({ label: "Extras", amount: extrasTotal });
-  }
-  if (taxAmount > 0) {
-    lines.push({ label: "Tax / fees (included)", amount: taxAmount });
   }
 
   return {

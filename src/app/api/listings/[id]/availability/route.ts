@@ -4,6 +4,7 @@ import {
   getListingAvailability,
   saveListingAvailability,
 } from "@/lib/server/listing-availability-repo";
+import { expirePendingBookings } from "@/lib/booking/lifecycle";
 import { getBookingOccupiedDates } from "@/lib/server/booking-occupancy-repo";
 import {
   hostDataErrorResponse,
@@ -40,6 +41,7 @@ export async function GET(
   if (!settings) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  await expirePendingBookings().catch(() => {});
   const occupiedDates = await getBookingOccupiedDates(id);
   const imported = settings.icalImportedDates ?? [];
   // Booked nights must never live in blockedDates — persist would lock them forever.

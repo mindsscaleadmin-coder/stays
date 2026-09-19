@@ -2,7 +2,7 @@ export const ADMIN_STATS = [
   { label: "Properties", value: "1,245", change: "+12 this week", color: "bg-blue-50 text-blue-600" },
   { label: "Total Users", value: "14,832", change: "+247 this month", color: "bg-green-50 text-green-600" },
   { label: "Total Bookings", value: "8,491", change: "+89 today", color: "bg-amber-50 text-amber-600" },
-  { label: "Revenue", value: "AED 2.4M", change: "+AED 48K today", color: "bg-purple-50 text-purple-600" },
+  { label: "Revenue", value: "INR 2.4M", change: "+INR 48K today", color: "bg-purple-50 text-purple-600" },
   { label: "Avg. Rating", value: "4.9 / 5", change: "12,500+ reviews", color: "bg-orange-50 text-orange-600" },
   { label: "Pending", value: "23", change: "Awaiting review", color: "bg-red-50 text-red-600" },
 ];
@@ -31,7 +31,7 @@ export const BOOKINGS_TREND = [
 
 export const ANALYTICS_KPIS = [
   { label: "Conversion rate", value: "3.8%", change: "+0.4% vs last month", positive: true },
-  { label: "Avg. booking value", value: "AED 2,840", change: "+AED 120 vs last month", positive: true },
+  { label: "Avg. booking value", value: "INR 2,840", change: "+INR 120 vs last month", positive: true },
   { label: "Occupancy rate", value: "72%", change: "+5% vs last month", positive: true },
   { label: "Repeat guests", value: "34%", change: "-1% vs last month", positive: false },
 ];
@@ -46,11 +46,11 @@ export const TOP_DESTINATIONS = [
 ];
 
 export const TOP_PROPERTIES = [
-  { name: "Green Valley Farmhouse", bookings: 312, revenue: "AED 428K", rating: 4.9 },
-  { name: "Al Rawda Luxury Farm", bookings: 284, revenue: "AED 612K", rating: 4.8 },
-  { name: "Desert Oasis Farm", bookings: 241, revenue: "AED 198K", rating: 4.7 },
-  { name: "Mountain View Villa", bookings: 198, revenue: "AED 312K", rating: 4.9 },
-  { name: "Heritage Palm Farm", bookings: 176, revenue: "AED 245K", rating: 4.6 },
+  { name: "Green Valley Farmhouse", bookings: 312, revenue: "INR 428K", rating: 4.9 },
+  { name: "Al Rawda Luxury Farm", bookings: 284, revenue: "INR 612K", rating: 4.8 },
+  { name: "Desert Oasis Farm", bookings: 241, revenue: "INR 198K", rating: 4.7 },
+  { name: "Mountain View Villa", bookings: 198, revenue: "INR 312K", rating: 4.9 },
+  { name: "Heritage Palm Farm", bookings: 176, revenue: "INR 245K", rating: 4.6 },
 ];
 
 export const BOOKING_STATUS_BREAKDOWN = [
@@ -105,7 +105,7 @@ export const ADMIN_BOOKINGS: AdminBooking[] = [
     checkIn: "2026-08-16",
     checkOut: "2026-08-19",
     bookedAt: "2026-07-10",
-    total: "AED 3,347",
+    total: "INR 3,347",
     status: "Upcoming",
   },
   {
@@ -115,7 +115,7 @@ export const ADMIN_BOOKINGS: AdminBooking[] = [
     checkIn: "2026-08-18",
     checkOut: "2026-08-22",
     bookedAt: "2026-07-08",
-    total: "AED 10,000",
+    total: "INR 10,000",
     status: "Confirmed",
   },
   {
@@ -125,7 +125,7 @@ export const ADMIN_BOOKINGS: AdminBooking[] = [
     checkIn: "2026-08-20",
     checkOut: "2026-08-21",
     bookedAt: "2026-07-12",
-    total: "AED 1,960",
+    total: "INR 1,960",
     status: "Pending",
   },
   {
@@ -135,7 +135,7 @@ export const ADMIN_BOOKINGS: AdminBooking[] = [
     checkIn: "2026-08-22",
     checkOut: "2026-08-25",
     bookedAt: "2026-07-05",
-    total: "AED 4,200",
+    total: "INR 4,200",
     status: "Confirmed",
   },
   {
@@ -145,7 +145,7 @@ export const ADMIN_BOOKINGS: AdminBooking[] = [
     checkIn: "2026-08-25",
     checkOut: "2026-08-27",
     bookedAt: "2026-07-01",
-    total: "AED 1,300",
+    total: "INR 1,300",
     status: "Cancelled",
   },
 ];
@@ -155,7 +155,7 @@ export const ADMIN_ACTIVITY = [
   { text: "Booking GF-A8K2X1 confirmed by host", time: "5 min ago", emoji: "📅" },
   { text: "New user registered — fatima@example.com", time: "11 min ago", emoji: "👤" },
   { text: "Review posted for Green Valley (5★)", time: "18 min ago", emoji: "⭐" },
-  { text: "Payout AED 12,400 processed to host #H-0042", time: "32 min ago", emoji: "💰" },
+  { text: "Payout INR 12,400 processed to host #H-0042", time: "32 min ago", emoji: "💰" },
   { text: "Support ticket #T-0211 opened by Priya Sharma", time: "45 min ago", emoji: "🎧" },
 ];
 
@@ -168,14 +168,14 @@ export const PENDING_LISTINGS = [
 export const HOST_STATS = [
   { label: "Active Listings", value: "3", change: "1 pending approval", color: "bg-blue-50 text-blue-600" },
   { label: "Bookings", value: "24", change: "+4 this week", color: "bg-green-50 text-green-600" },
-  { label: "Earnings", value: "AED 48,200", change: "+AED 6,400 this month", color: "bg-purple-50 text-purple-600" },
+  { label: "Earnings", value: "INR 48,200", change: "+INR 6,400 this month", color: "bg-purple-50 text-purple-600" },
   { label: "Avg. Rating", value: "4.9", change: "128 reviews", color: "bg-amber-50 text-amber-600" },
 ];
 
 export const HOST_LISTINGS = [
-  { id: "1", title: "Green Valley Farmhouse", status: "approved", bookings: 18, revenue: "AED 32,400", rating: 4.9 },
-  { id: "7", title: "Spice Garden Cottage", status: "approved", bookings: 9, revenue: "AED 12,800", rating: 4.7 },
-  { id: "9", title: "Sunset Desert Camp", status: "pending", bookings: 0, revenue: "AED 0", rating: 0 },
+  { id: "1", title: "Green Valley Farmhouse", status: "approved", bookings: 18, revenue: "INR 32,400", rating: 4.9 },
+  { id: "7", title: "Spice Garden Cottage", status: "approved", bookings: 9, revenue: "INR 12,800", rating: 4.7 },
+  { id: "9", title: "Sunset Desert Camp", status: "pending", bookings: 0, revenue: "INR 0", rating: 0 },
 ];
 
 export type HostBookingStatus = "pending" | "confirmed" | "declined" | "completed" | "cancelled" | "expired";
@@ -223,10 +223,10 @@ export const HOST_BOOKINGS: HostBooking[] = [
     guests: 4,
     adults: 2,
     children: 2,
-    nightlyRate: "AED 950",
-    cleaningFee: "AED 200",
-    serviceFee: "AED 297",
-    total: "AED 3,347",
+    nightlyRate: "INR 950",
+    cleaningFee: "INR 200",
+    serviceFee: "INR 297",
+    total: "INR 3,347",
     paymentStatus: "Authorized",
     paymentMethod: "Visa ···· 4242",
     bookedAt: "2026-07-10",
@@ -248,10 +248,10 @@ export const HOST_BOOKINGS: HostBooking[] = [
     guests: 6,
     adults: 4,
     children: 2,
-    nightlyRate: "AED 1,700",
-    cleaningFee: "AED 250",
-    serviceFee: "AED 350",
-    total: "AED 5,700",
+    nightlyRate: "INR 1,700",
+    cleaningFee: "INR 250",
+    serviceFee: "INR 350",
+    total: "INR 5,700",
     paymentStatus: "Paid",
     paymentMethod: "Mastercard ···· 8811",
     bookedAt: "2026-07-08",
@@ -273,10 +273,10 @@ export const HOST_BOOKINGS: HostBooking[] = [
     guests: 2,
     adults: 2,
     children: 0,
-    nightlyRate: "AED 850",
-    cleaningFee: "AED 100",
-    serviceFee: "AED 150",
-    total: "AED 1,950",
+    nightlyRate: "INR 850",
+    cleaningFee: "INR 100",
+    serviceFee: "INR 150",
+    total: "INR 1,950",
     paymentStatus: "Paid",
     paymentMethod: "Apple Pay",
     bookedAt: "2026-07-12",
@@ -298,10 +298,10 @@ export const HOST_BOOKINGS: HostBooking[] = [
     guests: 3,
     adults: 2,
     children: 1,
-    nightlyRate: "AED 850",
-    cleaningFee: "AED 100",
-    serviceFee: "AED 150",
-    total: "AED 1,950",
+    nightlyRate: "INR 850",
+    cleaningFee: "INR 100",
+    serviceFee: "INR 150",
+    total: "INR 1,950",
     paymentStatus: "Paid",
     paymentMethod: "Visa ···· 1199",
     bookedAt: "2026-05-20",
@@ -323,10 +323,10 @@ export const HOST_BOOKINGS: HostBooking[] = [
     guests: 2,
     adults: 2,
     children: 0,
-    nightlyRate: "AED 950",
-    cleaningFee: "AED 200",
-    serviceFee: "AED 180",
-    total: "AED 2,280",
+    nightlyRate: "INR 950",
+    cleaningFee: "INR 200",
+    serviceFee: "INR 180",
+    total: "INR 2,280",
     paymentStatus: "Refunded",
     paymentMethod: "Visa ···· 5520",
     bookedAt: "2026-04-15",

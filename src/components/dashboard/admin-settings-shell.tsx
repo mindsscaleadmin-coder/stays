@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Phone,
   ReceiptText,
+  Search,
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -28,6 +29,12 @@ export const ADMIN_SETTINGS_NAV: AdminSettingsNavItem[] = [
     href: "/admin/settings/home",
     description: "Banners, favicon, announcement bar",
     icon: Home,
+  },
+  {
+    label: "SEO & branding",
+    href: "/admin/settings/seo",
+    description: "Site name, logo, meta tags, schema, sitemaps by country",
+    icon: Search,
   },
   {
     label: "Listing",
@@ -56,7 +63,7 @@ export const ADMIN_SETTINGS_NAV: AdminSettingsNavItem[] = [
   {
     label: "Support contact",
     href: "/admin/settings/contact",
-    description: "Country-wise help phone numbers",
+    description: "Country-wise help phone & WhatsApp numbers",
     icon: Phone,
   },
   {

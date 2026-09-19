@@ -5,7 +5,8 @@ import { Calendar, Loader2, Users } from "lucide-react";
 import { CheckAvailabilityLink } from "@/components/auth/check-availability-link";
 import { computeExperienceQuote } from "@/lib/booking/compute-experience-quote";
 import type { ExperienceSessionTemplate } from "@/lib/booking/experience-session-types";
-import { formatStoredMoney } from "@/lib/currency";
+import { formatStoredMoney, DISPLAY_DEFAULT_CURRENCY } from "@/lib/currency";
+import { LAUNCH_TAX_LABEL } from "@/lib/tax/launch-market";
 
 type SlotRow = {
   date: string;
@@ -30,7 +31,7 @@ type Props = {
 export function ExperienceBookingCard({
   listingId,
   maxGuests = 6,
-  currency = "AED",
+  currency = DISPLAY_DEFAULT_CURRENCY,
   groupSizeMin = 1,
 }: Props) {
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -40,7 +41,7 @@ export function ExperienceBookingCard({
   const [slots, setSlots] = useState<SlotRow[]>([]);
   const [sessions, setSessions] = useState<ExperienceSessionTemplate[]>([]);
   const [taxPct, setTaxPct] = useState(0);
-  const [taxLabel, setTaxLabel] = useState("VAT");
+  const [taxLabel, setTaxLabel] = useState(LAUNCH_TAX_LABEL);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -227,6 +228,7 @@ export function ExperienceBookingCard({
 
       {quote ? (
         <div className="border-t border-gray-100 pt-3 space-y-1 text-sm">
+          <p className="text-[11px] text-gray-500">All prices inclusive</p>
           {quote.lines.map((line) => (
             <div key={line.label} className="flex justify-between gap-2 text-gray-600">
               <span>{line.label}</span>

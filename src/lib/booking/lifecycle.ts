@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { normalizeBookingMoney } from "@/lib/booking/normalize-booking-money";
 import type { Prisma } from "@prisma/client";
 import { BookingError } from "@/lib/booking/confirm-booking";
 import {
@@ -12,7 +13,7 @@ import { getStripe, isStripeConfigured } from "@/lib/stripe/server";
 import { expireEndedFlashDeals } from "@/lib/server/listing-pricing-repo";
 import { withAudit } from "@/lib/booking/booking-audit";
 import { releaseBookingNights, releaseExperienceSlotCapacity } from "@/lib/booking/booking-nights";
-import { BASE_CURRENCY } from "@/lib/currency";
+import { DISPLAY_DEFAULT_CURRENCY } from "@/lib/currency";
 import { shouldAutoIssueStripeRefund } from "@/lib/booking/refund-governance";
 
 type Tx = Prisma.TransactionClient;
@@ -55,7 +56,7 @@ export async function maybeStripeRefund(input: {
         : session.payment_intent?.id;
     if (!pi) return { refunded: false, error: "No payment intent on session" };
 
-    const currency = (input.currency || session.currency || BASE_CURRENCY).toLowerCase();
+    const currency = (input.currency || session.currency || DISPLAY_DEFAULT_CURRENCY).toLowerCase();
     const zeroDecimal = ["jpy", "krw"].includes(currency);
     const stripeAmount = zeroDecimal
       ? Math.round(input.amount)
@@ -118,8 +119,9 @@ export async function acceptBooking(bookingId: string) {
 
 export async function declineBooking(bookingId: string, reason?: string) {
   return prisma.$transaction(async (tx) => {
-    const booking = await tx.booking.findUnique({ where: { id: bookingId } });
-    if (!booking) throw new BookingError("Booking not found", "NOT_FOUND");
+    const row = await tx.booking.findUnique({ where: { id: bookingId } });
+    if (!row) throw new BookingError("Booking not found", "NOT_FOUND");
+    const booking = normalizeBookingMoney(row);
     if (booking.status !== "pending") {
       throw new BookingError("Only pending bookings can be declined", "INVALID_DATES");
     }
@@ -190,8 +192,9 @@ export async function cancelBooking(input: {
   /** Host/admin may force full guest refund */
   forceFullRefund?: boolean;
 }) {
-  const booking = await prisma.booking.findUnique({ where: { id: input.bookingId } });
-  if (!booking) throw new BookingError("Booking not found", "NOT_FOUND");
+  const row = await prisma.booking.findUnique({ where: { id: input.bookingId } });
+  if (!row) throw new BookingError("Booking not found", "NOT_FOUND");
+  const booking = normalizeBookingMoney(row);
   if (!["pending", "confirmed"].includes(booking.status)) {
     throw new BookingError("Booking cannot be cancelled", "INVALID_DATES");
   }
@@ -311,7 +314,8 @@ export async function expirePendingBookings(
   });
 
   const expired = [];
-  for (const booking of stale) {
+  for (const staleRow of stale) {
+    const booking = normalizeBookingMoney(staleRow);
     const unpaidHold = booking.paymentStatus === "unpaid";
     const evaluation = evaluateCancellationRefund({
       policyId: booking.policyId,

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { asMoneyNumber, toMoneyDecimal } from "@/lib/money/prisma-decimal";
 import type { CountryPricingConfig } from "@/lib/admin/country-utils";
 import {
   applyCountryPricing,
@@ -85,7 +86,10 @@ export async function getListingPricing(
 
   const row = await prisma.listingPricing.findUnique({ where: { listingId } });
   const stored = row ? parsePayload(row.payload) : null;
-  const settings = mergeStored(listingId, stored, country, { basePrice: listing.pricePerNight });
+  const settings = mergeStored(listingId, stored, country, {
+    basePrice:
+      listing.pricePerNight != null ? asMoneyNumber(listing.pricePerNight) : null,
+  });
   if (row && stored && isFlashDealExpired({ ...stored, discountsEnabled: stored.discountsEnabled ?? true })) {
     await persistExpiredFlashDeal(settings);
   }
@@ -111,7 +115,8 @@ export async function getListingPricingMap(
   const expired: ListingPricingSettings[] = [];
   for (const listing of listings) {
     const settings = mergeStored(listing.id, payloadById.get(listing.id) ?? null, undefined, {
-      basePrice: listing.pricePerNight,
+      basePrice:
+        listing.pricePerNight != null ? asMoneyNumber(listing.pricePerNight) : null,
     });
     map.set(listing.id, settings);
     const stored = payloadById.get(listing.id);
@@ -169,7 +174,10 @@ export async function saveListingPricing(
     }
     await prisma.listing.update({
       where: { id: listingId },
-      data: { pricePerNight: rest.basePrice, payload: nextPayload },
+      data: {
+        pricePerNight: toMoneyDecimal(rest.basePrice),
+        payload: nextPayload,
+      },
     });
   }
 

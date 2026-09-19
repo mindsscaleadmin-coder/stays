@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { normalizeBookingMoney } from "@/lib/booking/normalize-booking-money";
 import { BookingError } from "@/lib/booking/confirm-booking";
 import { maybeStripeRefund } from "@/lib/booking/lifecycle";
 import { refundStatusFromBand } from "@/lib/booking/policies";
@@ -128,10 +129,11 @@ export async function refundBooking(input: {
   /** Host confirming an already-pending policy refund without a new Stripe call. */
   completePending?: boolean;
 }) {
-  const booking = await prisma.booking.findUnique({ where: { id: input.bookingId } });
-  if (!booking) throw new BookingError("Booking not found", "NOT_FOUND");
+  const row = await prisma.booking.findUnique({ where: { id: input.bookingId } });
+  if (!row) throw new BookingError("Booking not found", "NOT_FOUND");
+  const booking = normalizeBookingMoney(row);
 
-  if (booking.paymentStatus === "refunded") return booking;
+  if (booking.paymentStatus === "refunded") return row;
 
   const paid = booking.paymentStatus === "paid" || booking.paymentStatus === "refund_pending";
   if (!paid) {

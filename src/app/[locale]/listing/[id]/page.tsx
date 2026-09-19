@@ -92,6 +92,7 @@ export default async function ListingPage({
       requirements={listing.requirements}
       licenseNumber={listing.licenseNumber}
       groupSizeMin={listing.groupSizeMin}
+      safetyChecklist={listing.safetyChecklist}
     />
     </>
   );

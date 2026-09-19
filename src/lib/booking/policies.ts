@@ -4,6 +4,9 @@
 
 export const PENDING_RESPONSE_HOURS = 24;
 
+/** Guest must complete payment within this window on instant-confirmed unpaid bookings. */
+export const UNPAID_PAYMENT_HOLD_MINUTES = 30;
+
 export type CancellationPolicyId =
   | "flexible"
   | "moderate"
@@ -85,7 +88,7 @@ export function computePendingExpiresAt(
 
 /** Deadline for guests to complete payment on instant-confirmed unpaid bookings. */
 export function computeUnpaidPaymentExpiresAt(createdAt: Date = new Date()): Date {
-  return computePendingExpiresAt(createdAt, PENDING_RESPONSE_HOURS);
+  return new Date(createdAt.getTime() + UNPAID_PAYMENT_HOLD_MINUTES * 60 * 1000);
 }
 
 export function isPendingExpired(

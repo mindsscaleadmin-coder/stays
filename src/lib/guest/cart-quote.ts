@@ -6,7 +6,7 @@ import {
 } from "@/lib/host/calculate-stay-price";
 import type { ListingPricingSettings } from "@/lib/host/host-pricing-types";
 import type { BookingCartLine } from "@/lib/guest/booking-cart";
-import { BASE_CURRENCY, normalizeCurrency } from "@/lib/currency";
+import { BASE_CURRENCY, DISPLAY_DEFAULT_CURRENCY, normalizeCurrency } from "@/lib/currency";
 
 const EXPERIENCE_PRICES: Record<string, number> = {
   "farm-tour": 75,
@@ -35,7 +35,7 @@ export function quoteCartLine(
   if (nights < 1) return null;
 
   const pricing = settings ?? loadPricingSettings(line.listingId);
-  const currency = normalizeCurrency(pricing.currency || line.currency || BASE_CURRENCY);
+  const currency = normalizeCurrency(pricing.currency || line.currency || DISPLAY_DEFAULT_CURRENCY);
   const experiencesTotal =
     line.experienceIds.reduce((sum, id) => sum + (EXPERIENCE_PRICES[id] ?? 0), 0) *
     Math.max(1, line.guests);

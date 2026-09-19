@@ -16,7 +16,13 @@ export function createSupportTicket(
   hostId: string,
   subject: string,
   message: string,
-  hostName?: string
+  hostName?: string,
+  extra?: {
+    priority?: "low" | "normal" | "high" | "critical";
+    bookingRef?: string;
+    property?: string;
+    requesterEmail?: string;
+  }
 ): HostSupportData {
   createCentralTicket({
     source: "host",
@@ -24,7 +30,10 @@ export function createSupportTicket(
     message,
     requesterId: hostId,
     requesterName: hostName ?? resolveHostDisplayName(hostId),
-    priority: "normal",
+    priority: extra?.priority ?? "normal",
+    bookingRef: extra?.bookingRef,
+    property: extra?.property,
+    requesterEmail: extra?.requesterEmail,
   });
   if (typeof window !== "undefined") {
     emitSyncEvent(HOST_SUPPORT_SYNC_EVENT);

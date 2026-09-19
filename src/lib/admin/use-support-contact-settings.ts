@@ -98,6 +98,7 @@ export function useSupportContactSettings() {
         contacts.push({
           countryCode: code,
           phone: patch.phone ?? "",
+          whatsapp: patch.whatsapp ?? patch.phone ?? "",
           hoursLabel: patch.hoursLabel ?? settings.defaultHoursLabel,
           enabled: patch.enabled !== false,
         });
@@ -119,6 +120,7 @@ export function useSupportContactSettings() {
           {
             countryCode: code,
             phone: "",
+            whatsapp: "",
             hoursLabel: settings.defaultHoursLabel,
             enabled: true,
           },

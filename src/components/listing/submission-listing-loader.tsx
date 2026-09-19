@@ -156,6 +156,7 @@ export function SubmissionListingLoader({ id }: { id: string }) {
         requirements={listing.requirements}
         licenseNumber={listing.licenseNumber}
         groupSizeMin={listing.groupSizeMin}
+        safetyChecklist={listing.safetyChecklist}
       />
     </>
   );

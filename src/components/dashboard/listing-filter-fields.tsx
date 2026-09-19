@@ -20,6 +20,7 @@ import type { ListingFilterValues } from "@/lib/listings/submission-types";
 import { EMPTY_LISTING_FILTERS } from "@/lib/listings/submission-types";
 import { ListingHighlightsField } from "@/components/dashboard/listing-highlights-field";
 import { ListingFeatureIconsField } from "@/components/dashboard/listing-feature-icons-field";
+import { normalizeListingTaxonomyScope } from "@/lib/admin/listing-settings-scope";
 
 const selectClass =
   "w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-50 disabled:text-gray-400";
@@ -559,18 +560,23 @@ export function ListingFilterFields({
     </div>
   ) : null;
 
+  const listingTaxonomyScope = useMemo(
+    () => normalizeListingTaxonomyScope({ parentId, categoryId, subcategoryId }),
+    [parentId, categoryId, subcategoryId]
+  );
+
   const extrasSection = (
     <>
       <ListingFeatureIconsField
         selectedIds={featureIconIds}
         onChange={(ids) => patch({ featureIconIds: ids })}
-        taxonomy={{ parentId, categoryId, subcategoryId }}
+        taxonomy={listingTaxonomyScope}
       />
 
       <ListingHighlightsField
         selectedIds={highlightIds}
         onChange={(ids) => patch({ highlightIds: ids })}
-        taxonomy={{ parentId, categoryId, subcategoryId }}
+        taxonomy={listingTaxonomyScope}
       />
 
       {!hideAdvancedFilters && (

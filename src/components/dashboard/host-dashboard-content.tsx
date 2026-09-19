@@ -44,10 +44,10 @@ function overviewCards(stats: HostOverviewStats) {
     },
     {
       label: "Earnings",
-      value: formatPrice(stats.earnings, "AED"),
+      value: formatPrice(stats.earnings),
       change:
         stats.earningsThisMonth > 0
-          ? `+${formatPrice(stats.earningsThisMonth, "AED")} this month`
+          ? `+${formatPrice(stats.earningsThisMonth)} this month`
           : "No paid stays this month",
       color: "bg-purple-50 text-purple-600",
       href: "/host/accounts",

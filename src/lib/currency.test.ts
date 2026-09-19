@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BASE_CURRENCY,
+  DISPLAY_DEFAULT_CURRENCY,
   currencyForCountryName,
   defaultCurrency,
   formatMoney,
@@ -10,22 +11,24 @@ import {
 } from "./currency";
 
 describe("currency defaults", () => {
-  it("exposes one platform baseline", () => {
+  it("keeps AED as conversion anchor and INR as display default", () => {
     expect(BASE_CURRENCY).toBe("AED");
-    expect(defaultCurrency()).toBe(BASE_CURRENCY);
+    expect(DISPLAY_DEFAULT_CURRENCY).toBe("INR");
+    expect(defaultCurrency()).toBe("INR");
   });
 
-  it("normalizeCurrency falls back to baseline", () => {
-    expect(normalizeCurrency(undefined)).toBe(BASE_CURRENCY);
-    expect(normalizeCurrency("")).toBe(BASE_CURRENCY);
+  it("normalizeCurrency falls back to launch display currency", () => {
+    expect(normalizeCurrency(undefined)).toBe("INR");
+    expect(normalizeCurrency("")).toBe("INR");
     expect(normalizeCurrency("inr")).toBe("INR");
-    expect(normalizeCurrency("xx")).toBe(BASE_CURRENCY);
+    expect(normalizeCurrency("xx")).toBe("INR");
   });
 
   it("currencyForCountryName maps known markets", () => {
     expect(currencyForCountryName("India")).toBe("INR");
     expect(currencyForCountryName("Oman")).toBe("OMR");
-    expect(currencyForCountryName("Unknown")).toBe(BASE_CURRENCY);
+    expect(currencyForCountryName("United Arab Emirates")).toBe("AED");
+    expect(currencyForCountryName("Unknown")).toBe("INR");
   });
 
   it("converts using exchange rates", () => {

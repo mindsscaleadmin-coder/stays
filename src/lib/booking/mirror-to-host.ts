@@ -7,7 +7,7 @@ import {
 import { countNights } from "@/lib/host/calculate-stay-price";
 import { computePendingExpiresAt } from "@/lib/booking/policies";
 import { formatAmount } from "@/lib/utils";
-import { BASE_CURRENCY } from "@/lib/currency";
+import { DISPLAY_DEFAULT_CURRENCY } from "@/lib/currency";
 
 function nightsBetween(checkIn: string, checkOut: string): string[] {
   const dates: string[] = [];
@@ -54,7 +54,7 @@ export function mirrorGuestBookingToHost(input: MirrorGuestBookingInput): void {
   if (typeof window === "undefined") return;
 
   const nights = countNights(input.checkIn, input.checkOut);
-  const currency = input.currency || BASE_CURRENCY;
+  const currency = input.currency || DISPLAY_DEFAULT_CURRENCY;
   const expiresAt =
     input.status === "pending"
       ? computePendingExpiresAt().toISOString()

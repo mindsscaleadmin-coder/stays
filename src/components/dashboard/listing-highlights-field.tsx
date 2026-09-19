@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { useListingSettings } from "@/components/providers/listing-settings-provider";
 import {
+  hasListingTaxonomySelection,
+  normalizeListingTaxonomyScope,
   resolveListingSettingsForTaxonomy,
   type ListingTaxonomyScope,
 } from "@/lib/admin/listing-settings-scope";
@@ -30,10 +32,14 @@ export function ListingHighlightsField({
   const [draftIds, setDraftIds] = useState<string[]>(selectedIds);
   const [query, setQuery] = useState("");
 
+  const taxonomyScope = useMemo(
+    () => normalizeListingTaxonomyScope(taxonomy ?? {}),
+    [taxonomy]
+  );
+
   const scopedHighlights = useMemo(
-    () =>
-      resolveListingSettingsForTaxonomy(enabledHighlights, taxonomy ?? {}),
-    [enabledHighlights, taxonomy]
+    () => resolveListingSettingsForTaxonomy(enabledHighlights, taxonomyScope),
+    [enabledHighlights, taxonomyScope]
   );
 
   const scopedIdSet = useMemo(
@@ -87,8 +93,36 @@ export function ListingHighlightsField({
     setDraftIds([]);
   }
 
-  if (!taxonomy?.categoryId || !ready || scopedHighlights.length === 0) {
-    return null;
+  if (!ready) return null;
+
+  if (!hasListingTaxonomySelection(taxonomyScope)) {
+    return (
+      <div className="pt-2.5 border-t border-gray-100">
+        <div className="flex items-center gap-2 mb-2">
+          <CheckCircle className="w-4 h-4 text-green-600" />
+          <h4 className="text-sm font-semibold text-gray-900">Property highlights</h4>
+        </div>
+        <p className="text-xs text-gray-500">
+          Select a parent category and category above to see highlight options from Admin → Settings
+          → Listing.
+        </p>
+      </div>
+    );
+  }
+
+  if (scopedHighlights.length === 0) {
+    return (
+      <div className="pt-2.5 border-t border-gray-100">
+        <div className="flex items-center gap-2 mb-2">
+          <CheckCircle className="w-4 h-4 text-green-600" />
+          <h4 className="text-sm font-semibold text-gray-900">Property highlights</h4>
+        </div>
+        <p className="text-xs text-gray-500">
+          No property highlights are configured for this category yet. Add them in Admin → Settings →
+          Listing.
+        </p>
+      </div>
+    );
   }
 
   return (

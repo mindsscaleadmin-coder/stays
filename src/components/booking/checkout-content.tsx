@@ -14,14 +14,13 @@ import {
   countNights,
   stayAccommodationNet,
 } from "@/lib/host/calculate-stay-price";
-import { BASE_CURRENCY, formatMoney, formatStoredMoney  } from "@/lib/currency";
+import { DISPLAY_DEFAULT_CURRENCY, formatMoney, formatStoredMoney } from "@/lib/currency";
 import { listingHref } from "@/lib/guest/stay-search-dates";
 import { resolveCatalogListingHost } from "@/lib/listings/catalog-listing-hosts";
 import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { useLocale } from "next-intl";
 import { computeExperienceQuote } from "@/lib/booking/compute-experience-quote";
-import { extractInclusiveTax } from "@/lib/tax/inclusive-tax";
 import {
   DEFAULT_CANCELLATION_POLICY_ID,
   getCancellationRule,
@@ -152,7 +151,7 @@ export function CheckoutContent({
   const quotePreview = useMemo(() => {
     if (!stay || !pricing || !checkIn || !checkOut || nights < 1) return null;
     const currency =
-      pricing.currency || countryPricing.currency || BASE_CURRENCY;
+      pricing.currency || countryPricing.currency || DISPLAY_DEFAULT_CURRENCY;
     const experiencesTotal =
       experienceIds.reduce((sum, id) => sum + (EXPERIENCE_PRICES[id]?.amount ?? 0), 0) *
       Math.max(1, guests);
@@ -173,10 +172,7 @@ export function CheckoutContent({
 
     if (!stayQuote) {
       const accommodation = stay.price * nights;
-      const pretax = accommodation + experiencesTotal;
-      const taxPct = Math.max(0, countryPricing.taxPct);
-      const { taxAmount } = extractInclusiveTax(pretax, taxPct);
-      const taxLabel = countryPricing.taxLabel || "Tax";
+      const total = accommodation + experiencesTotal;
       const nightlyLabel = formatMoney(stay.price, {
         currency,
         exchangeRateToAED: countryPricing.exchangeRateToAED,
@@ -187,21 +183,22 @@ export function CheckoutContent({
         nightlyRate: stay.price,
         experiencesTotal,
         extrasTotal: 0,
-        taxAmount,
+        taxAmount: 0,
         accommodation,
-        total: pretax,
+        total,
         currency,
         exchangeRateToAED: countryPricing.exchangeRateToAED,
         lines: [
           {
-            label: `${nightlyLabel} × ${nights} nights`,
+            label: `${nightlyLabel} × ${nights} night${nights === 1 ? "" : "s"}`,
             amount: accommodation,
           },
           ...(experiencesTotal > 0
-            ? [{ label: "Experiences", amount: experiencesTotal }]
-            : []),
-          ...(taxAmount > 0
-            ? [{ label: `${taxLabel} (${taxPct}%, included)`, amount: taxAmount }]
+            ? experienceIds.map((id) => ({
+                label: EXPERIENCE_PRICES[id]?.title ?? "Experience",
+                amount:
+                  (EXPERIENCE_PRICES[id]?.amount ?? 0) * Math.max(1, guests),
+              }))
             : []),
         ],
       };
@@ -244,7 +241,7 @@ export function CheckoutContent({
     const session = sessions.find((s) => s.key === sessionKey);
     if (!session) return null;
     const currency =
-      pricing.currency || countryPricing.currency || BASE_CURRENCY;
+      pricing.currency || countryPricing.currency || DISPLAY_DEFAULT_CURRENCY;
     const quote = computeExperienceQuote({
       session,
       guestCount: guests,
@@ -481,6 +478,7 @@ export function CheckoutContent({
             </div>
           </div>
           <div className="border-t border-gray-100 pt-4 space-y-2 text-sm">
+            <p className="text-[11px] text-gray-500">All prices inclusive</p>
             {experienceQuote.quote.lines.map((line) => (
               <div key={line.label} className="flex justify-between gap-2 text-gray-600">
                 <span>{line.label}</span>
@@ -599,7 +597,8 @@ export function CheckoutContent({
 
           <div className="lg:col-span-2">
             <div className="bg-white rounded-2xl border border-gray-200 p-5 sticky top-24 shadow-sm">
-              <h2 className="text-sm font-bold text-gray-900 mb-3">Price details</h2>
+              <h2 className="text-sm font-bold text-gray-900">Price details</h2>
+              <p className="text-[11px] text-gray-500 mb-3">All prices inclusive</p>
               <ul className="space-y-2 mb-4">
                 {(quotePreview?.lines ?? []).map((line) => (
                   <li

@@ -177,7 +177,7 @@ export function AdminAnalyticsSectionView({
         />
         <StatCard
           label="Platform revenue"
-          value={formatPlatformMoney(kpis.totalRevenue)}
+          value={formatPlatformMoney(kpis.totalRevenue, countryFilter)}
           change={kpis.revenueChangePct}
           icon={Wallet}
           tone="purple"
@@ -233,7 +233,7 @@ export function AdminAnalyticsSectionView({
                 <div
                   className="w-full bg-purple-500 rounded-t-md"
                   style={{ height: `${(d.revenue / maxRevenue) * 100}%`, minHeight: 8 }}
-                  title={formatPlatformMoney(d.revenue)}
+                  title={formatPlatformMoney(d.revenue, countryFilter)}
                 />
                 <span className="text-[10px] text-gray-500">{d.label}</span>
               </div>
@@ -258,7 +258,7 @@ export function AdminAnalyticsSectionView({
                       <div className="flex items-center justify-between text-sm mb-1">
                         <span className="font-medium text-gray-800 truncate">{dest.state}</span>
                         <span className="text-gray-500 text-xs shrink-0 ms-2">
-                          {formatPlatformMoney(dest.revenue)}
+                          {formatPlatformMoney(dest.revenue, countryFilter)}
                         </span>
                       </div>
                       <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">

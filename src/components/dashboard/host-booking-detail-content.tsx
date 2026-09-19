@@ -23,6 +23,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useBookingOps } from "@/lib/host/use-booking-ops";
 import { useHostGuestSummary } from "@/lib/host/use-host-guest-summary";
 import { resolveHostId } from "@/lib/listings/host-listings-utils";
+import { LAUNCH_CURRENCY } from "@/lib/tax/launch-market";
 import { cn } from "@/lib/utils";
 
 export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
@@ -111,7 +112,7 @@ export function HostBookingDetailContent({ bookingId }: { bookingId: string }) {
   const moneyCurrency =
     booking.currency ||
     booking.total.match(/^([A-Z]{3})\b/)?.[1] ||
-    "AED";
+    LAUNCH_CURRENCY;
 
   function formatMoneyAmount(amount: number): string {
     return `${moneyCurrency} ${amount.toLocaleString()}`;

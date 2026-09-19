@@ -12,6 +12,17 @@ export interface Country {
 
 export const ALL_COUNTRIES: Country[] = [
   {
+    code: "IN",
+    name: "India",
+    flag: "🇮🇳",
+    currency: "INR",
+    currencySymbol: "₹",
+    exchangeRateToAED: 0.043,
+    dialCode: "+91",
+    enabled: true,
+    comingSoon: false,
+  },
+  {
     code: "AE",
     name: "United Arab Emirates",
     flag: "🇦🇪",
@@ -20,7 +31,7 @@ export const ALL_COUNTRIES: Country[] = [
     exchangeRateToAED: 1,
     dialCode: "+971",
     enabled: true,
-    comingSoon: false,
+    comingSoon: true,
   },
   {
     code: "SA",
@@ -31,7 +42,7 @@ export const ALL_COUNTRIES: Country[] = [
     exchangeRateToAED: 1.0,
     dialCode: "+966",
     enabled: true,
-    comingSoon: false,
+    comingSoon: true,
   },
   {
     code: "OM",
@@ -57,7 +68,7 @@ export const ALL_COUNTRIES: Country[] = [
   },
 ];
 
-export const ENABLED_COUNTRIES = ALL_COUNTRIES.filter((c) => c.enabled);
+export const ENABLED_COUNTRIES = ALL_COUNTRIES.filter((c) => c.enabled && !c.comingSoon);
 export const DEFAULT_COUNTRY = ENABLED_COUNTRIES[0];
 
 export function getCountry(code: string): Country {

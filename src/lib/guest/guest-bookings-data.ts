@@ -32,7 +32,19 @@ export function loadGuestBookings(): GuestBookingSummary[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    return JSON.parse(raw) as GuestBookingSummary[];
+    const rows = JSON.parse(raw) as GuestBookingSummary[];
+    let changed = false;
+    const sanitized = rows.map((b) => {
+      if (b.total && b.total.includes("AED")) {
+        changed = true;
+        return { ...b, total: b.total.replace(/\bAED\b/g, "INR") };
+      }
+      return b;
+    });
+    if (changed) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    }
+    return sanitized;
   } catch {
     return [];
   }

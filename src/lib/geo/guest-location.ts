@@ -1,4 +1,5 @@
 import type { Stay } from "@/lib/mock/data";
+import { LAUNCH_COUNTRY_CODE } from "@/lib/tax/launch-market";
 
 export interface GeoArea {
   id: string;
@@ -19,8 +20,57 @@ export interface GuestLocation {
 
 const STORAGE_KEY = "farm-stays-guest-location";
 
-/** City / emirate centroids used to map GPS → listing areas (no API required). */
+/** City / region centroids used to map GPS → listing areas (no API required). */
 export const GEO_AREAS: GeoArea[] = [
+  {
+    id: "kochi",
+    name: "Kochi",
+    lat: 9.9312,
+    lng: 76.2673,
+    aliases: ["kochi", "cochin", "ernakulam", "kerala"],
+  },
+  {
+    id: "munnar",
+    name: "Munnar",
+    lat: 10.0889,
+    lng: 77.0595,
+    aliases: ["munnar", "idukki"],
+  },
+  {
+    id: "goa",
+    name: "Goa",
+    lat: 15.2993,
+    lng: 74.124,
+    aliases: ["goa", "north goa", "south goa", "panaji"],
+  },
+  {
+    id: "jaipur",
+    name: "Jaipur",
+    lat: 26.9124,
+    lng: 75.7873,
+    aliases: ["jaipur", "rajasthan"],
+  },
+  {
+    id: "bengaluru",
+    name: "Bengaluru",
+    lat: 12.9716,
+    lng: 77.5946,
+    aliases: ["bengaluru", "bangalore", "karnataka", "coorg", "chikmagalur"],
+  },
+  {
+    id: "delhi",
+    name: "Delhi",
+    lat: 28.6139,
+    lng: 77.209,
+    aliases: ["delhi", "new delhi", "ncr"],
+  },
+  {
+    id: "shimla",
+    name: "Shimla",
+    lat: 31.1048,
+    lng: 77.1734,
+    aliases: ["shimla", "manali", "himachal", "dharamshala"],
+  },
   {
     id: "dubai",
     name: "Dubai",
@@ -93,7 +143,7 @@ export const GEO_AREAS: GeoArea[] = [
   },
 ];
 
-const DEFAULT_AREA = GEO_AREAS.find((a) => a.id === "dubai")!;
+const DEFAULT_AREA = GEO_AREAS.find((a) => a.id === "kochi")!;
 
 export function haversineKm(
   lat1: number,
@@ -148,14 +198,21 @@ export function proximityScore(stay: Stay, guest: GuestLocation): number {
       return 1000 - dist + stay.rating * 10;
     }
   }
-  // Country-level soft match (e.g. "UAE" / "Emirates")
   const haystack = stay.location.toLowerCase();
+  if (
+    haystack.includes("india") ||
+    haystack.includes("kerala") ||
+    haystack.includes("goa") ||
+    haystack.includes("rajasthan")
+  ) {
+    return 50 + stay.rating;
+  }
   if (
     haystack.includes("uae") ||
     haystack.includes("emirates") ||
     haystack.includes("united arab")
   ) {
-    return 50 + stay.rating;
+    return 40 + stay.rating;
   }
   return stay.rating;
 }
@@ -205,6 +262,13 @@ export function guestLocationFromCoords(
 
 /** Map a known GEO_AREA id → ISO country code. */
 const AREA_COUNTRY: Record<string, string> = {
+  kochi: "IN",
+  munnar: "IN",
+  goa: "IN",
+  jaipur: "IN",
+  bengaluru: "IN",
+  delhi: "IN",
+  shimla: "IN",
   dubai: "AE",
   hatta: "AE",
   "abu-dhabi": "AE",
@@ -243,23 +307,23 @@ export function countryCodeFromCoords(lat: number, lng: number): string {
   }
 
   const area = nearestArea(lat, lng);
-  return AREA_COUNTRY[area.id] ?? "AE";
+  return AREA_COUNTRY[area.id] ?? LAUNCH_COUNTRY_CODE;
 }
 
 export function countryCodeForArea(areaId: string): string {
-  return AREA_COUNTRY[areaId] ?? "AE";
+  return AREA_COUNTRY[areaId] ?? LAUNCH_COUNTRY_CODE;
 }
 
 export function guestLocationFromCountryCode(code: string): GuestLocation {
   // Map platform country → a default city centroid in that market
   const byCountry: Record<string, string> = {
+    IN: "kochi",
     AE: "dubai",
     SA: "dubai", // soft default until SA areas are added
     OM: "fujairah",
     QA: "dubai",
-    IN: "dubai",
   };
-  const areaId = byCountry[code] ?? "dubai";
+  const areaId = byCountry[code] ?? "kochi";
   const area = GEO_AREAS.find((a) => a.id === areaId) ?? DEFAULT_AREA;
   return {
     lat: area.lat,

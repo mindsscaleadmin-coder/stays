@@ -14,6 +14,7 @@ import type { HostBookingRecord, HostBookingUpdate } from "./host-booking-types"
 import { refundStatusFromBand } from "@/lib/booking/policies";
 import { useAuth } from "@/components/providers/auth-provider";
 import { resolveHostId } from "@/lib/listings/host-listings-utils";
+import { LAUNCH_CURRENCY } from "@/lib/tax/launch-market";
 
 /** Prisma cuid-style ids from checkout; seed demos use GF-… */
 function looksLikeServerBooking(id: string): boolean {
@@ -165,7 +166,7 @@ export function useHostBookings(bookingId?: string) {
         return getHostBookingRecord(id);
       }
       const currency =
-        existing?.currency || existing?.total.match(/^([A-Z]{3})\b/)?.[1] || "AED";
+        existing?.currency || existing?.total.match(/^([A-Z]{3})\b/)?.[1] || LAUNCH_CURRENCY;
       const saved = cancelHostBooking(id, {
         reason: input.reason,
         refundStatus:

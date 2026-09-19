@@ -16,6 +16,8 @@ import {
   MessageCircle,
   Share2,
   Shield,
+  ShieldCheck,
+  CheckCircle2,
   Sparkles,
   Star,
   Users,
@@ -47,6 +49,7 @@ import { LISTING_PLACEHOLDER_IMG } from "@/lib/listings/submission-to-stay";
 import { isDataImageUrl } from "@/lib/utils";
 import type { StayReview } from "@/lib/booking/stay-reviews-types";
 import type { HostPublicProfile } from "@/lib/host/host-profile-types";
+import type { ListingSafetyItem } from "@/lib/listings/submission-types";
 import { EventAvailabilityRequestCard } from "@/components/listing/event-availability-request-card";
 import { ListingSupportHelpCard } from "@/components/listing/listing-support-help-card";
 import { ListingAvailabilityCalendar } from "@/components/listing/listing-availability-calendar";
@@ -154,6 +157,7 @@ export function EventListingDetailContent({
   money,
   onToggleWishlist,
   onShare,
+  safetyChecklist,
   variant = "event",
 }: {
   stay: Stay;
@@ -178,6 +182,7 @@ export function EventListingDetailContent({
   money: (amount: number) => string;
   onToggleWishlist: () => void;
   onShare: () => void;
+  safetyChecklist?: ListingSafetyItem[];
   variant?: DirectoryListingVariant;
 }) {
   const locale = useLocale();
@@ -196,6 +201,10 @@ export function EventListingDetailContent({
   const diningPolicies = useMemo(
     () => (variant === "dining" ? getDiningStructuredPolicies(diningDetails) : []),
     [variant, diningDetails]
+  );
+  const verifiedSafetyItems = useMemo(
+    () => (safetyChecklist ?? []).filter((i) => i.checked),
+    [safetyChecklist]
   );
   const tabs = directoryTabs(variant, {
     hasMenu: hasDiningMenu(diningDetails),
@@ -862,6 +871,43 @@ export function EventListingDetailContent({
                   ) : null}
                 </div>
               )}
+            </section>
+          )}
+
+          {verifiedSafetyItems.length > 0 && (
+            <section id="event-safety" className="scroll-mt-28">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-green-700" />
+                  <h2 className="font-display text-heading-sm font-extrabold text-gray-950">
+                    Property Safety & Compliance
+                  </h2>
+                </div>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-50 text-green-700 border border-green-200">
+                  Host verified
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                The host has confirmed that the following safety equipment and compliance measures are verified on-site:
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {verifiedSafetyItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50/70 p-3.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                    <div>
+                      <h3 className="font-semibold text-gray-900 text-xs sm:text-sm">
+                        {item.label || item.question}
+                      </h3>
+                      <p className="text-gray-500 text-xs mt-0.5 leading-relaxed">
+                        {item.description || item.reminder}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </section>
           )}
 

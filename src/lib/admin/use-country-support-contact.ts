@@ -6,6 +6,7 @@ import {
   getSupportContactForCountry,
   loadSupportContactSettings,
   toTelHref,
+  toWhatsAppHref,
 } from "./support-contact-settings-data";
 import { useSupportContactSettings } from "./use-support-contact-settings";
 
@@ -21,7 +22,9 @@ export function useCountrySupportContact() {
   return {
     ready: countryReady && settingsReady,
     phone: contact.phone,
+    whatsapp: contact.whatsapp,
     hoursLabel: contact.hoursLabel,
     telHref: toTelHref(contact.phone),
+    whatsappHref: toWhatsAppHref(contact.whatsapp),
   };
 }

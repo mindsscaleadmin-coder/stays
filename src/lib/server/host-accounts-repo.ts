@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { asMoneyNumber } from "@/lib/money/prisma-decimal";
 import { getFinancialSettingsFromDb } from "@/lib/server/platform-catalog-repo";
 import { clampCommissionPct } from "@/lib/admin/platform-config-data";
 import { computeFinancialReport } from "@/lib/admin/financial-data";
@@ -310,7 +311,7 @@ function refundsFromBookings(rows: LedgerBooking[]): RefundRequest[] {
 }
 
 async function loadPaidBookings(hostId?: string): Promise<LedgerBooking[]> {
-  return prisma.booking.findMany({
+  const rows = await prisma.booking.findMany({
     where: {
       paymentStatus: { in: ["paid", "refund_pending", "refunded"] },
       ...(hostId ? { listing: { hostId } } : {}),
@@ -340,6 +341,12 @@ async function loadPaidBookings(hostId?: string): Promise<LedgerBooking[]> {
     },
     orderBy: { createdAt: "desc" },
   });
+
+  return rows.map((row) => ({
+    ...row,
+    totalPrice: asMoneyNumber(row.totalPrice),
+    refundAmount: row.refundAmount != null ? asMoneyNumber(row.refundAmount) : null,
+  }));
 }
 
 async function mapTransactions(

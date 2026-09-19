@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError } from "@/lib/auth/booking-access";
 import { hostDataErrorResponse } from "@/lib/auth/listing-access";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePlatformStaff } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
 import {
   addGracePeriodIso,
@@ -36,7 +36,7 @@ const FILTERS = new Set<AdminSubscriberFilter>([
 export async function GET(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdmin();
+    await requirePlatformStaff("manage_financial");
     const url = new URL(request.url);
     const filterRaw = url.searchParams.get("filter") ?? "all";
     const filter = FILTERS.has(filterRaw as AdminSubscriberFilter)
@@ -57,7 +57,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdmin();
+    await requirePlatformStaff("manage_financial");
     const body = (await request.json()) as {
       hostId?: string;
       action?: string;

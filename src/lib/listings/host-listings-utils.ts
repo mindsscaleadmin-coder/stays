@@ -49,7 +49,7 @@ export function toHostListingRow(l: SubmittedListing) {
     statusLabel: listingStatusLabel(l.status),
     coverUrl: l.photoUrls[0] ?? null,
     bookings: 0,
-    revenue: "AED 0",
+    revenue: "INR 0",
     rating: 0,
   };
 }

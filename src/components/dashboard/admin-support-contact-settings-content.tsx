@@ -47,6 +47,7 @@ export function AdminSupportContactSettingsContent() {
       current.contacts.find((contact) => contact.countryCode === code) ?? {
         countryCode: code,
         phone: "",
+        whatsapp: "",
         hoursLabel: current.defaultHoursLabel,
         enabled: true,
       }
@@ -66,8 +67,8 @@ export function AdminSupportContactSettingsContent() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Support contact</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Set the help phone number shown on listing pages, footer, and contact page for each
-            country.
+            Set the help phone and WhatsApp numbers shown on listing pages, footer, and contact
+            page for each country.
           </p>
         </div>
         <button
@@ -103,7 +104,7 @@ export function AdminSupportContactSettingsContent() {
       <section className="rounded-2xl border bg-white p-5 shadow-sm space-y-4">
         <div className="flex items-center gap-2">
           <Phone className="h-4 w-4 text-green-600" />
-          <h2 className="font-semibold text-gray-900">Country phone numbers</h2>
+          <h2 className="font-semibold text-gray-900">Country contact numbers</h2>
         </div>
 
         <ul className="space-y-3">
@@ -137,17 +138,29 @@ export function AdminSupportContactSettingsContent() {
                   </label>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <div>
                     <label className="text-xs font-medium text-gray-600">Phone number</label>
                     <input
                       value={contact.phone}
                       onChange={(e) => updateContact(code, { phone: e.target.value })}
-                      placeholder={`${country.dialCode || "+971"} …`}
+                      placeholder={`${country.dialCode || "+91"} …`}
                       className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                     />
                   </div>
                   <div>
+                    <label className="text-xs font-medium text-gray-600">WhatsApp number</label>
+                    <input
+                      value={contact.whatsapp}
+                      onChange={(e) => updateContact(code, { whatsapp: e.target.value })}
+                      placeholder={contact.phone || `${country.dialCode || "+971"} …`}
+                      className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    />
+                    <p className="mt-1 text-[11px] text-gray-400">
+                      Leave blank to use the phone number for WhatsApp.
+                    </p>
+                  </div>
+                  <div className="sm:col-span-2 lg:col-span-1">
                     <label className="text-xs font-medium text-gray-600">Hours label</label>
                     <input
                       value={contact.hoursLabel}

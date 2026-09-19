@@ -47,10 +47,20 @@ export function isValidMapEmbedUrl(url: string): boolean {
   return Boolean(parseMapEmbedUrl(url));
 }
 
+export type LocationMapEmbedOptions = {
+  zoom?: number;
+  mapType?: "roadmap" | "terrain";
+};
+
 /** Guest-safe area preview when the host has not pasted an embed URL. */
-export function buildLocationMapEmbedUrl(query: string, zoom = 12): string {
+export function buildLocationMapEmbedUrl(
+  query: string,
+  options: LocationMapEmbedOptions = {}
+): string {
   const q = query.trim();
   if (!q) return "";
+
+  const { zoom = 12, mapType = "roadmap" } = options;
 
   const params = new URLSearchParams({
     q,
@@ -58,6 +68,10 @@ export function buildLocationMapEmbedUrl(query: string, zoom = 12): string {
     z: String(zoom),
     output: "embed",
   });
+
+  if (mapType === "terrain") {
+    params.set("t", "p");
+  }
 
   return `https://maps.google.com/maps?${params.toString()}`;
 }

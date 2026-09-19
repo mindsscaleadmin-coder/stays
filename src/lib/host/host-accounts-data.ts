@@ -4,6 +4,7 @@ import type {
 } from "./host-accounts-types";
 import { getPlatformCommissionPct } from "@/lib/admin/financial-data";
 import { emitSyncEvent } from "@/lib/emit-sync-event";
+import { LAUNCH_CURRENCY, LAUNCH_TAX_LABEL } from "@/lib/tax/launch-market";
 
 const STORAGE_KEY = "farm-stays-host-accounts";
 export const HOST_ACCOUNTS_SYNC_EVENT = "farm-stays-host-accounts-updated";
@@ -18,7 +19,7 @@ function defaultForHost(hostId: string): HostAccountsData {
         id: "up-1",
         scheduledDate: "2026-07-25",
         amount: 6101,
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         status: "scheduled",
         bookingCount: 2,
       },
@@ -26,7 +27,7 @@ function defaultForHost(hostId: string): HostAccountsData {
         id: "up-2",
         scheduledDate: "2026-08-01",
         amount: 4280,
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         status: "processing",
         bookingCount: 1,
       },
@@ -36,7 +37,7 @@ function defaultForHost(hostId: string): HostAccountsData {
         id: "ph-1",
         paidDate: "2026-07-05",
         amount: 8920,
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         reference: "PAY-20260705-A8K2",
         method: "bank",
         status: "paid",
@@ -45,7 +46,7 @@ function defaultForHost(hostId: string): HostAccountsData {
         id: "ph-2",
         paidDate: "2026-06-20",
         amount: 5640,
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         reference: "PAY-20260620-H2K9",
         method: "bank",
         status: "paid",
@@ -58,12 +59,12 @@ function defaultForHost(hostId: string): HostAccountsData {
         guestName: "James Wilson",
         property: "Green Valley Farmhouse",
         bookingRef: "GF-M9O2T4",
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         grossAmount: 7350,
         platformFeePct,
         platformFee: 882,
         taxAmount: 350,
-        taxLabel: "VAT",
+        taxLabel: LAUNCH_TAX_LABEL,
         netEarnings: 6118,
         payoutStatus: "pending",
       },
@@ -73,12 +74,12 @@ function defaultForHost(hostId: string): HostAccountsData {
         guestName: "Sarah Ahmed",
         property: "Green Valley Farmhouse",
         bookingRef: "GF-A8K2X1",
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         grossAmount: 5200,
         platformFeePct,
         platformFee: 624,
         taxAmount: 248,
-        taxLabel: "VAT",
+        taxLabel: LAUNCH_TAX_LABEL,
         netEarnings: 4328,
         payoutStatus: "included",
       },
@@ -88,12 +89,12 @@ function defaultForHost(hostId: string): HostAccountsData {
         guestName: "Raj Patel",
         property: "Spice Garden Cottage",
         bookingRef: "GF-K7M1Q3",
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         grossAmount: 3800,
         platformFeePct,
         platformFee: 456,
         taxAmount: 181,
-        taxLabel: "VAT",
+        taxLabel: LAUNCH_TAX_LABEL,
         netEarnings: 3163,
         payoutStatus: "paid",
       },
@@ -105,7 +106,7 @@ function defaultForHost(hostId: string): HostAccountsData {
         date: "2026-07-05",
         guestName: "Sarah Ahmed",
         property: "Green Valley Farmhouse",
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         netAmount: 4328,
         bookingRef: "GF-A8K2X1",
       },
@@ -115,7 +116,7 @@ function defaultForHost(hostId: string): HostAccountsData {
         date: "2026-06-20",
         guestName: "Raj Patel",
         property: "Spice Garden Cottage",
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         netAmount: 3163,
         bookingRef: "GF-K7M1Q3",
       },
@@ -128,12 +129,61 @@ function notify() {
   emitSyncEvent(HOST_ACCOUNTS_SYNC_EVENT);
 }
 
+function sanitizeAccountsRecord(data: HostAccountsData): { data: HostAccountsData; changed: boolean } {
+  let changed = false;
+  const sanitizeCurrency = (c?: string): string => {
+    if (!c || c === "AED") {
+      if (c !== LAUNCH_CURRENCY) changed = true;
+      return LAUNCH_CURRENCY;
+    }
+    return c;
+  };
+  const upcomingPayouts = data.upcomingPayouts.map((p) => {
+    const cur = sanitizeCurrency(p.currency);
+    return cur !== p.currency ? { ...p, currency: cur } : p;
+  });
+  const payoutHistory = data.payoutHistory.map((p) => {
+    const cur = sanitizeCurrency(p.currency);
+    return cur !== p.currency ? { ...p, currency: cur } : p;
+  });
+  const transactions = data.transactions.map((tx) => {
+    const cur = sanitizeCurrency(tx.currency);
+    const taxLabel = tx.taxLabel === "VAT" ? LAUNCH_TAX_LABEL : tx.taxLabel;
+    if (taxLabel !== tx.taxLabel) changed = true;
+    return cur !== tx.currency || taxLabel !== tx.taxLabel
+      ? { ...tx, currency: cur, taxLabel }
+      : tx;
+  });
+  const invoices = data.invoices.map((inv) => {
+    const cur = sanitizeCurrency(inv.currency);
+    return cur !== inv.currency ? { ...inv, currency: cur } : inv;
+  });
+
+  return {
+    data: changed
+      ? { ...data, upcomingPayouts, payoutHistory, transactions, invoices }
+      : data,
+    changed,
+  };
+}
+
 function readAll(): Record<string, HostAccountsData> {
   if (typeof window === "undefined") return {};
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
-    return JSON.parse(raw) as Record<string, HostAccountsData>;
+    const parsed = JSON.parse(raw) as Record<string, HostAccountsData>;
+    let anyChanged = false;
+    const sanitized: Record<string, HostAccountsData> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      const { data, changed } = sanitizeAccountsRecord(v);
+      sanitized[k] = data;
+      if (changed) anyChanged = true;
+    }
+    if (anyChanged) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    }
+    return sanitized;
   } catch {
     return {};
   }

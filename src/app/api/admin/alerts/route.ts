@@ -7,7 +7,7 @@ import { DEFAULT_ADMIN_ALERT_SETTINGS } from "@/lib/admin/admin-alerts-data";
 import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError } from "@/lib/auth/booking-access";
 import { hostDataErrorResponse } from "@/lib/auth/listing-access";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePlatformStaff } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
 import type { AdminAlertSettings, AdminAlertsState } from "@/lib/admin/admin-alerts-types";
 
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdmin();
+    await requirePlatformStaff("manage_alerts");
     const state = await getAdminAlertsStateFromDb();
     return NextResponse.json({ state }, { headers: { "x-request-id": requestId } });
   } catch (error) {
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdmin();
+    await requirePlatformStaff("manage_alerts");
     const body = await request.json();
     const current = await getAdminAlertsStateFromDb();
     let next: AdminAlertsState = current;

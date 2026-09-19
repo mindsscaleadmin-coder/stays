@@ -104,6 +104,12 @@ import { RichTextEditor } from "@/components/dashboard/rich-text-editor";
 import { ListPropertySubscriptionModal } from "@/components/auth/list-property-subscription-modal";
 import { HostListingPricingSection } from "@/components/dashboard/host-listing-pricing-section";
 import {
+  ListingSafetySection,
+  hydrateListingSafetyChecklist,
+  DEFAULT_SAFETY_CHECKLIST,
+} from "@/components/dashboard/listing-safety-section";
+import type { ListingSafetyItem } from "@/lib/listings/submission-types";
+import {
   buildNewListingPath,
   categoryKeyFromParentName,
   requiresListPropertySubscription,
@@ -184,6 +190,9 @@ export function HostNewListingContent({
   ]);
   const [draftSessions, setDraftSessions] = useState<ExperienceSessionTemplate[]>(
     () => defaultExperienceSessions()
+  );
+  const [safetyChecklist, setSafetyChecklist] = useState<ListingSafetyItem[]>(() =>
+    DEFAULT_SAFETY_CHECKLIST.map((item) => ({ ...item }))
   );
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -477,6 +486,7 @@ export function HostNewListingContent({
 
     setTitle(clampListingTitle(existing.title));
     setDescription(existing.description);
+    setSafetyChecklist(hydrateListingSafetyChecklist(existing.safetyChecklist));
     setMapEmbedInput(existing.mapEmbedUrl ?? "");
     setNearbyPlaces(
       existing.nearbyPlaces?.length
@@ -1011,6 +1021,7 @@ export function HostNewListingContent({
             }
           : {}),
         ...(isDining ? { diningDetails: normalizeDiningDetails(diningDetails) } : {}),
+        safetyChecklist,
       };
 
       let savedId = listingId ?? "";
@@ -1613,17 +1624,13 @@ export function HostNewListingContent({
                   />
                 ) : null}
 
-                {isExperience || isStayListing ? (
-                  <DiningFormSection
-                    title="Features & filters"
-                    tier="recommended"
-                    description="Icons, highlights, and search filters used on your listing and in guest search."
-                  >
-                    <div className="space-y-5">{extras}</div>
-                  </DiningFormSection>
-                ) : !isDining ? (
-                  <div className="space-y-5 pt-1 border-t border-gray-100">{extras}</div>
-                ) : null}
+                <DiningFormSection
+                  title="Features & filters"
+                  tier="recommended"
+                  description="Icons, highlights, and search filters used on your listing and in guest search."
+                >
+                  <div className="space-y-5">{extras}</div>
+                </DiningFormSection>
               </>
             )}
           />
@@ -1866,6 +1873,11 @@ export function HostNewListingContent({
               ) : null}
             </DiningFormSection>
           ) : null}
+
+          <ListingSafetySection
+            items={safetyChecklist}
+            onChange={setSafetyChecklist}
+          />
 
           {qualityChecklist.length > 0 ? (
             <ListingQualityChecklist items={qualityChecklist} />

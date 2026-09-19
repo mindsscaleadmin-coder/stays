@@ -381,7 +381,7 @@ function BookingDetailPanel({
               <input
                 value={refundAmount}
                 onChange={(e) => setRefundAmount(e.target.value)}
-                placeholder="Amount e.g. AED 3,347"
+                placeholder="Amount e.g. INR 3,347"
                 className={inputClass}
               />
               <input

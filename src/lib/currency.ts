@@ -1,32 +1,36 @@
+import { LAUNCH_CURRENCY } from "@/lib/tax/launch-market";
+
 /**
  * Marketplace money rules:
- * - Listing prices are stored / quoted in the platform base currency.
+ * - Listing prices are stored in the listing's local currency (INR for India launch).
  * - Display currency follows the selected country (search or header).
  * - exchangeRateToAED = how many AED equal 1 unit of that currency
  *   (e.g. OMR 9.54 → 1 OMR = 9.54 AED → AED→OMR = amount / 9.54).
  *
- * Single source of truth for the platform default currency. Prefer
- * Country.currencyCode / taxonomy country.currency when a market is known;
- * fall back here only when no country context exists yet.
+ * BASE_CURRENCY is the internal conversion anchor for exchangeRateToAED math.
+ * DISPLAY_DEFAULT_CURRENCY is the guest-facing fallback when no market is known.
  */
 
-/** Platform baseline currency (DB `Country.currencyCode` default matches this). */
+/** Internal conversion anchor (AED per 1 unit of foreign currency). */
 export const BASE_CURRENCY = "AED";
 
-/** @deprecated Use BASE_CURRENCY — kept for older call sites. */
-export const DEFAULT_CURRENCY = BASE_CURRENCY;
+/** Guest-facing default when country context is missing (India launch). */
+export const DISPLAY_DEFAULT_CURRENCY = LAUNCH_CURRENCY;
 
-/** Resolve a currency code, falling back to the platform baseline. */
+/** @deprecated Use DISPLAY_DEFAULT_CURRENCY — kept for older call sites. */
+export const DEFAULT_CURRENCY = DISPLAY_DEFAULT_CURRENCY;
+
+/** Resolve a currency code, falling back to the launch display currency. */
 export function normalizeCurrency(
   code?: string | null,
-  fallback: string = BASE_CURRENCY
+  fallback: string = DISPLAY_DEFAULT_CURRENCY
 ): string {
   const trimmed = (code ?? "").trim().toUpperCase();
   return /^[A-Z]{3}$/.test(trimmed) ? trimmed : fallback;
 }
 
 export function defaultCurrency(): string {
-  return BASE_CURRENCY;
+  return DISPLAY_DEFAULT_CURRENCY;
 }
 
 export type MoneyDisplayOptions = {
@@ -81,12 +85,13 @@ export const DEFAULT_RATES_TO_AED: Record<string, number> = {
 /** Listing-country currency when the host has not set a pricing currency. */
 export function currencyForCountryName(country?: string): string {
   const n = (country ?? "").trim().toLowerCase();
-  if (!n) return BASE_CURRENCY;
+  if (!n) return DISPLAY_DEFAULT_CURRENCY;
   if (n.includes("oman") || n === "om") return "OMR";
   if (n.includes("saudi") || n === "ksa" || n === "sa") return "SAR";
   if (n.includes("qatar") || n === "qa") return "QAR";
   if (n.includes("india") || n === "in") return "INR";
-  return BASE_CURRENCY;
+  if (n.includes("emirates") || n === "uae" || n === "ae") return "AED";
+  return DISPLAY_DEFAULT_CURRENCY;
 }
 
 export type StoredMoneyOptions = MoneyDisplayOptions & {

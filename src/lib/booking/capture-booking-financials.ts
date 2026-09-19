@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { normalizeBookingMoney } from "@/lib/booking/normalize-booking-money";
 import { getFinancialSettingsFromDb } from "@/lib/server/platform-catalog-repo";
 import { clampCommissionPct } from "@/lib/admin/platform-config-data";
 import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
@@ -58,13 +59,14 @@ export async function captureBookingFinancials(
   bookingId: string,
   options?: { stripeSessionId?: string | null; sessionBookingTotals?: Map<string, number> }
 ): Promise<void> {
-  const booking = await prisma.booking.findUnique({
+  const row = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: {
       listing: { select: { hostId: true, payload: true, country: true } },
     },
   });
-  if (!booking) return;
+  if (!row) return;
+  const booking = normalizeBookingMoney(row);
 
   const meta = parseListingMeta(booking.listing.payload);
   const storedPricing = await getListingPricing(booking.listingId);

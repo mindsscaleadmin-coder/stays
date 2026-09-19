@@ -1,7 +1,7 @@
 import type { Country as TaxonomyCountry } from "@/lib/admin/taxonomy-types";
 import { ALL_COUNTRIES, type Country as PlatformCountry } from "@/lib/mock/countries";
-import { BASE_CURRENCY } from "@/lib/currency";
 import {
+  LAUNCH_COUNTRY_CODE,
   LAUNCH_COUNTRY_NAME,
   LAUNCH_CURRENCY,
   LAUNCH_TAX_LABEL,
@@ -82,8 +82,8 @@ export function countryPricingConfig(country: TaxonomyCountry): CountryPricingCo
     countryId: country.id,
     countryName: country.name,
     flag: country.flag ?? "🏳️",
-    currency: country.currency ?? BASE_CURRENCY,
-    currencySymbol: country.currencySymbol ?? "د.إ",
+    currency: country.currency ?? LAUNCH_CURRENCY,
+    currencySymbol: country.currencySymbol ?? "₹",
     exchangeRateToAED: country.exchangeRateToAED ?? 1,
     taxPct: country.taxPct ?? LAUNCH_TAX_PCT,
     taxLabel: country.taxLabel ?? LAUNCH_TAX_LABEL,
@@ -116,19 +116,34 @@ export function resolveCountryPricingConfig(
   return countryPricingConfig(match);
 }
 
-const EXTRA_MARKETPLACE_DEFAULTS: PlatformCountry[] = [
-  {
-    code: "IN",
-    name: "India",
-    flag: "🇮🇳",
-    currency: "INR",
-    currencySymbol: "₹",
-    exchangeRateToAED: 0.043,
-    dialCode: "+91",
-    enabled: true,
-    comingSoon: false,
-  },
-];
+/** India launch defaults used when taxonomy has no enabled countries yet. */
+export const LAUNCH_PLATFORM_COUNTRY: PlatformCountry = {
+  code: LAUNCH_COUNTRY_CODE,
+  name: LAUNCH_COUNTRY_NAME,
+  flag: "🇮🇳",
+  currency: LAUNCH_CURRENCY,
+  currencySymbol: "₹",
+  exchangeRateToAED: 0.043,
+  dialCode: "+91",
+  enabled: true,
+  comingSoon: false,
+};
+
+const EXTRA_MARKETPLACE_DEFAULTS: PlatformCountry[] = [LAUNCH_PLATFORM_COUNTRY];
+
+/** Prefer India launch market, then first enabled country, then static launch fallback. */
+export function resolveDefaultPlatformCountry(
+  enabledCountries: PlatformCountry[]
+): PlatformCountry {
+  const fromLaunch =
+    enabledCountries.find((c) => c.code === LAUNCH_COUNTRY_CODE) ??
+    enabledCountries.find(
+      (c) => c.name.trim().toLowerCase() === LAUNCH_COUNTRY_NAME.toLowerCase()
+    );
+  if (fromLaunch) return fromLaunch;
+  if (enabledCountries[0]) return enabledCountries[0];
+  return LAUNCH_PLATFORM_COUNTRY;
+}
 
 /** Fill empty New country fields from a known code or English name. */
 export function suggestCountryMarketplace(query?: string): PlatformCountry | null {
@@ -147,8 +162,8 @@ export function toPlatformCountry(c: TaxonomyCountry): PlatformCountry {
     code: (c.code ?? c.id).toUpperCase(),
     name: c.name,
     flag: c.flag ?? "🏳️",
-    currency: c.currency ?? BASE_CURRENCY,
-    currencySymbol: c.currencySymbol ?? "د.إ",
+    currency: c.currency ?? LAUNCH_CURRENCY,
+    currencySymbol: c.currencySymbol ?? "₹",
     exchangeRateToAED: c.exchangeRateToAED ?? 1,
     dialCode: c.dialCode ?? "",
     enabled: c.enabled !== false && !c.comingSoon,

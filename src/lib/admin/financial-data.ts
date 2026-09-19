@@ -17,8 +17,7 @@ import {
   DEFAULT_EVENTS_SUBSCRIPTION,
   normalizeEventsSubscription,
 } from "./events-subscription";
-import { BASE_CURRENCY } from "@/lib/currency";
-import { LAUNCH_COUNTRY_NAME } from "@/lib/tax/launch-market";
+import { LAUNCH_COUNTRY_NAME, LAUNCH_CURRENCY } from "@/lib/tax/launch-market";
 
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
 const STORAGE_KEY = "farm-stays-financial-settings";
@@ -166,8 +165,8 @@ export const DEFAULT_FINANCIAL_SETTINGS: FinancialSettings = {
       bookingRef: "GF-A8K2X1",
       guestName: "Priya Sharma",
       hostName: "Ahmed Al Farsi",
-      amount: "AED 800",
-      currency: BASE_CURRENCY,
+      amount: "INR 800",
+      currency: LAUNCH_CURRENCY,
       reason: "Partial refund — pool unavailable during stay",
       status: "pending",
       requestedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
@@ -177,8 +176,8 @@ export const DEFAULT_FINANCIAL_SETTINGS: FinancialSettings = {
       bookingRef: "GF-L3P8R5",
       guestName: "Fatima Noor",
       hostName: "Ahmed Al Farsi",
-      amount: "AED 2,280",
-      currency: BASE_CURRENCY,
+      amount: "INR 2,280",
+      currency: LAUNCH_CURRENCY,
       reason: "Full cancellation refund per policy",
       status: "approved",
       requestedAt: new Date(Date.now() - 22 * 24 * 60 * 60 * 1000).toISOString(),
@@ -213,12 +212,38 @@ function mergeSettings(parsed: Partial<FinancialSettings>): FinancialSettings {
   };
 }
 
+function sanitizeRefundRequest(r: RefundRequest): RefundRequest {
+  let changed = false;
+  let currency = r.currency;
+  if (currency === "AED") {
+    currency = LAUNCH_CURRENCY;
+    changed = true;
+  }
+  let amount = r.amount;
+  if (amount && amount.includes("AED")) {
+    amount = amount.replace(/\bAED\b/g, LAUNCH_CURRENCY);
+    changed = true;
+  }
+  return changed ? { ...r, currency, amount } : r;
+}
+
 export function loadFinancialSettings(): FinancialSettings {
   if (typeof window === "undefined") return DEFAULT_FINANCIAL_SETTINGS;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_FINANCIAL_SETTINGS;
-    return mergeSettings(JSON.parse(raw) as Partial<FinancialSettings>);
+    const settings = mergeSettings(JSON.parse(raw) as Partial<FinancialSettings>);
+    let changed = false;
+    const sanitizedRefunds = settings.refundRequests.map((r) => {
+      const sanitized = sanitizeRefundRequest(r);
+      if (sanitized !== r) changed = true;
+      return sanitized;
+    });
+    if (changed) {
+      settings.refundRequests = sanitizedRefunds;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    }
+    return settings;
   } catch {
     return DEFAULT_FINANCIAL_SETTINGS;
   }
@@ -459,7 +484,7 @@ export function computeFinancialReport(
   payouts = aggregateAllPayouts(),
   refunds?: RefundRequest[]
 ): FinancialReport {
-  const currency = transactions[0]?.currency ?? BASE_CURRENCY;
+  const currency = transactions[0]?.currency ?? LAUNCH_CURRENCY;
   const platformRevenue = transactions.reduce((sum, tx) => sum + tx.platformFee, 0);
   const hostEarnings = transactions.reduce((sum, tx) => sum + tx.netEarnings, 0);
   const taxCollected = transactions.reduce((sum, tx) => sum + tx.taxAmount, 0);

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 export const SITE_NAME = "Greenfield Farm Stays";
 
 export const DEFAULT_DESCRIPTION =
-  "Discover authentic farm stays and homestays across the UAE. Book verified properties with instant confirmation.";
+  "Discover authentic farm stays, homestays, and countryside retreats across India. Book verified properties with instant confirmation.";
 
 export function getSiteUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");

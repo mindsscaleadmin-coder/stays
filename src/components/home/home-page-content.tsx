@@ -30,7 +30,7 @@ import {
   HomeCategoryTabs,
 } from "@/components/home/home-category-tabs";
 import { enabledParentTabs } from "@/lib/admin/taxonomy-nav";
-import { BASE_CURRENCY, formatStoredMoney, locationMatchesCountry  } from "@/lib/currency";
+import { DISPLAY_DEFAULT_CURRENCY, formatStoredMoney, locationMatchesCountry } from "@/lib/currency";
 import { useCountry } from "@/components/providers/country-provider";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import {
@@ -96,16 +96,6 @@ export function HomePageContent() {
     window.addEventListener(HOME_PAGE_SETTINGS_SYNC_EVENT, applyHero);
     return () => window.removeEventListener(HOME_PAGE_SETTINGS_SYNC_EVENT, applyHero);
   }, []);
-  const blogPosts = useMemo(
-    () =>
-      cms.blogPosts
-        .filter((p) => p.published && p.title.trim())
-        .sort(
-          (a, b) =>
-            new Date(b.publishedAt ?? 0).getTime() - new Date(a.publishedAt ?? 0).getTime()
-        ),
-    [cms.blogPosts]
-  );
   const sectionEnabled = (key: string) =>
     cms.contentSections.find((s) => s.key === key)?.enabled ?? true;
   const sectionCopy = (key: string, fallbackTitle: string, fallbackSubtitle: string) => {
@@ -450,7 +440,7 @@ export function HomePageContent() {
                 ? stay.originalPrice
                 : stay.price,
               {
-                storedCurrency: stay.currency || stay.flashDealCurrency || BASE_CURRENCY,
+                storedCurrency: stay.currency || stay.flashDealCurrency || DISPLAY_DEFAULT_CURRENCY,
                 currency: headerCountry.currency,
                 exchangeRateToAED: headerCountry.exchangeRateToAED,
                 locale,
@@ -522,7 +512,7 @@ export function HomePageContent() {
                   <div className="flex items-center gap-2 mt-2">
                     <span className="text-green-700 font-bold">
                       {formatStoredMoney(deal.flashDealPrice, {
-                        storedCurrency: deal.flashCurrency || deal.currency || BASE_CURRENCY,
+                        storedCurrency: deal.flashCurrency || deal.currency || DISPLAY_DEFAULT_CURRENCY,
                         currency: headerCountry.currency,
                         exchangeRateToAED: headerCountry.exchangeRateToAED,
                         locale,
@@ -647,39 +637,6 @@ export function HomePageContent() {
           ))}
         </HomeBrowseScrollRow>
       </section>
-      )}
-
-      {sectionEnabled("blog") && blogPosts.length > 0 && (
-        <section className="home-page-container home-section">
-          <div className="mb-5">
-            <h2 className="text-xl font-bold text-gray-900 font-display">
-              {sectionCopy("blog", "From the blog", "Tips, guides, and farm stories").title}
-            </h2>
-            <p className="text-gray-500 text-sm mt-0.5">
-              {sectionCopy("blog", "From the blog", "Tips, guides, and farm stories").subtitle}
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {blogPosts.slice(0, 3).map((post) => (
-              <article
-                key={post.id}
-                className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm hover:border-green-100 transition-colors"
-              >
-                <h3 className="font-semibold text-gray-900 text-sm leading-snug">{post.title}</h3>
-                <p className="text-xs text-gray-500 mt-2 line-clamp-3">{post.excerpt}</p>
-                {post.publishedAt && (
-                  <p className="text-[10px] text-gray-400 mt-3">
-                    {new Date(post.publishedAt).toLocaleDateString("en-GB", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </p>
-                )}
-              </article>
-            ))}
-          </div>
-        </section>
       )}
 
       {sectionEnabled("whyBook") && (

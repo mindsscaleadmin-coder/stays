@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeBookingQuote } from "./compute-quote";
-import { BASE_CURRENCY } from "@/lib/currency";
+import { DISPLAY_DEFAULT_CURRENCY } from "@/lib/currency";
 
 describe("computeBookingQuote", () => {
   it("tax is informational only; total excludes double-counting", () => {
@@ -17,17 +17,18 @@ describe("computeBookingQuote", () => {
     expect(quote.nights).toBe(3);
     expect(quote.total).toBe(1050);
     expect(quote.currency).toBe("INR");
-    expect(quote.lines).toHaveLength(4);
+    expect(quote.lines).toHaveLength(3);
+    expect(quote.lines.some((l) => l.label.toLowerCase().includes("tax"))).toBe(false);
   });
 
-  it("defaults currency to platform baseline", () => {
+  it("defaults currency to display default (INR)", () => {
     const quote = computeBookingQuote({
       checkIn: "2026-10-01",
       checkOut: "2026-10-02",
       guestCount: 1,
       accommodation: 200,
     });
-    expect(quote.currency).toBe(BASE_CURRENCY);
+    expect(quote.currency).toBe(DISPLAY_DEFAULT_CURRENCY);
   });
 
   it("rejects invalid date range", () => {

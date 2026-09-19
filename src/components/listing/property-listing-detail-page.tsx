@@ -13,15 +13,14 @@ import {
   Share2,
   Sparkles,
   Wifi,
-  Car,
-  Leaf,
-  Utensils,
   Trees,
   ChevronLeft,
   ChevronRight,
   CheckCircle,
+  CheckCircle2,
   Clock,
   Shield,
+  ShieldCheck,
   Headphones,
   Lock,
   ChevronDown,
@@ -41,10 +40,9 @@ import {
   LayoutGrid,
   Minus,
   Plus,
-  Waves,
-  Baby,
   Link2,
 } from "lucide-react";
+import type { ListingSafetyItem } from "@/lib/listings/submission-types";
 import { useTranslations, useLocale } from "next-intl";
 import { CountdownTimer } from "@/components/ui/star-rating";
 import {
@@ -58,7 +56,7 @@ import { isSharedDbEnabled } from "@/lib/shared-db";
 import { ListingReviewsSection } from "@/components/listing/listing-reviews-section";
 import { VerifiedBadge } from "@/components/ui/verified-badge";
 import { RichTextView } from "@/components/listing/rich-text-view";
-import { BASE_CURRENCY, formatStoredMoney  } from "@/lib/currency";
+import { DISPLAY_DEFAULT_CURRENCY, formatStoredMoney } from "@/lib/currency";
 import { resolveCountryPricingConfig } from "@/lib/admin/country-utils";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
 import { useCountrySupportContact } from "@/lib/admin/use-country-support-contact";
@@ -131,6 +129,8 @@ import { isDirectoryListing } from "@/lib/booking/is-directory-listing";
 import { isDiningListing } from "@/lib/booking/is-dining-listing";
 import { eventSpaceImages } from "@/lib/listings/event-space-images";
 import { buildEventSpaceFilterGroups } from "@/lib/listings/resolve-venue-space-filters";
+import { buildListingFilterDisplayGroups } from "@/lib/listings/resolve-listing-filter-groups";
+import { VenueFilterGroupBlock } from "@/components/listing/venue-filter-group-display";
 import type { DiningDetails } from "@/lib/listings/dining-details-types";
 import { DINING_GALLERY_FILTERS, filterDiningGalleryPhotos } from "@/lib/listings/dining-photo-tags";
 import type { VenueDetails } from "@/lib/listings/venue-details-types";
@@ -141,51 +141,6 @@ import {
 } from "@/lib/listings/guest-capacity";
 import { LISTING_PLACEHOLDER_IMG } from "@/lib/listings/submission-to-stay";
 import { isDataImageUrl } from "@/lib/utils";
-
-const AMENITY_ICONS: Record<string, typeof Wifi> = {
-  "Free WiFi": Wifi,
-  WiFi: Wifi,
-  Wifi: Wifi,
-  "Private Pool": Waves,
-  "Swimming Pool": Waves,
-  Pool: Waves,
-  "BBQ Area": Flame,
-  BBQ: Flame,
-  "Free Parking": Car,
-  Parking: Car,
-  "Farm Activities": Leaf,
-  "Breakfast Incl.": Utensils,
-  "Pet Friendly": Leaf,
-  "Mountain View": Mountain,
-  "Outdoor Seating": Home,
-  "Air Conditioning": Wind,
-  "Smart TV": Tv,
-  Kitchen: Utensils,
-  "Family Friendly": Users,
-  "Instant Booking": Zap,
-  "kids play area": Baby,
-  "Kids Play Area": Baby,
-  "Kids play area": Baby,
-};
-
-function amenityIcon(name: string): typeof Wifi {
-  if (AMENITY_ICONS[name]) return AMENITY_ICONS[name];
-  const lower = name.trim().toLowerCase();
-  const hit = Object.entries(AMENITY_ICONS).find(([key]) => key.toLowerCase() === lower);
-  if (hit) return hit[1];
-  if (lower.includes("wifi") || lower.includes("wi-fi")) return Wifi;
-  if (lower.includes("pool") || lower.includes("swim")) return Waves;
-  if (lower.includes("bbq") || lower.includes("barbecue")) return Flame;
-  if (lower.includes("park")) return Car;
-  if (lower.includes("pet")) return Leaf;
-  if (lower.includes("family")) return Users;
-  if (lower.includes("instant")) return Zap;
-  if (lower.includes("kid") || lower.includes("play") || lower.includes("child")) return Baby;
-  if (lower.includes("kitchen") || lower.includes("breakfast") || lower.includes("dining"))
-    return Utensils;
-  if (lower.includes("mountain") || lower.includes("view")) return Mountain;
-  return CheckCircle;
-}
 
 const CALENDAR_WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
 
@@ -327,6 +282,7 @@ interface PropertyListingDetailPageProps {
   requirements?: string;
   licenseNumber?: string;
   groupSizeMin?: number;
+  safetyChecklist?: ListingSafetyItem[];
 }
 
 export function PropertyListingDetailPage({
@@ -356,6 +312,7 @@ export function PropertyListingDetailPage({
   requirements,
   licenseNumber,
   groupSizeMin,
+  safetyChecklist,
 }: PropertyListingDetailPageProps) {
   const t = useTranslations("listing");
   const tc = useTranslations("common");
@@ -365,7 +322,11 @@ export function PropertyListingDetailPage({
   const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
   const { data: taxonomy } = useAdminTaxonomy();
-  const { phone: supportPhone, telHref: supportTelHref } = useCountrySupportContact();
+  const {
+    phone: supportPhone,
+    telHref: supportTelHref,
+    whatsappHref: supportWhatsAppHref,
+  } = useCountrySupportContact();
   const isExperience = isExperienceListing({
     parentCategory: stay.parentCategory,
     type: stay.type,
@@ -480,7 +441,7 @@ export function PropertyListingDetailPage({
   const [listingExtras, setListingExtras] = useState<ExtraCharge[]>(
     extraChargesProp ?? []
   );
-  const [extrasCurrency, setExtrasCurrency] = useState(extraChargesCurrencyProp ?? BASE_CURRENCY);
+  const [extrasCurrency, setExtrasCurrency] = useState(extraChargesCurrencyProp ?? DISPLAY_DEFAULT_CURRENCY);
 
   useEffect(() => {
     function syncSaved() {
@@ -685,7 +646,7 @@ export function PropertyListingDetailPage({
           ).settings
         : local;
       setPricingSettings(pricing);
-      const currency = extraChargesCurrencyProp ?? pricing.currency ?? BASE_CURRENCY;
+      const currency = extraChargesCurrencyProp ?? pricing.currency ?? DISPLAY_DEFAULT_CURRENCY;
       setExtrasCurrency(currency);
 
       if (!pricing.extraChargesEnabled) {
@@ -1094,7 +1055,8 @@ export function PropertyListingDetailPage({
   const displayAmenities = useMemo(() => {
     const fromProp = amenitiesProp ?? [];
     const fromStay = stay.amenities ?? [];
-    const merged = [...fromProp, ...fromStay];
+    const fromAdvanced = advancedFiltersProp ?? [];
+    const merged = [...fromProp, ...fromStay, ...fromAdvanced];
     const seen = new Set<string>();
     const unique: string[] = [];
     for (const item of merged) {
@@ -1109,11 +1071,22 @@ export function PropertyListingDetailPage({
       unique.push("Instant Booking");
     }
     return unique;
-  }, [amenitiesProp, stay.amenities, stay.instantBook]);
+  }, [advancedFiltersProp, amenitiesProp, stay.amenities, stay.instantBook]);
+  const amenityFilterGroups = useMemo(
+    () =>
+      buildListingFilterDisplayGroups(taxonomy, displayAmenities, {
+        includeInstantBooking: false,
+      }),
+    [displayAmenities, taxonomy]
+  );
   const displayPolicies =
     houseRules && houseRules.length > 0
       ? houseRules.map((r) => ({ title: r.title, desc: r.description }))
       : POLICIES;
+  const verifiedSafetyItems = useMemo(
+    () => (safetyChecklist ?? []).filter((item) => item.checked),
+    [safetyChecklist]
+  );
   const showFarmInfo =
     Boolean(farmType) ||
     (farmActivities && farmActivities.length > 0) ||
@@ -1126,6 +1099,7 @@ export function PropertyListingDetailPage({
     ...(listingExtras.length > 0 ? [{ key: "extras", label: "Extras" }] : []),
     { key: "location", label: t("tabs.location") },
     { key: "reviews", label: `${t("tabs.reviews")} (${ratedStay.reviews})` },
+    ...(verifiedSafetyItems.length > 0 ? [{ key: "safety", label: "Safety" }] : []),
     { key: "policies", label: t("tabs.policies") },
   ];
 
@@ -1310,7 +1284,7 @@ export function PropertyListingDetailPage({
             <button
               type="button"
               onClick={() => openGallery(0)}
-              className="relative block h-full w-full min-h-[280px] md:min-h-0 overflow-hidden group cursor-pointer border-0 bg-transparent p-0 text-left"
+              className="absolute inset-0 overflow-hidden group cursor-pointer border-0 bg-gray-100 p-0 text-left"
               aria-label={`View photos of ${stayName}`}
             >
               <Image
@@ -1318,7 +1292,7 @@ export function PropertyListingDetailPage({
                 alt={stayName}
                 fill
                 priority
-                className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                className="object-cover object-center transition-transform duration-300 group-hover:scale-[1.02]"
                 sizes="(max-width: 768px) 100vw, 55vw"
                 unoptimized={isDataImageUrl(galleryHero[0].src)}
               />
@@ -1347,25 +1321,25 @@ export function PropertyListingDetailPage({
 
           <div className="listing-detail-gallery-side">
             {galleryHero.slice(1, 5).map((photo, i) => (
-              <button
-                key={`${photo.src}-${i}`}
-                type="button"
-                onClick={() => openGallery(i + 1)}
-                className="relative block h-full min-h-[140px] md:min-h-0 overflow-hidden group cursor-pointer border-0 bg-transparent p-0 text-left"
-                aria-label={`View photo ${i + 2} of ${stayName}`}
-              >
-                <Image
-                  src={photo.src}
-                  alt={
-                    photo.tag
-                      ? `${stayName} — ${photoTagLabel(photo.tag)}`
-                      : `${stayName} ${i + 2}`
-                  }
-                  fill
-                  className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                  sizes="(max-width: 768px) 50vw, 25vw"
-                  unoptimized={isDataImageUrl(photo.src)}
-                />
+              <div key={`${photo.src}-${i}`} className="listing-detail-gallery-thumb">
+                <button
+                  type="button"
+                  onClick={() => openGallery(i + 1)}
+                  className="absolute inset-0 overflow-hidden group cursor-pointer border-0 bg-gray-100 p-0 text-left"
+                  aria-label={`View photo ${i + 2} of ${stayName}`}
+                >
+                  <Image
+                    src={photo.src}
+                    alt={
+                      photo.tag
+                        ? `${stayName} — ${photoTagLabel(photo.tag)}`
+                        : `${stayName} ${i + 2}`
+                    }
+                    fill
+                    className="object-cover object-center transition-transform duration-300 group-hover:scale-[1.02]"
+                    sizes="(max-width: 768px) 50vw, 25vw"
+                    unoptimized={isDataImageUrl(photo.src)}
+                  />
                 {photo.tag ? (
                   <span className="absolute top-2 start-2 z-10 inline-flex items-center gap-1 max-w-[85%] truncate bg-black/65 text-white text-[10px] font-medium px-2 py-0.5 rounded-md">
                     <Tag className="w-2.5 h-2.5 shrink-0" />
@@ -1383,7 +1357,8 @@ export function PropertyListingDetailPage({
                 {i === 3 && photos.length > 5 && (
                   <div className="absolute inset-0 bg-black/20 pointer-events-none" />
                 )}
-              </button>
+                </button>
+              </div>
             ))}
           </div>
         </div>
@@ -1445,6 +1420,7 @@ export function PropertyListingDetailPage({
           money={money}
           featured={showFeatured}
           wishlist={wishlist}
+          safetyChecklist={safetyChecklist}
           onToggleWishlist={toggleWishlist}
           onShare={() => void copyShareLink()}
         />
@@ -1652,8 +1628,8 @@ export function PropertyListingDetailPage({
             </div>
 
             {/* Tabs */}
-            <div className="bg-white rounded-xl border mb-5 overflow-x-auto sticky top-[72px] z-10">
-              <div className="flex">
+            <div className="sticky top-[var(--site-chrome-height)] z-[90] bg-white rounded-xl border mb-5 shadow-sm">
+              <div className="flex overflow-x-auto">
                 {tabs.map((tab) => (
                   <button
                     key={tab.key}
@@ -1958,21 +1934,13 @@ export function PropertyListingDetailPage({
             {/* Amenities */}
             <section id="section-amenities" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
               <h2 className="font-bold text-gray-900 text-base mb-4 font-display">{t("tabs.amenities")}</h2>
-              {displayAmenities.length === 0 ? (
+              {amenityFilterGroups.length === 0 ? (
                 <p className="text-sm text-gray-400">No amenities listed for this property yet.</p>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                  {displayAmenities.map((amenity) => {
-                    const Icon = amenityIcon(amenity);
-                    return (
-                      <div key={amenity} className="flex items-center gap-2.5 text-sm text-gray-700">
-                        <div className="w-9 h-9 bg-green-50 border border-green-100 rounded-lg flex items-center justify-center shrink-0">
-                          <Icon className="w-4 h-4 text-green-700" />
-                        </div>
-                        {amenity}
-                      </div>
-                    );
-                  })}
+                <div className="space-y-6">
+                  {amenityFilterGroups.map((group) => (
+                    <VenueFilterGroupBlock key={group.id} group={group} />
+                  ))}
                 </div>
               )}
             </section>
@@ -2172,10 +2140,6 @@ export function PropertyListingDetailPage({
                 <MapPin className="w-4 h-4 text-green-600" />
                 {stayLocation.split(",")[0]?.trim() || stayLocation}
               </div>
-              <p className="text-xs text-gray-500 mb-3 leading-relaxed">
-                Exact location, directions, and host contact details are emailed after your booking
-                is confirmed.
-              </p>
               <ListingLocationPreview
                 areaLabel={stayLocation.split(",")[0]?.trim() || stayLocation}
                 mapSearchQuery={stayLocation}
@@ -2202,6 +2166,44 @@ export function PropertyListingDetailPage({
               average={ratedStay.rating}
               count={ratedStay.reviews}
             />
+
+            {/* Safety & Compliance */}
+            {verifiedSafetyItems.length > 0 && (
+              <section id="section-safety" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-green-700" />
+                    <h2 className="font-bold text-gray-900 text-base font-display">
+                      Property Safety & Compliance
+                    </h2>
+                  </div>
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-50 text-green-700 border border-green-200">
+                    Host verified
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                  The host has confirmed that the following safety equipment and compliance measures are verified and active on-site:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {verifiedSafetyItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50/70 p-3.5"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                      <div>
+                        <h3 className="font-semibold text-gray-900 text-xs sm:text-sm">
+                          {item.label || item.question}
+                        </h3>
+                        <p className="text-gray-500 text-xs mt-0.5 leading-relaxed">
+                          {item.description || item.reminder}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {/* Policies */}
             <section id="section-policies" className="scroll-mt-28 bg-white rounded-xl border p-6 mb-5">
@@ -2657,11 +2659,14 @@ export function PropertyListingDetailPage({
                           );
                         })}
                       </ul>
-                      <div className="flex items-center justify-between gap-3 pt-3 border-t border-gray-200">
-                        <span className="text-sm font-semibold text-gray-900">Total</span>
-                        <span className="text-xl font-bold text-gray-900 tabular-nums">
-                          {money(stayQuote.total)}
-                        </span>
+                      <div className="pt-3 border-t border-gray-200 space-y-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm font-semibold text-gray-900">Total</span>
+                          <span className="text-xl font-bold text-gray-900 tabular-nums">
+                            {money(stayQuote.total)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-500">All prices inclusive</p>
                       </div>
                     </div>
                   )}
@@ -2883,7 +2888,7 @@ export function PropertyListingDetailPage({
                 </div>
 
                 <p className="text-[11px] text-orange-600 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2">
-                  Last booking was 12 minutes ago from Dubai, UAE
+                  Last booking was 12 minutes ago from Bengaluru, India
                 </p>
               </div>
               )}
@@ -2930,12 +2935,16 @@ export function PropertyListingDetailPage({
                   {supportPhone}
                 </a>
                 <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className="flex-1 flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-2 rounded-lg transition-colors"
-                  >
-                    <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
-                  </button>
+                  {supportWhatsAppHref ? (
+                    <a
+                      href={supportWhatsAppHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 flex items-center justify-center gap-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-2 rounded-lg transition-colors"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                    </a>
+                  ) : null}
                   <a
                     href={supportTelHref}
                     className="flex-1 flex items-center justify-center gap-1.5 border border-gray-300 text-gray-600 text-xs font-semibold py-2 rounded-lg transition-colors"

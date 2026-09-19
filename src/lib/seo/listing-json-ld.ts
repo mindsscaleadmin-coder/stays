@@ -3,6 +3,7 @@ import { isDiningListing } from "@/lib/booking/is-dining-listing";
 import { isEventListing } from "@/lib/booking/is-event-listing";
 import { submissionGallery } from "@/lib/listings/submission-to-stay";
 import type { SubmittedListing } from "@/lib/listings/submission-types";
+import { LAUNCH_CURRENCY } from "@/lib/tax/launch-market";
 import { SITE_NAME } from "./site";
 import { listingCanonicalPath, resolveListingSeoCopy } from "./listing-metadata";
 
@@ -66,7 +67,7 @@ export function buildListingJsonLd(
   return {
     ...base,
     "@type": "LodgingBusiness",
-    priceRange: stay.price > 0 ? `${stay.currency || "AED"} ${stay.price}` : undefined,
+    priceRange: stay.price > 0 ? `${stay.currency || LAUNCH_CURRENCY} ${stay.price}` : undefined,
     aggregateRating:
       stay.reviews > 0
         ? {

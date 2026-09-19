@@ -6,7 +6,7 @@ import {
 import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError } from "@/lib/auth/booking-access";
 import { hostDataErrorResponse } from "@/lib/auth/listing-access";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePlatformStaff } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
 import type { PhotoTagCatalogItem } from "@/lib/admin/photo-tags-catalog-types";
 
@@ -21,7 +21,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdmin();
+    await requirePlatformStaff("manage_settings");
     const body = (await request.json()) as { items?: PhotoTagCatalogItem[] };
     if (!Array.isArray(body.items)) {
       return NextResponse.json({ error: "Invalid catalog payload" }, { status: 400 });

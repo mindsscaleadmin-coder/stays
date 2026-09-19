@@ -2,14 +2,17 @@ import { NextResponse } from "next/server";
 import {
   deletePlatformStaff,
   getPlatformStaffByEmail,
+  getPlatformStaffById,
   listPlatformStaff,
   savePlatformStaff,
 } from "@/lib/server/platform-staff-repo";
 import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError } from "@/lib/auth/booking-access";
-import { canAccessAdmin } from "@/lib/auth/roles";
 import { hostDataErrorResponse } from "@/lib/auth/listing-access";
-import { requireActor, requireAdmin } from "@/lib/auth/guards";
+import { requireActor, requirePlatformStaff } from "@/lib/auth/guards";
+import {
+  assertStaffRoleAssignment,
+} from "@/lib/auth/platform-staff-guards";
 import { getRequestId } from "@/lib/observability/logger";
 import type { StaffMemberInput } from "@/lib/admin/staff-types";
 
@@ -23,8 +26,9 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const email = url.searchParams.get("email")?.trim().toLowerCase();
     if (email) {
-      if (email !== actor.email && !canAccessAdmin(actor.roles)) {
-        throw new BookingAccessError("Admin access required");
+      const selfLookup = email === actor.email?.trim().toLowerCase();
+      if (!selfLookup) {
+        await requirePlatformStaff("manage_staff");
       }
       const member = await getPlatformStaffByEmail(email);
       return NextResponse.json(
@@ -32,9 +36,7 @@ export async function GET(request: Request) {
         { headers: { "x-request-id": requestId } }
       );
     }
-    if (!canAccessAdmin(actor.roles)) {
-      throw new BookingAccessError("Admin access required");
-    }
+    await requirePlatformStaff("manage_staff");
     const staff = await listPlatformStaff();
     return NextResponse.json({ staff }, { headers: { "x-request-id": requestId } });
   } catch (error) {
@@ -48,8 +50,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdmin();
+    const { staff } = await requirePlatformStaff("manage_staff");
     const body = (await request.json()) as StaffMemberInput;
+    await assertStaffRoleAssignment(staff, body);
     const member = await savePlatformStaff(body);
     return NextResponse.json({ member }, { headers: { "x-request-id": requestId } });
   } catch (error) {
@@ -64,11 +67,12 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdmin();
+    const { staff } = await requirePlatformStaff("manage_staff");
     const body = (await request.json()) as StaffMemberInput;
     if (!body.id) {
       return NextResponse.json({ error: "Missing staff id" }, { status: 400 });
     }
+    await assertStaffRoleAssignment(staff, body);
     const member = await savePlatformStaff(body);
     return NextResponse.json({ member }, { headers: { "x-request-id": requestId } });
   } catch (error) {
@@ -83,10 +87,14 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdmin();
+    const { staff } = await requirePlatformStaff("manage_staff");
     const id = new URL(request.url).searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Missing staff id" }, { status: 400 });
+    }
+    const target = await getPlatformStaffById(id);
+    if (target?.role === "admin" && staff.role !== "admin") {
+      throw new BookingAccessError("Only Super Admin can remove Super Admin accounts", 403);
     }
     const ok = await deletePlatformStaff(id);
     if (!ok) {

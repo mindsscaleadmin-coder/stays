@@ -17,6 +17,10 @@ export function SiteChrome({ children }: { children: ReactNode }) {
   const chromeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [pathname]);
+
+  useEffect(() => {
     const el = chromeRef.current;
     if (!el) return;
 

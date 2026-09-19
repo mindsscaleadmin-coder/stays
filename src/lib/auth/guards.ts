@@ -9,8 +9,10 @@ import {
   resolveSessionActor,
   type SessionActor,
 } from "@/lib/auth/resolve-actor";
+import { requirePlatformStaff } from "@/lib/auth/platform-staff-guards";
 
 export type { SessionActor };
+export { requirePlatformStaff } from "@/lib/auth/platform-staff-guards";
 
 export async function requireActor(): Promise<SessionActor> {
   if (isDemoApiMode()) return DEMO_ACTOR;
@@ -18,11 +20,9 @@ export async function requireActor(): Promise<SessionActor> {
   return resolveSessionActor(user);
 }
 
+/** Any active platform staff member (no granular permission check). */
 export async function requireAdmin(): Promise<SessionActor> {
-  const actor = await requireActor();
-  if (!canAccessAdmin(actor.roles)) {
-    throw new BookingAccessError("Admin access required");
-  }
+  const { actor } = await requirePlatformStaff();
   return actor;
 }
 

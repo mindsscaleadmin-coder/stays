@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { normalizeBookingMoney } from "@/lib/booking/normalize-booking-money";
 import { sendEmail } from "./send";
 import { escapeHtml } from "@/lib/email/escape-html";
 import { buildGuestInvoiceHtml, buildGuestInvoiceText } from "./guest-receipt";
@@ -38,6 +39,7 @@ export async function deliverInvoiceEmail(bookingId: string) {
     },
   });
   if (!booking?.guest?.email) return { sent: false };
+  const normalized = normalizeBookingMoney(booking);
 
   const pricing =
     (await getListingPricing(booking.listingId)) ?? defaultForListing(booking.listingId);
@@ -57,7 +59,7 @@ export async function deliverInvoiceEmail(bookingId: string) {
   const quote =
     parseGuestQuoteSnapshot(booking.guestQuoteSnapshot) ??
     estimateGuestQuoteSnapshot({
-      totalPrice: booking.totalPrice,
+      totalPrice: normalized.totalPrice,
       currency,
       taxPct: pricing.taxPct ?? LAUNCH_TAX_PCT,
       taxLabel: pricing.taxLabel ?? LAUNCH_TAX_LABEL,

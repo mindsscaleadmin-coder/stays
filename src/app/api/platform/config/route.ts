@@ -6,7 +6,7 @@ import {
 } from "@/lib/server/platform-config-repo";
 import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError } from "@/lib/auth/booking-access";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePlatformStaff } from "@/lib/auth/guards";
 import { hostDataErrorResponse } from "@/lib/auth/listing-access";
 import { getRequestId } from "@/lib/observability/logger";
 import type { PlatformConfig } from "@/lib/admin/platform-config-types";
@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   if (adminView) {
     const requestId = getRequestId(request);
     try {
-      await requireAdmin();
+      await requirePlatformStaff("manage_settings");
       const config = await getPlatformConfigAdmin();
       return NextResponse.json(
         { config },
@@ -42,7 +42,7 @@ export async function PATCH(request: Request) {
   const requestId = getRequestId(request);
 
   try {
-    await requireAdmin();
+    await requirePlatformStaff("manage_settings");
 
     const body = (await request.json()) as Partial<PlatformConfig>;
     const current = await getPlatformConfigAdmin();

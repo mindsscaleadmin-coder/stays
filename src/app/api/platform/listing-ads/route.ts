@@ -6,7 +6,7 @@ import {
 import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError } from "@/lib/auth/booking-access";
 import { hostDataErrorResponse } from "@/lib/auth/listing-access";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePlatformStaff } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
 import { normalizeListingAds } from "@/lib/admin/listing-ads-data";
 import type { ListingAdsSettings } from "@/lib/admin/listing-ads-types";
@@ -22,7 +22,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdmin();
+    await requirePlatformStaff("manage_settings");
     const body = (await request.json()) as Partial<ListingAdsSettings>;
     const settings = await saveListingAdsToDb(normalizeListingAds(body));
     return NextResponse.json({ settings }, { headers: { "x-request-id": requestId } });

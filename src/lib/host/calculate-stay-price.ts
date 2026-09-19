@@ -199,24 +199,32 @@ function pickStayDiscount(
   return { pct: Math.min(100, Math.max(0, pct)), label };
 }
 
-function extrasAmount(
-  extras: ExtraCharge[],
+function extraChargeLineAmount(
+  extra: ExtraCharge,
   nights: number,
   guests: number
 ): number {
   const payingGuests = Math.max(1, guests);
   const nightCount = Math.max(1, nights);
-  return extras.reduce((sum, extra) => {
-    const billing = normalizeExtraChargeBilling(extra);
-    const amount = Math.max(0, extra.amount);
-    if (billing === "per_stay") return sum + amount;
-    if (billing === "per_person") return sum + amount * payingGuests;
-    if (billing === "per_person_per_night") {
-      return sum + amount * payingGuests * nightCount;
-    }
-    // per_night and per_day both scale with nights for stay quotes
-    return sum + amount * nightCount;
-  }, 0);
+  const billing = normalizeExtraChargeBilling(extra);
+  const amount = Math.max(0, extra.amount);
+  if (billing === "per_stay") return amount;
+  if (billing === "per_person") return amount * payingGuests;
+  if (billing === "per_person_per_night") {
+    return amount * payingGuests * nightCount;
+  }
+  return amount * nightCount;
+}
+
+function extrasAmount(
+  extras: ExtraCharge[],
+  nights: number,
+  guests: number
+): number {
+  return extras.reduce(
+    (sum, extra) => sum + extraChargeLineAmount(extra, nights, guests),
+    0
+  );
 }
 
 /**
@@ -307,17 +315,16 @@ export function calculateStayQuote(input: StayQuoteInput): StayQuote | null {
       amount: extraGuestTotal,
     });
   }
-  if (extrasTotal > 0) {
-    lines.push({ label: "Extras", amount: extrasTotal });
+  if (extrasOn && selectedExtras.length > 0) {
+    for (const extra of selectedExtras) {
+      const amount = extraChargeLineAmount(extra, nights, guests);
+      if (amount > 0) {
+        lines.push({ label: extra.label, amount });
+      }
+    }
   }
   if (experiences > 0) {
     lines.push({ label: "Experiences", amount: experiences });
-  }
-  if (taxAmount > 0) {
-    lines.push({
-      label: `${settings.taxLabel} (${taxPct}%, included)`,
-      amount: taxAmount,
-    });
   }
 
   return {

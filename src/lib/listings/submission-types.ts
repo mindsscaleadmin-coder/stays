@@ -131,6 +131,17 @@ export interface SubmittedListing {
   venueDetails?: VenueDetails;
   /** Dining listings — hours, menu, price level, and policies */
   diningDetails?: DiningDetails;
+  /** Property safety compliance checklist & reminders verified by host */
+  safetyChecklist?: ListingSafetyItem[];
+}
+
+export interface ListingSafetyItem {
+  id: string;
+  question: string;
+  reminder: string;
+  checked: boolean;
+  label?: string;
+  description?: string;
 }
 
 export interface SubmitListingInput {
@@ -169,6 +180,7 @@ export interface SubmitListingInput {
   groupSizeMin?: number;
   venueDetails?: VenueDetails;
   diningDetails?: DiningDetails;
+  safetyChecklist?: ListingSafetyItem[];
 }
 
 /** Fields a host can change when editing an existing listing. */

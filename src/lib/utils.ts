@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { BASE_CURRENCY } from "@/lib/currency";
+import { DISPLAY_DEFAULT_CURRENCY } from "@/lib/currency";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -18,7 +18,7 @@ export function formatAmount(amount: number): string {
   return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-export function formatPrice(amount: number, currency = BASE_CURRENCY) {
+export function formatPrice(amount: number, currency = DISPLAY_DEFAULT_CURRENCY) {
   const formatted = formatAmount(amount);
   return `${currency} ${formatted}`;
 }

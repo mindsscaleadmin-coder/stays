@@ -47,9 +47,7 @@ describe("calculateStayQuote", () => {
     expect(quote!.total).toBe(2000);
     expect(quote!.taxAmount).toBe(305);
     expect(quote!.taxAmount + (quote!.total - quote!.taxAmount)).toBe(quote!.total);
-    expect(quote!.lines.some((l) => l.label.includes("GST") && l.label.includes("included"))).toBe(
-      true
-    );
+    expect(quote!.lines.some((l) => l.label.includes("GST"))).toBe(false);
   });
 
   it("applies extra-guest charge per night above guests included in base", () => {

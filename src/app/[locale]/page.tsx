@@ -1,19 +1,35 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { setRequestLocale } from "next-intl/server";
 import { HomePageContent } from "@/components/home/home-page-content";
 import { HERO_BG } from "@/lib/mock/data";
-import { DEFAULT_DESCRIPTION, publicPageMetadata, SITE_NAME } from "@/lib/seo/site";
+import { resolveSeoForCountry } from "@/lib/admin/seo-settings-data";
+import {
+  loadServerSeoSettings,
+  metadataFromSeoProfile,
+} from "@/lib/seo/resolve-server-seo";
+import { readCountryCodeFromCookieHeader } from "@/lib/seo/country-seo-cookie";
 
 export const revalidate = 60;
 
-export const metadata: Metadata = {
-  ...publicPageMetadata({
-    title: SITE_NAME,
-    description: DEFAULT_DESCRIPTION,
-    path: "/",
-  }),
-  title: { absolute: SITE_NAME },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const cookieStore = await cookies();
+  const settings = await loadServerSeoSettings();
+  const profile = resolveSeoForCountry(
+    settings,
+    readCountryCodeFromCookieHeader(cookieStore.toString())
+  );
+
+  return {
+    ...metadataFromSeoProfile(profile, {
+      title: profile.siteName,
+      path: "/",
+      hreflang: true,
+      settings,
+    }),
+    title: { absolute: profile.siteName },
+  };
+}
 
 export default async function HomePage({
   params,

@@ -1,7 +1,7 @@
 import { resolveBookingHost } from "@/lib/admin/booking-oversight-utils";
 import { loadStaffMembers } from "@/lib/admin/staff-data";
 import { loadHostBookings } from "@/lib/host/host-booking-data";
-import type { SupportTicketStatus } from "@/lib/host/host-support-types";
+import type { SupportTicket, SupportTicketStatus } from "@/lib/host/host-support-types";
 import type {
   CommunicationLog,
   CommunicationLogType,
@@ -155,13 +155,7 @@ function mapHostStatus(status: TicketStatus): SupportTicketStatus {
 }
 
 /** Host-facing ticket list — synced from central store */
-export function loadHostTicketsFlat(hostId: string): {
-  id: string;
-  subject: string;
-  message: string;
-  status: SupportTicketStatus;
-  createdAt: string;
-}[] {
+export function loadHostTicketsFlat(hostId: string): SupportTicket[] {
   return loadAllSupportTickets()
     .filter((t) => t.source === "host" && t.requesterId === hostId)
     .map((t) => ({
@@ -169,7 +163,13 @@ export function loadHostTicketsFlat(hostId: string): {
       subject: t.subject,
       message: t.message,
       status: mapHostStatus(t.status),
+      priority: t.priority,
       createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      bookingRef: t.bookingRef,
+      property: t.property,
+      assigneeStaffName: t.assigneeStaffName,
+      communicationLogs: t.communicationLogs,
     }))
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }

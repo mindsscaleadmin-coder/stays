@@ -17,7 +17,11 @@ export function ListingLocationPreview({
 }) {
   const label = areaLabel.trim() || "This area";
   const resolvedMapUrl =
-    mapEmbedUrl || buildLocationMapEmbedUrl(mapSearchQuery?.trim() || label);
+    mapEmbedUrl ||
+    buildLocationMapEmbedUrl(mapSearchQuery?.trim() || label, {
+      zoom: 6,
+      mapType: "terrain",
+    });
 
   return (
     <div
@@ -26,7 +30,7 @@ export function ListingLocationPreview({
       aria-label={`Approximate area — ${label}`}
     >
       {resolvedMapUrl ? (
-        <div className="absolute inset-0 scale-[1.35]">
+        <div className="absolute inset-0">
           <ListingMapEmbed
             src={resolvedMapUrl}
             title={`Map preview — ${label}`}

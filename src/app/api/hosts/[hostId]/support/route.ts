@@ -48,13 +48,23 @@ export async function POST(
       return NextResponse.json({ error: "Subject and message are required" }, { status: 400 });
     }
 
+    const priority =
+      body.priority === "low" ||
+      body.priority === "high" ||
+      body.priority === "critical"
+        ? body.priority
+        : "normal";
+
     await createSupportTicketInDb({
       source: "host",
       subject,
       message,
       requesterId: hostId,
       requesterName: String(body.hostName ?? hostId).trim(),
-      priority: "normal",
+      requesterEmail: body.requesterEmail ? String(body.requesterEmail).trim() : undefined,
+      bookingRef: body.bookingRef ? String(body.bookingRef).trim() : undefined,
+      property: body.property ? String(body.property).trim() : undefined,
+      priority,
     });
 
     const tickets = await listSupportTickets(hostId);

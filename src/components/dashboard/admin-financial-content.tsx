@@ -454,11 +454,13 @@ export function AdminFinancialContent() {
     const fromTaxonomy = taxonomy.states
       .filter((s) => s.enabled !== false && (!countryMatch || s.countryId === countryMatch.id))
       .map((s) => s.name);
-    const countryNeedle = countryName.toLowerCase();
     const fromHosts = allHosts
       .filter((h) => hostMatchesFinancialLocationFilter(h, { country: countryName }))
       .flatMap((h) => [h.state?.trim(), ...(h.states ?? [])])
-      .filter((name): name is string => Boolean(name) && !fromTaxonomy.includes(name));
+      .filter(
+        (name): name is string =>
+          typeof name === "string" && name.length > 0 && !fromTaxonomy.includes(name)
+      );
 
     return [...fromTaxonomy, ...Array.from(new Set(fromHosts))].sort((a, b) =>
       a.localeCompare(b)

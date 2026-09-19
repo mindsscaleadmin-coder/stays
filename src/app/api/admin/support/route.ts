@@ -10,7 +10,7 @@ import {
 import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError } from "@/lib/auth/booking-access";
 import { hostDataErrorResponse } from "@/lib/auth/listing-access";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePlatformStaff } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
 import type { TicketStatus } from "@/lib/admin/support-types";
 
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdmin();
+    await requirePlatformStaff("manage_support");
     const hostId = new URL(request.url).searchParams.get("hostId") ?? undefined;
     const tickets = await listSupportTickets(hostId);
     return NextResponse.json({ tickets }, { headers: { "x-request-id": requestId } });
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   const requestId = getRequestId(request);
   try {
-    await requireAdmin();
+    await requirePlatformStaff("manage_support");
     const body = await request.json();
 
     if (body.action === "assign" && body.ticketId && body.staffId) {

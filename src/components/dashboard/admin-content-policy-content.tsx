@@ -125,9 +125,6 @@ export function AdminContentPolicyContent() {
     saveMessageTemplates,
     saveCms,
     toggleFeaturedListing,
-    addBlogPost,
-    updateBlogPost,
-    removeBlogPost,
     toggleCmsSection,
     addCmsSection,
     updateCmsSection,
@@ -389,11 +386,16 @@ export function AdminContentPolicyContent() {
               icon: FileText,
             },
             { label: "Draft announcements", value: draftAnnouncementCount, icon: Megaphone },
-            { label: "Published blog posts", value: publishedBlogCount, icon: BookOpen },
+            {
+              label: "Published blog posts",
+              value: publishedBlogCount,
+              icon: BookOpen,
+              href: "/admin/blog",
+            },
           ].map((s) => {
             const Icon = s.icon;
-            return (
-              <div key={s.label} className="rounded-2xl border bg-white p-4 shadow-sm">
+            const card = (
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2">
                   <Icon className="w-4 h-4 text-green-700" />
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
@@ -402,6 +404,13 @@ export function AdminContentPolicyContent() {
                 </div>
                 <p className="text-2xl font-bold font-display text-gray-900 mt-1">{s.value}</p>
               </div>
+            );
+            return "href" in s && s.href ? (
+              <Link key={s.label} href={s.href} className="block hover:opacity-90 transition-opacity">
+                {card}
+              </Link>
+            ) : (
+              <div key={s.label}>{card}</div>
             );
           })}
         </div>
@@ -1004,78 +1013,22 @@ export function AdminContentPolicyContent() {
               </div>
             </section>
 
-            <section className="bg-white rounded-2xl border p-5 space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                  <BookOpen className="w-4 h-4 text-green-700" /> Blog & content
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => {
-                    addBlogPost({
-                      title: "New post",
-                      excerpt: "",
-                      slug: `post-${Date.now()}`,
-                      published: false,
-                    });
-                    flash("Blog post added.");
-                  }}
-                  className="text-xs font-semibold bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg inline-flex items-center gap-1"
+            <section className="bg-white rounded-2xl border p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-green-700" /> Blog
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {publishedBlogCount} published · {settings.cms.blogPosts.length} total posts
+                  </p>
+                </div>
+                <Link
+                  href="/admin/blog"
+                  className="text-sm font-semibold text-green-700 hover:text-green-800 hover:underline"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Add post
-                </button>
-              </div>
-              <div className="space-y-3">
-                {settings.cms.blogPosts.map((post) => (
-                  <article key={post.id} className="border border-gray-100 rounded-xl p-4 space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <input
-                        value={post.title}
-                        onChange={(e) => updateBlogPost(post.id, { title: e.target.value })}
-                        className={cn(inputClass, "font-semibold")}
-                      />
-                      <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 shrink-0">
-                        <input
-                          type="checkbox"
-                          checked={post.published}
-                          onChange={(e) =>
-                            updateBlogPost(post.id, {
-                              published: e.target.checked,
-                              publishedAt: e.target.checked
-                                ? new Date().toISOString()
-                                : undefined,
-                            })
-                          }
-                          className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-                        />
-                        Published
-                      </label>
-                    </div>
-                    <input
-                      value={post.slug}
-                      onChange={(e) => updateBlogPost(post.id, { slug: e.target.value })}
-                      placeholder="URL slug"
-                      className={inputClass}
-                    />
-                    <textarea
-                      value={post.excerpt}
-                      onChange={(e) => updateBlogPost(post.id, { excerpt: e.target.value })}
-                      rows={2}
-                      placeholder="Excerpt"
-                      className={cn(inputClass, "resize-none")}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        removeBlogPost(post.id);
-                        flash("Post removed.");
-                      }}
-                      className="text-xs text-red-600 hover:underline"
-                    >
-                      Delete post
-                    </button>
-                  </article>
-                ))}
+                  Manage blog →
+                </Link>
               </div>
             </section>
 

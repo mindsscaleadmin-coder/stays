@@ -2,7 +2,11 @@ import { computeHostBookingMetrics, resolveBookingHost } from "@/lib/admin/booki
 import { resolveAdminHosts } from "@/lib/admin/host-helpers";
 import { loadAllUsers, USERS_SYNC_EVENT } from "@/lib/admin/user-data";
 import type { AdminUserRecord } from "@/lib/admin/user-types";
-import { BASE_CURRENCY, locationMatchesCountry } from "@/lib/currency";
+import {
+  DISPLAY_DEFAULT_CURRENCY,
+  currencyForCountryName,
+  locationMatchesCountry,
+} from "@/lib/currency";
 import { HOST_BOOKINGS_SYNC_EVENT, loadHostBookings } from "@/lib/host/host-booking-data";
 import type { HostBookingRecord } from "@/lib/host/host-booking-types";
 import { loadHostReviews } from "@/lib/host/host-reviews-data";
@@ -512,7 +516,13 @@ if (typeof window !== "undefined") {
   window.addEventListener(USERS_SYNC_EVENT, invalidate);
 }
 
-export function formatPlatformMoney(amount: number, currency = BASE_CURRENCY): string {
+export function formatPlatformMoney(
+  amount: number,
+  currencyOrCountry: string = DISPLAY_DEFAULT_CURRENCY
+): string {
+  const currency = /^[A-Z]{3}$/.test(currencyOrCountry)
+    ? currencyOrCountry
+    : currencyForCountryName(currencyOrCountry);
   return `${currency} ${Math.round(amount).toLocaleString()}`;
 }
 

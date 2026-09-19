@@ -34,7 +34,7 @@ import { getFavoriteIds, setFavoriteIds } from "@/lib/mock/guest-data";
 import type { Stay } from "@/lib/mock/data";
 import { listingHref } from "@/lib/guest/stay-search-dates";
 import { cn, isDataImageUrl } from "@/lib/utils";
-import { BASE_CURRENCY, formatStoredMoney  } from "@/lib/currency";
+import { DISPLAY_DEFAULT_CURRENCY, formatStoredMoney } from "@/lib/currency";
 import { findCountryByListingName } from "@/lib/admin/country-utils";
 import { useCountry } from "@/components/providers/country-provider";
 import type { Country as TaxonomyCountry } from "@/lib/admin/taxonomy-types";
@@ -229,7 +229,7 @@ function StayListRow({
     })
     .join(" • ");
   const priceLabel = formatStoredMoney(stay.price, {
-    storedCurrency: stay.currency || stay.flashDealCurrency || BASE_CURRENCY,
+    storedCurrency: stay.currency || stay.flashDealCurrency || DISPLAY_DEFAULT_CURRENCY,
     currency: displayCurrency,
     exchangeRateToAED,
     locale,
@@ -338,7 +338,7 @@ function StayListRow({
           {stay.originalPrice != null && stay.originalPrice > stay.price && (
             <p className="text-xs text-gray-400 line-through leading-tight">
               {formatStoredMoney(stay.originalPrice, {
-                storedCurrency: stay.currency || stay.flashDealCurrency || BASE_CURRENCY,
+                storedCurrency: stay.currency || stay.flashDealCurrency || DISPLAY_DEFAULT_CURRENCY,
                 currency: displayCurrency,
                 exchangeRateToAED,
                 locale,
@@ -566,13 +566,13 @@ export function SearchResultsContent({
       : null;
     if (match) {
       return {
-        currency: match.currency || BASE_CURRENCY,
+        currency: match.currency || DISPLAY_DEFAULT_CURRENCY,
         exchangeRateToAED: match.exchangeRateToAED ?? 1,
         name: match.name,
       };
     }
     return {
-      currency: headerCountry.currency || BASE_CURRENCY,
+      currency: headerCountry.currency || DISPLAY_DEFAULT_CURRENCY,
       exchangeRateToAED: headerCountry.exchangeRateToAED ?? 1,
       name: headerCountry.name,
     };

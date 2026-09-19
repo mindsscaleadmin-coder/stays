@@ -9,27 +9,38 @@ export const SUPPORT_CONTACT_SETTINGS_SYNC_EVENT =
   "farm-stays-support-contact-settings-updated";
 
 export const DEFAULT_SUPPORT_CONTACT_SETTINGS: SupportContactSettings = {
-  defaultHoursLabel: "Our team is available 9am–9pm GST",
+  defaultHoursLabel: "Our team is available 9am–9pm IST",
   contacts: [
+    {
+      countryCode: "IN",
+      phone: "+91 80 1234 5678",
+      whatsapp: "+91 98 1234 5678",
+      hoursLabel: "Our team is available 9am–9pm IST",
+      enabled: true,
+    },
     {
       countryCode: "AE",
       phone: "+971 4 123 4567",
+      whatsapp: "+971 50 123 4567",
       hoursLabel: "Our team is available 9am–9pm GST",
-      enabled: true,
+      enabled: false,
     },
     {
       countryCode: "SA",
       phone: "+966 11 123 4567",
+      whatsapp: "+966 50 123 4567",
       hoursLabel: "Our team is available 9am–9pm AST",
-      enabled: true,
+      enabled: false,
     },
   ],
 };
 
 function normalizeContact(contact: CountrySupportContact): CountrySupportContact {
+  const phone = contact.phone.trim();
   return {
     countryCode: contact.countryCode.trim().toUpperCase(),
-    phone: contact.phone.trim(),
+    phone,
+    whatsapp: contact.whatsapp?.trim() || phone,
     hoursLabel: contact.hoursLabel.trim(),
     enabled: contact.enabled !== false,
   };
@@ -46,6 +57,7 @@ export function mergeSupportContactSettings(
           normalizeContact({
             countryCode: contact.countryCode ?? "",
             phone: contact.phone ?? "",
+            whatsapp: contact.whatsapp ?? contact.phone ?? "",
             hoursLabel: contact.hoursLabel ?? defaultHoursLabel,
             enabled: contact.enabled !== false,
           })
@@ -88,22 +100,34 @@ export function saveSupportContactSettings(settings: SupportContactSettings): vo
 export function getSupportContactForCountry(
   settings: SupportContactSettings,
   countryCode: string
-): { phone: string; hoursLabel: string } {
+): { phone: string; whatsapp: string; hoursLabel: string } {
   const code = countryCode.trim().toUpperCase();
   const entry = settings.contacts.find(
     (contact) => contact.countryCode === code && contact.enabled && contact.phone.trim()
   );
   const fallback =
-    settings.contacts.find((contact) => contact.countryCode === "AE" && contact.phone.trim()) ??
+    settings.contacts.find((contact) => contact.countryCode === "IN" && contact.phone.trim()) ??
     settings.contacts.find((contact) => contact.enabled && contact.phone.trim());
 
-  const phone = entry?.phone.trim() || fallback?.phone.trim() || "+971 4 123 4567";
+  const phone = entry?.phone.trim() || fallback?.phone.trim() || "+91 80 1234 5678";
+  const whatsapp =
+    entry?.whatsapp?.trim() ||
+    entry?.phone.trim() ||
+    fallback?.whatsapp?.trim() ||
+    fallback?.phone.trim() ||
+    phone;
   const hoursLabel =
     entry?.hoursLabel.trim() || fallback?.hoursLabel.trim() || settings.defaultHoursLabel;
 
-  return { phone, hoursLabel };
+  return { phone, whatsapp, hoursLabel };
 }
 
 export function toTelHref(phone: string): string {
   return `tel:${phone.replace(/[^\d+]/g, "")}`;
+}
+
+export function toWhatsAppHref(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return null;
+  return `https://wa.me/${digits}`;
 }

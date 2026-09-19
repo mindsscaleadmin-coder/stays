@@ -54,9 +54,9 @@ export function mergeHostPromotionsSettings(
     pageTitle: raw?.pageTitle?.trim() || DEFAULT_HOST_PROMOTIONS_SETTINGS.pageTitle,
     pageSubtitle: raw?.pageSubtitle?.trim() || DEFAULT_HOST_PROMOTIONS_SETTINGS.pageSubtitle,
     currency:
-      raw?.currency === "AED" || raw?.currency === "INR"
-        ? raw.currency
-        : DEFAULT_HOST_PROMOTIONS_SETTINGS.currency,
+      raw?.currency === "AED" || !raw?.currency
+        ? DEFAULT_HOST_PROMOTIONS_SETTINGS.currency
+        : raw.currency,
     promotionsEnabled: raw?.promotionsEnabled !== false,
     packages: Array.from(byKey.values()).sort((a, b) => {
       if (a.kind !== b.kind) return a.kind === "trending" ? -1 : 1;
@@ -70,7 +70,12 @@ export function loadHostPromotionsSettings(): HostPromotionsSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return mergeHostPromotionsSettings(null);
-    return mergeHostPromotionsSettings(JSON.parse(raw) as Partial<HostPromotionsSettings>);
+    const parsed = JSON.parse(raw) as Partial<HostPromotionsSettings>;
+    const merged = mergeHostPromotionsSettings(parsed);
+    if (parsed.currency === "AED") {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    }
+    return merged;
   } catch {
     return mergeHostPromotionsSettings(null);
   }

@@ -1,5 +1,6 @@
 import type { FarmActivity, FarmProduct, HostAddonsData } from "./host-addons-types";
 import { emitSyncEvent } from "@/lib/emit-sync-event";
+import { LAUNCH_CURRENCY } from "@/lib/tax/launch-market";
 
 const STORAGE_KEY = "farm-stays-host-addons";
 export const HOST_ADDONS_SYNC_EVENT = "farm-stays-host-addons-updated";
@@ -13,7 +14,7 @@ export function defaultHostAddons(hostId: string): HostAddonsData {
         name: "Sunrise farm walk",
         description: "Guided tour through groves and livestock pens.",
         price: 75,
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         duration: "90 min",
         enabled: true,
       },
@@ -22,7 +23,7 @@ export function defaultHostAddons(hostId: string): HostAddonsData {
         name: "Farm-to-table dinner",
         description: "Seasonal menu with produce from the property.",
         price: 180,
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         duration: "2 hrs",
         enabled: true,
       },
@@ -31,7 +32,7 @@ export function defaultHostAddons(hostId: string): HostAddonsData {
         name: "Milking & feeding experience",
         description: "Hands-on session with goats and chickens.",
         price: 55,
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         duration: "45 min",
         enabled: false,
       },
@@ -42,7 +43,7 @@ export function defaultHostAddons(hostId: string): HostAddonsData {
         name: "Farm honey (500g)",
         description: "Raw honey from on-site hives.",
         price: 45,
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         unit: "jar",
         inStock: true,
       },
@@ -51,7 +52,7 @@ export function defaultHostAddons(hostId: string): HostAddonsData {
         name: "Date pickle",
         description: "House recipe, small batch.",
         price: 28,
-        currency: "AED",
+        currency: LAUNCH_CURRENCY,
         unit: "jar",
         inStock: true,
       },
@@ -82,12 +83,45 @@ function notify() {
   emitSyncEvent(HOST_ADDONS_SYNC_EVENT);
 }
 
+function sanitizeAddonsRecord(data: HostAddonsData): { data: HostAddonsData; changed: boolean } {
+  let changed = false;
+  const activities = (data.activities ?? []).map((a) => {
+    if (a.currency === "AED") {
+      changed = true;
+      return { ...a, currency: LAUNCH_CURRENCY };
+    }
+    return a;
+  });
+  const products = (data.products ?? []).map((p) => {
+    if (p.currency === "AED") {
+      changed = true;
+      return { ...p, currency: LAUNCH_CURRENCY };
+    }
+    return p;
+  });
+  return {
+    data: changed ? { ...data, activities, products } : data,
+    changed,
+  };
+}
+
 function readAll(): Record<string, HostAddonsData> {
   if (typeof window === "undefined") return {};
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
-    return JSON.parse(raw) as Record<string, HostAddonsData>;
+    const parsed = JSON.parse(raw) as Record<string, HostAddonsData>;
+    let anyChanged = false;
+    const sanitized: Record<string, HostAddonsData> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      const { data, changed } = sanitizeAddonsRecord(v);
+      sanitized[k] = data;
+      if (changed) anyChanged = true;
+    }
+    if (anyChanged) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    }
+    return sanitized;
   } catch {
     return {};
   }

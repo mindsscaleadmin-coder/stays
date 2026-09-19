@@ -24,13 +24,13 @@ export const DEFAULT_HOME_PAGE_SETTINGS: HomePageSettings = {
     {
       id: "announce-3",
       emoji: "✨",
-      text: "Now Luxury Farmhouses added in Al Ain",
+      text: "New heritage stays now live in Kerala",
       enabled: true,
     },
     {
       id: "announce-4",
       emoji: "🔥",
-      text: "Free BBQ Setup on bookings above AED 1,000",
+      text: "Free BBQ setup on bookings above ₹ 5,000",
       enabled: true,
     },
   ],

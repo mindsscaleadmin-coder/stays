@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { asMoneyNumber } from "@/lib/money/prisma-decimal";
 import { BookingError } from "@/lib/booking/confirm-booking";
 import { markBookingPaid } from "@/lib/booking/mark-paid";
 import { captureBookingFinancials } from "@/lib/booking/capture-booking-financials";
@@ -86,9 +87,12 @@ export async function confirmPaidFromStripe(input: {
     select: { id: true, totalPrice: true },
   });
   for (const row of siblingRows) {
-    sessionBookingTotals.set(row.id, row.totalPrice);
+    sessionBookingTotals.set(row.id, asMoneyNumber(row.totalPrice));
   }
-  const sessionTotal = siblingRows.reduce((sum, row) => sum + row.totalPrice, 0);
+  const sessionTotal = siblingRows.reduce(
+    (sum, row) => sum + asMoneyNumber(row.totalPrice),
+    0
+  );
 
   let paid = booking;
   for (const row of siblings) {

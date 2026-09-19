@@ -5,6 +5,7 @@ import { createQuotedBooking } from "@/lib/booking/create-quoted-booking";
 import { markBookingPaid } from "@/lib/booking/mark-paid";
 import { captureBookingFinancials } from "@/lib/booking/capture-booking-financials";
 import { getStripe, isStripeConfigured, toStripeAmount } from "@/lib/stripe/server";
+import { isDemoPayAllowed } from "@/lib/auth/booking-access";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { requireSessionUser, AuthError, authErrorResponse } from "@/lib/auth/session";
 import { enqueueBookingConfirmedJob } from "@/lib/queue/enqueue";
@@ -189,6 +190,12 @@ export async function POST(request: Request) {
     }
 
     if (body.demoPay) {
+      if (!isDemoPayAllowed()) {
+        return NextResponse.json(
+          { error: "Demo payment is not available in this environment" },
+          { status: 403 }
+        );
+      }
       const paid = [];
       for (const id of bookingIds) {
         const next = await markBookingPaid(id);
@@ -209,7 +216,7 @@ export async function POST(request: Request) {
       bookingIds,
       mode: "demo" as const,
       paid: false,
-      demoPayAvailable: true,
+      demoPayAvailable: isDemoPayAllowed(),
     });
   } catch (error) {
     if (error instanceof AuthError) {

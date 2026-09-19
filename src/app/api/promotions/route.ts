@@ -9,7 +9,7 @@ import {
 import { requireHostSelfOrAdmin, assertListingHostOrAdmin, hostDataErrorResponse } from "@/lib/auth/listing-access";
 import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError } from "@/lib/auth/booking-access";
-import { requireActor, requireAdmin } from "@/lib/auth/guards";
+import { requireActor, requirePlatformStaff } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
 import { getStripe, isStripeConfigured, toStripeAmount } from "@/lib/stripe/server";
 import { getPromotionCatalogSettings } from "@/lib/server/promotion-catalog-repo";
@@ -53,7 +53,8 @@ export async function POST(request: Request) {
     const json = await request.json();
 
     if (json.action === "setFeatured") {
-      const actor = await requireAdmin();
+      await requirePlatformStaff("manage_settings");
+      const actor = await requireActor();
       const result = await setListingFeaturedInDb({
         listingId: String(json.listingId),
         hostId: String(json.hostId || actor.id),

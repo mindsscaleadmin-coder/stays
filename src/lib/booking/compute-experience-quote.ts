@@ -1,7 +1,7 @@
 import type { ExperienceSessionTemplate } from "@/lib/booking/experience-session-types";
 import type { BookingQuote } from "@/lib/booking/compute-quote";
 import { normalizeCurrency } from "@/lib/currency";
-import { LAUNCH_CURRENCY, LAUNCH_TAX_LABEL } from "@/lib/tax/launch-market";
+import { LAUNCH_CURRENCY } from "@/lib/tax/launch-market";
 import { extractInclusiveTax } from "@/lib/tax/inclusive-tax";
 
 export function computeExperienceQuote(input: {
@@ -21,8 +21,6 @@ export function computeExperienceQuote(input: {
   const { taxAmount: rawTax } = extractInclusiveTax(total, taxPct);
   const taxAmount = Math.round(rawTax * 100) / 100;
   const currency = normalizeCurrency(input.currency || LAUNCH_CURRENCY);
-  const taxLabel = input.taxLabel ?? LAUNCH_TAX_LABEL;
-
   const lines: { label: string; amount: number }[] = [
     {
       label:
@@ -32,9 +30,6 @@ export function computeExperienceQuote(input: {
       amount: accommodation,
     },
   ];
-  if (taxAmount > 0) {
-    lines.push({ label: `${taxLabel} (${taxPct}%, included)`, amount: taxAmount });
-  }
 
   return {
     nights: 0,

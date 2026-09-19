@@ -12,16 +12,22 @@ export async function POST(request: Request) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   const signature = request.headers.get("stripe-signature");
 
+  const allowUnsigned =
+    process.env.NODE_ENV !== "production" &&
+    process.env.ALLOW_UNSIGNED_STRIPE_WEBHOOK === "1";
+
   let event;
   try {
     const rawBody = await request.text();
     if (secret && signature) {
       event = stripe.webhooks.constructEvent(rawBody, signature, secret);
-    } else {
+    } else if (allowUnsigned) {
       event = JSON.parse(rawBody);
-      if (process.env.NODE_ENV === "production") {
-        return NextResponse.json({ error: "Webhook secret required" }, { status: 400 });
-      }
+    } else {
+      return NextResponse.json(
+        { error: "Webhook secret and stripe-signature header required" },
+        { status: 400 }
+      );
     }
   } catch (err) {
     console.error("Stripe webhook signature error:", err);

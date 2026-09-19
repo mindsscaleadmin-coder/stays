@@ -8,7 +8,7 @@ import {
   hostDataErrorResponse,
   requireHostSelfOrAdmin,
 } from "@/lib/auth/listing-access";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePlatformStaff } from "@/lib/auth/guards";
 import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError } from "@/lib/auth/booking-access";
 import { getRequestId } from "@/lib/observability/logger";
@@ -24,7 +24,7 @@ export async function GET(
   try {
     const { hostId } = await context.params;
     if (hostId === "all") {
-      await requireAdmin();
+      await requirePlatformStaff("approve_kyc");
       const requests = await getHostVerificationsFromDb();
       return NextResponse.json({ requests }, { headers: { "x-request-id": requestId } });
     }
@@ -74,7 +74,7 @@ export async function PATCH(
 ) {
   const requestId = getRequestId(request);
   try {
-    await requireAdmin();
+    await requirePlatformStaff("approve_kyc");
     const { hostId } = await context.params;
     const body = (await request.json()) as { status?: string; reviewNote?: string };
     const existing = await getHostVerificationFromDb(hostId);

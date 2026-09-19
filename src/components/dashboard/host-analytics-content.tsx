@@ -110,7 +110,7 @@ export function HostAnalyticsPanelView({
                   >
                     <span className="text-gray-600">{r.period}</span>
                     <span className="font-semibold text-gray-900">
-                      {formatPrice(r.amount, "AED")}
+                      {formatPrice(r.amount)}
                     </span>
                   </li>
                 ))}
@@ -126,7 +126,7 @@ export function HostAnalyticsPanelView({
                   >
                     <span className="text-gray-600">{r.period}</span>
                     <span className="font-semibold text-gray-900">
-                      {formatPrice(r.amount, "AED")}
+                      {formatPrice(r.amount)}
                     </span>
                   </li>
                 ))}

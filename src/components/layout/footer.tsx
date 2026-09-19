@@ -17,6 +17,7 @@ import { usePathname } from "@/i18n/routing";
 import { StarRating } from "@/components/ui/star-rating";
 import { isDashboardChromePath } from "@/lib/layout/dashboard-chrome";
 import { SupportContactPhone } from "@/components/layout/support-contact-phone";
+import { NewsletterSignup } from "@/components/layout/newsletter-signup";
 
 export function Footer() {
   const t = useTranslations("footer");
@@ -49,21 +50,10 @@ export function Footer() {
       <div className="bg-white border-b py-6">
         <div className="site-page-container flex flex-col md:flex-row items-center justify-between gap-4">
           <div>
-            <p className="font-bold text-gray-900 font-display">Don&apos;t miss out!</p>
-            <p className="text-gray-500 text-sm">Get exclusive deals and travel inspiration</p>
+            <p className="font-bold text-gray-900 font-display">{t("newsletterTitle")}</p>
+            <p className="text-gray-500 text-sm">{t("newsletterSubtitle")}</p>
           </div>
-          <div className="flex w-full md:w-auto max-w-md">
-            <input
-              placeholder={t("emailPlaceholder")}
-              className="flex-1 bg-gray-50 text-gray-800 text-sm px-4 py-2.5 rounded-s-lg outline-none border border-gray-200 border-e-0 focus:border-green-500"
-            />
-            <button
-              type="button"
-              className="bg-amber-400 hover:bg-amber-500 px-5 py-2.5 rounded-e-lg transition-colors font-semibold text-sm text-gray-900"
-            >
-              Subscribe
-            </button>
-          </div>
+          <NewsletterSignup variant="banner" className="w-full md:w-auto max-w-md" />
           <div className="hidden lg:flex items-center gap-6 text-sm text-gray-600">
             <span><strong className="text-gray-900">1,245+</strong> Properties</span>
             <span><strong className="text-gray-900">42,300+</strong> Bookings</span>
@@ -140,24 +130,12 @@ export function Footer() {
                 <span className="break-all">hello@greenfieldfarmstays.com</span>
               </div>
               <div className="flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-green-400" /> Dubai, UAE
+                <MapPin className="w-4 h-4 text-green-400" /> Bengaluru, India
               </div>
             </div>
             <div className="mt-5">
               <p className="text-xs mb-2">{t("newsletter")}</p>
-              <div className="flex">
-                <input
-                  placeholder={t("emailPlaceholder")}
-                  className="flex-1 bg-gray-800 text-white text-xs px-3 py-2 rounded-s-lg outline-none border border-gray-700 focus:border-green-500"
-                />
-                <button
-                  type="button"
-                  className="bg-green-600 hover:bg-green-700 px-3 py-2 rounded-e-lg transition-colors"
-                  aria-label="Subscribe"
-                >
-                  <ArrowRight className="w-4 h-4 text-white" />
-                </button>
-              </div>
+              <NewsletterSignup variant="footer" />
             </div>
           </div>
         </div>

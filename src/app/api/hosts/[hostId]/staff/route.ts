@@ -5,6 +5,7 @@ import {
   listHostStaffMembers,
   saveHostStaffMember,
 } from "@/lib/server/host-staff-repo";
+import { requireHostStaffManager } from "@/lib/auth/host-staff-guards";
 import {
   hostDataErrorResponse,
   requireHostSelfOrAdmin,
@@ -52,7 +53,7 @@ export async function POST(
 
   try {
     const { hostId } = await context.params;
-    await requireHostSelfOrAdmin(hostId);
+    await requireHostStaffManager(hostId);
 
     const body = (await request.json()) as Omit<HostStaffMemberInput, "hostId">;
     const role = (body.role ?? "staff") as HostStaffRole;
@@ -97,11 +98,19 @@ export async function PATCH(
 
   try {
     const { hostId } = await context.params;
-    await requireHostSelfOrAdmin(hostId);
+    await requireHostStaffManager(hostId);
 
     const body = (await request.json()) as HostStaffMemberInput;
     if (!body.id) {
       return NextResponse.json({ error: "Missing staff id" }, { status: 400 });
+    }
+
+    const role = (body.role ?? "staff") as HostStaffRole;
+    if (role === "owner") {
+      return NextResponse.json(
+        { error: "Only the account holder can be Owner." },
+        { status: 400 }
+      );
     }
 
     const member = await saveHostStaffMember({
@@ -130,7 +139,7 @@ export async function DELETE(
 
   try {
     const { hostId } = await context.params;
-    await requireHostSelfOrAdmin(hostId);
+    await requireHostStaffManager(hostId);
 
     const url = new URL(request.url);
     const id = url.searchParams.get("id");

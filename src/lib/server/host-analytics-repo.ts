@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { asMoneyNumber } from "@/lib/money/prisma-decimal";
 import { resolveHostName } from "@/lib/admin/trust-data";
 import { computeHostAnalytics } from "@/lib/host/compute-host-analytics";
 import type { HostAnalyticsData } from "@/lib/host/host-analytics-types";
@@ -48,7 +49,13 @@ export async function getHostAnalytics(hostId: string): Promise<HostAnalyticsDat
   });
   const hostName = host?.fullName?.trim().toLowerCase();
   const rows = await prisma.listing.findMany({ select: listingSelect });
-  const listings = rows.filter((row) => listingBelongsToHost(row, hostId, hostName));
+  const listings = rows
+    .filter((row) => listingBelongsToHost(row, hostId, hostName))
+    .map((row) => ({
+      ...row,
+      pricePerNight:
+        row.pricePerNight != null ? asMoneyNumber(row.pricePerNight) : null,
+    }));
   const listingIds = listings.map((l) => l.id);
 
   const bookings = listingIds.length
@@ -77,14 +84,20 @@ export async function getHostAnalytics(hostId: string): Promise<HostAnalyticsDat
   const districts = Array.from(new Set(listings.map((l) => l.district).filter(Boolean)));
   const nearbyListings =
     districts.length > 0
-      ? await prisma.listing.findMany({
-          where: {
-            hostId: { not: hostId },
-            status: "approved",
-            district: { in: districts },
-          },
-          select: listingSelect,
-        })
+      ? (
+          await prisma.listing.findMany({
+            where: {
+              hostId: { not: hostId },
+              status: "approved",
+              district: { in: districts },
+            },
+            select: listingSelect,
+          })
+        ).map((row) => ({
+          ...row,
+          pricePerNight:
+            row.pricePerNight != null ? asMoneyNumber(row.pricePerNight) : null,
+        }))
       : [];
   const nearbyIds = nearbyListings.map((l) => l.id);
   const nearbyBookings = nearbyIds.length
@@ -109,13 +122,23 @@ export async function getHostAnalytics(hostId: string): Promise<HostAnalyticsDat
       })
     : [];
 
+  const normalizeBookings = <
+    T extends { totalPrice: Parameters<typeof asMoneyNumber>[0] },
+  >(
+    rows: T[]
+  ) =>
+    rows.map((row) => ({
+      ...row,
+      totalPrice: asMoneyNumber(row.totalPrice),
+    }));
+
   return computeHostAnalytics({
     hostId,
     listings,
-    bookings,
+    bookings: normalizeBookings(bookings),
     reviews,
     nearbyListings,
-    nearbyBookings,
+    nearbyBookings: normalizeBookings(nearbyBookings),
     nearbyReviews,
   });
 }

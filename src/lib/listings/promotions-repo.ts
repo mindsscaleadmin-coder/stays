@@ -1,4 +1,6 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { asMoneyNumber, toMoneyDecimal } from "@/lib/money/prisma-decimal";
 import type {
   ListingPromotion,
   ListingPromotionDurationDays,
@@ -15,7 +17,7 @@ function toDto(row: {
   hostId: string;
   kind: string;
   durationDays: number;
-  priceAed: number;
+  priceAed: Prisma.Decimal | number;
   purchasedAt: Date;
   startsAt: Date;
   endsAt: Date;
@@ -36,7 +38,7 @@ function toDto(row: {
     hostId: row.hostId,
     kind: row.kind as ListingPromotionKind,
     durationDays: row.durationDays as ListingPromotion["durationDays"],
-    priceAed: row.priceAed,
+    priceAed: asMoneyNumber(row.priceAed),
     currency: "INR",
     purchasedAt: row.purchasedAt.toISOString(),
     startsAt: row.startsAt.toISOString(),
@@ -326,7 +328,7 @@ export async function upsertPromotionToDb(
       hostId: promo.hostId,
       kind: promo.kind,
       durationDays: promo.durationDays,
-      priceAed: promo.priceAed,
+      priceAed: toMoneyDecimal(promo.priceAed),
       purchasedAt: new Date(promo.purchasedAt),
       startsAt: new Date(promo.startsAt),
       endsAt: new Date(promo.endsAt),
@@ -336,7 +338,7 @@ export async function upsertPromotionToDb(
     update: {
       endsAt: new Date(promo.endsAt),
       status: promo.status,
-      priceAed: promo.priceAed,
+      priceAed: toMoneyDecimal(promo.priceAed),
       durationDays: promo.durationDays,
       paymentRef: promo.paymentRef,
     },
@@ -384,7 +386,7 @@ export async function setListingFeaturedInDb(input: {
     kind: "featured",
     durationDays: 7,
     priceAed: 0,
-    currency: "AED",
+    currency: "INR",
     purchasedAt: now.toISOString(),
     startsAt: now.toISOString(),
     endsAt: ends.toISOString(),

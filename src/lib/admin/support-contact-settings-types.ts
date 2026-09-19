@@ -1,6 +1,7 @@
 export interface CountrySupportContact {
   countryCode: string;
   phone: string;
+  whatsapp: string;
   hoursLabel: string;
   enabled: boolean;
 }

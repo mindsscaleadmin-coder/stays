@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { pushPolicyAlertToAllHosts } from "@/lib/server/host-notifications-repo";
 import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError } from "@/lib/auth/booking-access";
-import { requireAdmin } from "@/lib/auth/guards";
+import { requirePlatformStaff } from "@/lib/auth/guards";
 import { hostDataErrorResponse } from "@/lib/auth/listing-access";
 import { getRequestId } from "@/lib/observability/logger";
 import { normalizeAnnouncementAudience } from "@/lib/admin/announcement-audience";
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   const requestId = getRequestId(request);
 
   try {
-    await requireAdmin();
+    await requirePlatformStaff("manage_alerts");
 
     const body = (await request.json()) as {
       title?: string;

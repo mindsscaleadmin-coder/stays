@@ -6,6 +6,7 @@ import { HostDashboardShell } from "@/components/dashboard/host-dashboard-shell"
 import { useAuth } from "@/components/providers/auth-provider";
 import { resolveHostId } from "@/lib/listings/use-listing-submissions";
 import { useHostAddons } from "@/lib/host/use-host-addons";
+import { LAUNCH_CURRENCY } from "@/lib/tax/launch-market";
 import { cn, formatPrice } from "@/lib/utils";
 
 const EMPTY_ACTIVITY = {
@@ -13,7 +14,7 @@ const EMPTY_ACTIVITY = {
   description: "",
   price: "",
   duration: "",
-  currency: "AED",
+  currency: LAUNCH_CURRENCY,
 };
 
 const EMPTY_PRODUCT = {
@@ -21,7 +22,7 @@ const EMPTY_PRODUCT = {
   description: "",
   price: "",
   unit: "jar",
-  currency: "AED",
+  currency: LAUNCH_CURRENCY,
 };
 
 export function HostAddonsContent() {
@@ -281,7 +282,7 @@ export function HostAddonsContent() {
                 />
               </label>
               <label className="block">
-                <span className="text-xs font-medium text-gray-600 mb-1 block">Price (AED)</span>
+                <span className="text-xs font-medium text-gray-600 mb-1 block">Price (INR)</span>
                 <input
                   type="number"
                   min={1}

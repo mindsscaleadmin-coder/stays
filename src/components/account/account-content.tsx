@@ -20,7 +20,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { getInitials } from "@/lib/auth/types";
 import { FAVORITES_SYNC_EVENT, GUEST_BOOKINGS, getFavoriteIds } from "@/lib/mock/guest-data";
 import { usePublicListings } from "@/lib/listings/use-public-listings";
-import { formatAmount } from "@/lib/utils";
+import { formatPrice } from "@/lib/utils";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { GUEST_NAV } from "@/lib/guest/guest-nav";
 import {
@@ -856,7 +856,7 @@ export function AccountContent() {
                         {stay.location}
                       </div>
                       <div className="text-green-700 font-bold text-sm mt-2">
-                        AED {formatAmount(stay.price)} / night
+                        {formatPrice(stay.price, stay.currency)} / night
                       </div>
                     </div>
                   </Link>

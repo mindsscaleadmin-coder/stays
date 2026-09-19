@@ -2,8 +2,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAdminTaxonomy } from "@/components/providers/admin-taxonomy-provider";
-import { toPlatformCountry } from "@/lib/admin/country-utils";
-import { DEFAULT_COUNTRY, getCountry, type Country } from "@/lib/mock/countries";
+import {
+  LAUNCH_PLATFORM_COUNTRY,
+  resolveDefaultPlatformCountry,
+  toPlatformCountry,
+} from "@/lib/admin/country-utils";
+import { writeCountrySeoCookie } from "@/lib/seo/country-seo-cookie";
+import type { Country } from "@/lib/mock/countries";
 
 const STORAGE_KEY = "farm-stays-selected-country";
 const STORAGE_NAME_KEY = "farm-stays-selected-country-name";
@@ -29,74 +34,14 @@ function readStoredCode(): string | null {
   }
 }
 
-function readStoredName(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return localStorage.getItem(STORAGE_NAME_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function readStoredFlag(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return localStorage.getItem(STORAGE_FLAG_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredCode(code: string) {
-  try {
-    localStorage.setItem(STORAGE_KEY, code);
-  } catch {
-    // ignore
-  }
-}
-
 function writeStoredCountry(country: Country) {
-  writeStoredCode(country.code);
   try {
+    localStorage.setItem(STORAGE_KEY, country.code);
     localStorage.setItem(STORAGE_NAME_KEY, country.name);
     localStorage.setItem(STORAGE_FLAG_KEY, country.flag);
   } catch {
     // ignore
   }
-}
-
-function bootstrapCountry(code: string, name: string, flag = ""): Country {
-  const known = getCountry(code);
-  return {
-    code,
-    name,
-    flag: flag || (known.code === code ? known.flag : ""),
-    currency: known.code === code ? known.currency : "AED",
-    currencySymbol: known.code === code ? known.currencySymbol : "د.إ",
-    exchangeRateToAED: known.code === code ? known.exchangeRateToAED : 1,
-    dialCode: known.code === code ? known.dialCode : "",
-    enabled: true,
-    comingSoon: false,
-  };
-}
-
-function resolveStoredCountry(enabledCountries: Country[]): Country | null {
-  const stored = readStoredCode();
-  if (!stored) return null;
-
-  const fromList = enabledCountries.find((c) => c.code === stored);
-  if (fromList) return fromList;
-
-  const storedName = readStoredName();
-  const storedFlag = readStoredFlag();
-  if (storedName) {
-    return bootstrapCountry(stored, storedName, storedFlag ?? "");
-  }
-
-  const known = getCountry(stored);
-  if (known.code === stored) return known;
-
-  return null;
 }
 
 export function CountryProvider({ children }: { children: ReactNode }) {
@@ -110,8 +55,12 @@ export function CountryProvider({ children }: { children: ReactNode }) {
     [allCountries]
   );
 
-  const defaultCountry = enabledCountries[0] ?? DEFAULT_COUNTRY;
-  const [country, setCountryState] = useState<Country>(defaultCountry);
+  const defaultCountry = useMemo(
+    () => resolveDefaultPlatformCountry(enabledCountries),
+    [enabledCountries]
+  );
+
+  const [country, setCountryState] = useState<Country>(LAUNCH_PLATFORM_COUNTRY);
   const [ready, setReady] = useState(false);
   const hydratedRef = useRef(false);
 
@@ -122,10 +71,9 @@ export function CountryProvider({ children }: { children: ReactNode }) {
     const fromStore = stored
       ? enabledCountries.find((c) => c.code === stored)
       : undefined;
+    const resolved = fromStore ?? defaultCountry;
 
     setCountryState((prev) => {
-      const resolved =
-        fromStore ?? resolveStoredCountry(enabledCountries) ?? defaultCountry;
       if (
         prev.code === resolved.code &&
         prev.enabled === resolved.enabled &&
@@ -135,10 +83,13 @@ export function CountryProvider({ children }: { children: ReactNode }) {
       ) {
         return prev;
       }
-      if (fromStore) writeStoredCountry(fromStore);
-      else if (resolved.code !== defaultCountry.code || !stored) writeStoredCountry(resolved);
       return resolved;
     });
+
+    if (!fromStore || fromStore.code !== stored) {
+      writeStoredCountry(resolved);
+    }
+    writeCountrySeoCookie(resolved.code);
 
     if (!hydratedRef.current) {
       hydratedRef.current = true;
@@ -151,6 +102,13 @@ export function CountryProvider({ children }: { children: ReactNode }) {
     if (!found) return;
     setCountryState(found);
     writeStoredCountry(found);
+    writeCountrySeoCookie(found.code);
+
+    if (typeof window !== "undefined") {
+      const next = new URL(window.location.href);
+      next.searchParams.set("market", found.code);
+      window.history.replaceState(null, "", next.toString());
+    }
   }, [enabledCountries]);
 
   const contextValue = useMemo(

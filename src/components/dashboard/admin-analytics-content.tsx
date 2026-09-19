@@ -35,6 +35,7 @@ const TABS: { id: TabId; label: string }[] = [
 function HostTable({
   rows,
   variant,
+  country = "",
 }: {
   rows: {
     hostId: string;
@@ -46,6 +47,7 @@ function HostTable({
     activeListings: number;
   }[];
   variant: "top" | "under";
+  country?: string;
 }) {
   if (rows.length === 0) {
     return (
@@ -73,7 +75,7 @@ function HostTable({
               <td className="py-2.5 font-medium text-gray-800 text-xs px-2 first:ps-0">{row.hostName}</td>
               <td className="py-2.5 text-gray-600 text-xs px-2">{row.bookings}</td>
               <td className="py-2.5 text-green-700 font-semibold text-xs px-2">
-                {formatPlatformMoney(row.revenue)}
+                {formatPlatformMoney(row.revenue, country)}
               </td>
               <td className="py-2.5 text-amber-600 text-xs px-2">★ {row.avgRating}</td>
               <td
@@ -299,7 +301,7 @@ export function AdminAnalyticsContent() {
                           #{i + 1} {row.state}
                         </span>
                         <span className="text-xs text-green-700 font-semibold">
-                          {formatPlatformMoney(row.revenue)}
+                          {formatPlatformMoney(row.revenue, countryParam)}
                         </span>
                       </div>
                       <p className="text-xs text-gray-500 mb-2">
@@ -340,7 +342,7 @@ export function AdminAnalyticsContent() {
                         <span className="text-xs text-gray-500">{row.state}</span>
                       </div>
                       <p className="text-xs text-gray-500">
-                        {row.bookings} bookings · {formatPlatformMoney(row.revenue)} · {row.listings}{" "}
+                        {row.bookings} bookings · {formatPlatformMoney(row.revenue, countryParam)} · {row.listings}{" "}
                         listings
                       </p>
                     </article>
@@ -436,14 +438,14 @@ export function AdminAnalyticsContent() {
                 <TrendingUp className="w-4 h-4 text-green-600" />
                 Top-performing hosts
               </h3>
-              <HostTable rows={topHosts} variant="top" />
+              <HostTable rows={topHosts} variant="top" country={countryParam} />
             </section>
             <section className="bg-white rounded-2xl border p-5">
               <h3 className="font-semibold text-gray-900 flex items-center gap-2 mb-4">
                 <TrendingDown className="w-4 h-4 text-red-500" />
                 Underperforming hosts
               </h3>
-              <HostTable rows={underperformingHosts} variant="under" />
+              <HostTable rows={underperformingHosts} variant="under" country={countryParam} />
             </section>
           </div>
         )}

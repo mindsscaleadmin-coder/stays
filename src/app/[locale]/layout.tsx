@@ -1,48 +1,21 @@
 import type { Metadata, Viewport } from "next";
-import { DEFAULT_DESCRIPTION, getSiteUrl, SITE_NAME } from "@/lib/seo/site";
-import { Inter, Poppins } from "next/font/google";
+import { cookies } from "next/headers";
+import { buildRootMetadata } from "@/lib/seo/resolve-server-seo";
 import { NextIntlClientProvider } from "next-intl";
 import { getMessages, setRequestLocale } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing, type Locale } from "@/i18n/routing";
 import { SiteChrome } from "@/components/layout/site-chrome";
 import { SiteFavicon } from "@/components/layout/site-favicon";
+import { OrganizationJsonLd } from "@/components/seo/organization-json-ld";
+import { SiteSeoHead } from "@/components/seo/site-seo-head";
 import { AuthProvider } from "@/components/providers/auth-provider";
 import { AppProviders } from "@/components/providers/app-providers";
-import "../globals.css";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-});
-
-const poppins = Poppins({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-poppins",
-  display: "swap",
-});
-
-export const metadata: Metadata = {
-  metadataBase: new URL(getSiteUrl()),
-  title: {
-    default: SITE_NAME,
-    template: `%s | ${SITE_NAME}`,
-  },
-  description: DEFAULT_DESCRIPTION,
-  openGraph: {
-    type: "website",
-    siteName: SITE_NAME,
-    title: SITE_NAME,
-    description: DEFAULT_DESCRIPTION,
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: SITE_NAME,
-    description: DEFAULT_DESCRIPTION,
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const cookieStore = await cookies();
+  return buildRootMetadata(cookieStore.toString());
+}
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -72,17 +45,15 @@ export default async function LocaleLayout({
   const messages = await getMessages();
 
   return (
-    <html lang={locale} dir="ltr" className="w-full h-full" suppressHydrationWarning>
-      <body className={`${inter.variable} ${poppins.variable} font-sans w-full min-h-full`} suppressHydrationWarning>
-        <NextIntlClientProvider messages={messages}>
-          <AuthProvider>
-            <AppProviders>
-              <SiteFavicon />
-              <SiteChrome>{children}</SiteChrome>
-            </AppProviders>
-          </AuthProvider>
-        </NextIntlClientProvider>
-      </body>
-    </html>
+    <NextIntlClientProvider messages={messages}>
+      <AuthProvider>
+        <AppProviders>
+          <SiteSeoHead />
+          <OrganizationJsonLd />
+          <SiteFavicon />
+          <SiteChrome>{children}</SiteChrome>
+        </AppProviders>
+      </AuthProvider>
+    </NextIntlClientProvider>
   );
 }

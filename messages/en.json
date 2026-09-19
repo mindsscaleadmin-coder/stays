@@ -34,8 +34,8 @@
   "announcement": {
     "summerOffer": "Summer Offer: Save up to 25% on selected Farm Stays",
     "guestsBooked": "{count} guests booked today",
-    "luxuryAdded": "Now Luxury Farmhouses added in Al Ain",
-    "freeBbq": "Free BBQ Setup on bookings above AED 1,000"
+    "luxuryAdded": "New heritage stays now live in Kerala",
+    "freeBbq": "Free BBQ setup on bookings above ₹ 5,000"
   },
   "home": {
     "heroTitle": "Find Your Perfect",
@@ -210,7 +210,7 @@
     "signupSubtitleBooking": "Create a guest account to check availability and book this stay",
     "bookingPrompt": "Sign in or create a guest account to check availability and continue to checkout.",
     "signupTitle": "Create your account",
-    "signupSubtitle": "Join thousands of guests exploring farm stays across the UAE",
+    "signupSubtitle": "Join thousands of guests exploring farm stays across India",
     "emailTab": "Email",
     "phoneTab": "Phone",
     "email": "Email address",
@@ -372,6 +372,11 @@
     "support": "Support",
     "contact": "Contact",
     "newsletter": "Subscribe to newsletter",
+    "newsletterTitle": "Don't miss out!",
+    "newsletterSubtitle": "Get exclusive deals and travel inspiration",
+    "subscribe": "Subscribe",
+    "newsletterSuccess": "Thanks for subscribing!",
+    "newsletterInvalidEmail": "Please enter a valid email address",
     "emailPlaceholder": "Enter your email",
     "copyright": "© {year} Greenfield Farm Stays. All rights reserved.",
     "trustedBy": "Trusted by 12,500+ Guests",

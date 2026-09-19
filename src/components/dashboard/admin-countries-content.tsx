@@ -23,8 +23,22 @@ import {
   parseLocationUpload,
   type CountryGeoState,
 } from "@/lib/admin/country-geo";
+import {
+  CountryMarketStatusBadge,
+  CountryMarketStatusToggle,
+} from "@/components/dashboard/country-market-status-toggle";
+import {
+  applyMarketStatus,
+  COUNTRY_MARKET_STATUS_LABELS,
+  countListingsForCountry,
+  countryToInput,
+  getCountryMarketStatus,
+  shouldConfirmMarketStatusChange,
+  type CountryMarketStatus,
+} from "@/lib/admin/country-market-status";
 import type { Country, CountryInput } from "@/lib/admin/taxonomy-types";
 import { suggestCountryMarketplace } from "@/lib/admin/country-utils";
+import { loadActiveSubmissions } from "@/lib/listings/submission-data";
 import { cn } from "@/lib/utils";
 
 const EMPTY_FORM: CountryInput = {
@@ -55,8 +69,10 @@ export function AdminCountriesContent() {
   const [replaceExisting, setReplaceExisting] = useState(false);
   const [fileDragging, setFileDragging] = useState(false);
   const [message, setMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [statusSavingId, setStatusSavingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function openFilePicker() {
@@ -105,8 +121,15 @@ export function AdminCountriesContent() {
   }, [countries, data.states, data.districts]);
 
   function flash(text: string) {
+    setErrorMessage("");
     setMessage(text);
     setTimeout(() => setMessage(""), 4000);
+  }
+
+  function flashError(text: string) {
+    setMessage("");
+    setErrorMessage(text);
+    setTimeout(() => setErrorMessage(""), 5000);
   }
 
   function resetLocationUi(preferDefaults = false) {
@@ -130,21 +153,41 @@ export function AdminCountriesContent() {
     setCreating(false);
     setEditingId(c.id);
     setFormError("");
-    setForm({
-      id: c.id,
-      name: c.name,
-      code: c.code ?? "",
-      flag: c.flag ?? "",
-      currency: c.currency ?? "",
-      currencySymbol: c.currencySymbol ?? "",
-      exchangeRateToAED: c.exchangeRateToAED ?? 1,
-      taxPct: c.taxPct ?? 5,
-      taxLabel: c.taxLabel ?? "VAT",
-      dialCode: c.dialCode ?? "",
-      enabled: c.enabled !== false,
-      comingSoon: Boolean(c.comingSoon),
-    });
+    setForm(countryToInput(c));
     resetLocationUi(false);
+  }
+
+  async function handleMarketStatusChange(country: Country, nextStatus: CountryMarketStatus) {
+    const currentStatus = getCountryMarketStatus(country);
+    if (currentStatus === nextStatus || statusSavingId) return;
+
+    const listings =
+      typeof window !== "undefined" ? loadActiveSubmissions() : [];
+    const listingsInCountry = countListingsForCountry(countries, country, listings);
+
+    const confirmPrompt = shouldConfirmMarketStatusChange({
+      country,
+      countries,
+      nextStatus,
+      listingsInCountry,
+    });
+    if (confirmPrompt && !window.confirm(confirmPrompt.message)) return;
+
+    setStatusSavingId(country.id);
+    try {
+      const nextInput = applyMarketStatus(countryToInput(country), nextStatus);
+      await saveCountry(nextInput);
+      if (editingId === country.id) {
+        setForm((prev) => applyMarketStatus(prev, nextStatus));
+      }
+      flash(`${country.name} is now ${COUNTRY_MARKET_STATUS_LABELS[nextStatus].toLowerCase()}.`);
+    } catch (err) {
+      flashError(
+        err instanceof Error ? err.message : `Could not update ${country.name}.`
+      );
+    } finally {
+      setStatusSavingId(null);
+    }
   }
 
   function cancel() {
@@ -308,7 +351,11 @@ export function AdminCountriesContent() {
             <h2 className="text-xl font-bold text-gray-900 font-display">Countries</h2>
             <p className="text-gray-500 text-sm mt-1">
               Add countries with currency, tax, and location settings. Currency and tax sync to
-              host pricing for listings in each country.
+              host pricing for listings in each country. Use{" "}
+              <span className="font-medium text-gray-700">Live</span> for guest-facing markets,{" "}
+              <span className="font-medium text-gray-700">Soon</span> to keep data without showing
+              on site, and <span className="font-medium text-gray-700">Off</span> to hide from
+              filters.
             </p>
           </div>
           {!showForm && (
@@ -326,6 +373,12 @@ export function AdminCountriesContent() {
         {message && (
           <p className="text-sm text-green-800 bg-green-50 border border-green-100 rounded-xl px-4 py-3">
             {message}
+          </p>
+        )}
+
+        {errorMessage && (
+          <p className="text-sm text-red-800 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+            {errorMessage}
           </p>
         )}
 
@@ -400,7 +453,7 @@ export function AdminCountriesContent() {
                   value={form.currency ?? ""}
                   onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
                   className="w-full border rounded-xl px-3 py-2 text-sm uppercase"
-                  placeholder="AED"
+                  placeholder="INR"
                 />
               </Field>
               <Field label="Currency symbol">
@@ -408,7 +461,7 @@ export function AdminCountriesContent() {
                   value={form.currencySymbol ?? ""}
                   onChange={(e) => setForm((f) => ({ ...f, currencySymbol: e.target.value }))}
                   className="w-full border rounded-xl px-3 py-2 text-sm"
-                  placeholder="د.إ"
+                  placeholder="₹"
                 />
               </Field>
               <Field label="Dial code">
@@ -416,7 +469,7 @@ export function AdminCountriesContent() {
                   value={form.dialCode ?? ""}
                   onChange={(e) => setForm((f) => ({ ...f, dialCode: e.target.value }))}
                   className="w-full border rounded-xl px-3 py-2 text-sm"
-                  placeholder="+971"
+                  placeholder="+91"
                 />
               </Field>
               <Field label="Exchange rate to AED">
@@ -677,62 +730,66 @@ export function AdminCountriesContent() {
               </li>
             )}
             {countries.map((c) => {
-              const active = c.enabled !== false;
+              const marketStatus = getCountryMarketStatus(c);
               const counts = locationCountsByCountry.get(c.id) ?? { states: 0, districts: 0 };
+              const rowSaving = statusSavingId === c.id;
+              const rowBusy = rowSaving || saving;
               return (
                 <li
                   key={c.id}
                   className={cn(
-                    "flex items-center gap-3 px-5 py-3.5",
+                    "flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center",
                     editingId === c.id && "bg-green-50/50"
                   )}
                 >
-                  <span className="text-2xl leading-none w-9 text-center shrink-0">
-                    {c.flag || "🏳️"}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-gray-900 text-sm">{c.name}</span>
-                      {c.code && (
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
-                          {c.code}
-                        </span>
-                      )}
-                      {!active && (
-                        <span className="text-[9px] bg-gray-100 text-gray-500 font-bold px-1.5 py-0.5 rounded-full">
-                          Hidden
-                        </span>
-                      )}
-                      {c.comingSoon && (
-                        <span className="text-[9px] bg-amber-100 text-amber-600 font-bold px-1.5 py-0.5 rounded-full">
-                          Soon
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-400 mt-0.5 truncate">
-                      {[c.currency, c.taxPct != null ? `${c.taxLabel ?? "VAT"} ${c.taxPct}%` : null, c.dialCode]
-                        .filter(Boolean)
-                        .join(" · ") || "No marketplace details"}
-                      {" · "}
-                      <Link
-                        href={`/admin/settings/filters?tab=state&country=${encodeURIComponent(c.id)}`}
-                        className="text-green-700 font-medium hover:underline"
-                      >
-                        {counts.states} states · {counts.districts} districts
-                      </Link>
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <span className="text-2xl leading-none w-9 text-center shrink-0">
+                      {c.flag || "🏳️"}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-gray-900 text-sm">{c.name}</span>
+                        {c.code && (
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                            {c.code}
+                          </span>
+                        )}
+                        <CountryMarketStatusBadge status={marketStatus} />
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5 truncate">
+                        {[c.currency, c.taxPct != null ? `${c.taxLabel ?? "VAT"} ${c.taxPct}%` : null, c.dialCode]
+                          .filter(Boolean)
+                          .join(" · ") || "No marketplace details"}
+                        {" · "}
+                        <Link
+                          href={`/admin/settings/filters?tab=state&country=${encodeURIComponent(c.id)}`}
+                          className="text-green-700 font-medium hover:underline"
+                        >
+                          {counts.states} states · {counts.districts} districts
+                        </Link>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 sm:ms-auto">
+                    <CountryMarketStatusToggle
+                      enabled={c.enabled}
+                      comingSoon={c.comingSoon}
+                      saving={rowSaving}
+                      disabled={rowBusy && !rowSaving}
+                      onChange={(status) => void handleMarketStatusChange(c, status)}
+                    />
                     <button
                       type="button"
                       onClick={() => startEdit(c)}
-                      className="p-2 text-gray-400 hover:text-green-700 hover:bg-green-50 rounded-lg"
+                      disabled={rowBusy}
+                      className="p-2 text-gray-400 hover:text-green-700 hover:bg-green-50 rounded-lg disabled:opacity-50"
                       aria-label={`Edit ${c.name}`}
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
                     <button
                       type="button"
+                      disabled={rowBusy}
                       onClick={() => {
                         if (
                           confirm(
@@ -743,7 +800,7 @@ export function AdminCountriesContent() {
                           if (editingId === c.id) cancel();
                         }
                       }}
-                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50"
                       aria-label={`Delete ${c.name}`}
                     >
                       <Trash2 className="w-4 h-4" />

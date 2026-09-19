@@ -13,6 +13,7 @@ import {
   toHostBookingRecord,
 } from "@/lib/booking/list-bookings";
 import { getStripe, isStripeConfigured, toStripeAmount } from "@/lib/stripe/server";
+import { isDemoPayAllowed } from "@/lib/auth/booking-access";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { requireSessionUser } from "@/lib/auth/session";
 import { AuthError } from "@/lib/auth/session";
@@ -319,6 +320,12 @@ export async function POST(request: Request) {
       }
 
       if (body.demoPay) {
+        if (!isDemoPayAllowed()) {
+          return NextResponse.json(
+            { error: "Demo payment is not available in this environment" },
+            { status: 403 }
+          );
+        }
         const paid = await markBookingPaid(booking.id);
         await captureBookingFinancials(paid.id);
         void enqueueBookingConfirmedJob({ bookingId: paid.id, guestId: paid.guestId });
@@ -335,7 +342,7 @@ export async function POST(request: Request) {
         quote,
         mode: "demo" as const,
         paid: false,
-        demoPayAvailable: true,
+        demoPayAvailable: isDemoPayAllowed(),
       });
     }
 
@@ -414,6 +421,12 @@ export async function POST(request: Request) {
     }
 
     if (body.demoPay) {
+      if (!isDemoPayAllowed()) {
+        return NextResponse.json(
+          { error: "Demo payment is not available in this environment" },
+          { status: 403 }
+        );
+      }
       const paid = await markBookingPaid(booking.id);
       await captureBookingFinancials(paid.id);
       void enqueueBookingConfirmedJob({ bookingId: paid.id, guestId: paid.guestId });
@@ -430,7 +443,7 @@ export async function POST(request: Request) {
       quote,
       mode: "demo" as const,
       paid: false,
-      demoPayAvailable: true,
+      demoPayAvailable: isDemoPayAllowed(),
     });
   } catch (error) {
     if (error instanceof AuthError) {

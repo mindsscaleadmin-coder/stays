@@ -36,7 +36,7 @@ import { AuthError } from "@/lib/auth/session";
 import { BookingAccessError, isDemoApiMode } from "@/lib/auth/booking-access";
 import { canAccessAdmin } from "@/lib/auth/roles";
 import { hostDataErrorResponse, requireListingHostOrAdmin } from "@/lib/auth/listing-access";
-import { actingHostId, requireActor, requireAdmin, requireHost } from "@/lib/auth/guards";
+import { actingHostId, requireActor, requireHost, requirePlatformStaff } from "@/lib/auth/guards";
 import { getRequestId } from "@/lib/observability/logger";
 import { parseListingPagination } from "@/lib/listings/listings-pagination";
 import { checkSearchRateLimit, tooManyRequestsResponse } from "@/lib/rate-limit";
@@ -206,7 +206,7 @@ export async function POST(request: Request) {
       if (status === "pending") {
         await requireListingHostOrAdmin(id);
       } else {
-        await requireAdmin();
+        await requirePlatformStaff("manage_listings");
       }
       const listing = await setListingStatus(id, status, body.extra);
       if (!listing) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -214,7 +214,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "adminPatch") {
-      await requireAdmin();
+      await requirePlatformStaff("manage_listings");
       const id = String(body.id || "");
       const patch = body.patch as AdminListingPatch;
       const listing = await updateListingPayload(id, (prev) => ({
@@ -238,10 +238,22 @@ export async function POST(request: Request) {
     }
 
     if (action === "delete") {
-      await requireAdmin();
+      await requirePlatformStaff("manage_listings");
       const id = String(body.id || "");
-      const ok = await deleteListing(id);
-      return NextResponse.json({ ok });
+      const result = await deleteListing(id);
+      if (!result.ok) {
+        if (result.reason === "not_found") {
+          return NextResponse.json({ error: "Listing not found" }, { status: 404 });
+        }
+        return NextResponse.json(
+          {
+            error:
+              "Cannot delete listing while it has reviews, enquiries, or other linked records. Archive or resolve them first.",
+          },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json({ ok: true });
     }
 
     if (action === "addRoom") {
@@ -273,7 +285,7 @@ export async function POST(request: Request) {
     }
 
     if (action === "relabel") {
-      await requireAdmin();
+      await requirePlatformStaff("manage_listings");
       const changes = body.changes as ListingRelabelChanges | undefined;
       if (!changes || typeof changes !== "object") {
         return NextResponse.json({ error: "Invalid relabel payload" }, { status: 400 });

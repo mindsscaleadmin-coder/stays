@@ -21,8 +21,27 @@ import {
   DINING_SUBCATEGORIES,
 } from "./dining-taxonomy-data";
 import { emitSyncCustomEvent } from "@/lib/emit-sync-event";
+import { buildLocationRows, COUNTRY_GEO_PRESETS } from "@/lib/admin/country-geo";
+
+const INDIA_COUNTRY_ID = "c-in";
+const indiaGeo = buildLocationRows(INDIA_COUNTRY_ID, COUNTRY_GEO_PRESETS.IN);
+
 const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
   countries: [
+    {
+      id: INDIA_COUNTRY_ID,
+      name: "India",
+      code: "IN",
+      flag: "🇮🇳",
+      currency: "INR",
+      currencySymbol: "₹",
+      exchangeRateToAED: 0.043,
+      taxPct: 18,
+      taxLabel: "GST",
+      dialCode: "+91",
+      enabled: true,
+      comingSoon: false,
+    },
     {
       id: "c1",
       name: "United Arab Emirates",
@@ -35,7 +54,7 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
       taxLabel: "VAT",
       dialCode: "+971",
       enabled: true,
-      comingSoon: false,
+      comingSoon: true,
     },
     {
       id: "c2",
@@ -49,7 +68,7 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
       taxLabel: "VAT",
       dialCode: "+966",
       enabled: true,
-      comingSoon: false,
+      comingSoon: true,
     },
     {
       id: "c3",
@@ -81,6 +100,7 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     },
   ],
   states: [
+    ...indiaGeo.states,
     { id: "s1", name: "Abu Dhabi", countryId: "c1" },
     { id: "s2", name: "Dubai", countryId: "c1" },
     { id: "s3", name: "Sharjah", countryId: "c1" },
@@ -89,6 +109,7 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     { id: "s6", name: "AlUla", countryId: "c2" },
   ],
   districts: [
+    ...indiaGeo.districts,
     { id: "d1", name: "Al Ain", stateId: "s1" },
     { id: "d2", name: "Al Dhafra", stateId: "s1" },
     { id: "d3", name: "Liwa", stateId: "s1" },
@@ -160,9 +181,9 @@ const CORE: Omit<TaxonomyData, "mainTabs" | "extraTabs" | "customItems"> = {
     { id: "ef4", name: "Pet Friendly", type: "tag", parentId: "p1" },
     { id: "ef5", name: "Family Friendly", type: "tag" },
     { id: "ef6", name: "Instant Booking", type: "tag" },
-    { id: "ef7", name: "Budget (under AED 500)", type: "priceRange" },
-    { id: "ef8", name: "Mid-range (AED 500–1500)", type: "priceRange" },
-    { id: "ef9", name: "Luxury (AED 1500+)", type: "priceRange" },
+    { id: "ef7", name: "Budget (under ₹5,000)", type: "priceRange" },
+    { id: "ef8", name: "Mid-range (₹5,000–₹15,000)", type: "priceRange" },
+    { id: "ef9", name: "Luxury (₹15,000+)", type: "priceRange" },
     { id: "ef10", name: "Horse Riding", type: "activity", parentId: "p1" },
     { id: "ef11", name: "Fruit Picking", type: "activity", parentId: "p1" },
     { id: "ef12", name: "Desert Safari", type: "activity", parentId: "p2" },
@@ -812,11 +833,16 @@ export function normalizeTaxonomy(parsed: Partial<TaxonomyData>): TaxonomyData {
       mergeMissingExtraFilters(
         migrated.extraFilters ?? [],
         SEED_TAXONOMY.extraFilters
-      ).map((ef) =>
-        ef.parentId
-          ? { ...ef, parentId: remapToKnownParentId(ef.parentId, parents) }
-          : ef
-      )
+      ).map((ef) => {
+        let name = ef.name;
+        if (name.includes("under AED 500")) name = "Budget (under ₹5,000)";
+        else if (name.includes("AED 500–1500") || name.includes("AED 500-1500"))
+          name = "Mid-range (₹5,000–₹15,000)";
+        else if (name.includes("AED 1500+")) name = "Luxury (₹15,000+)";
+        return ef.parentId
+          ? { ...ef, name, parentId: remapToKnownParentId(ef.parentId, parents) }
+          : { ...ef, name };
+      })
     ),
     featureFilters: dedupeByNameAndParent(
       (incoming.featureFilters ?? SEED_TAXONOMY.featureFilters).map((ff) =>

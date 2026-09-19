@@ -4,6 +4,7 @@ import {
   assertBookingParticipant,
   isDemoApiMode,
   loadBookingWithListing,
+  resolveBookingMessageSender,
 } from "@/lib/auth/booking-access";
 import { withBookingAuth } from "@/lib/auth/with-booking-auth";
 import {
@@ -31,7 +32,8 @@ export const GET = withBookingAuth(async (_request, context, actor) => {
 
 const postSchema = z.object({
   body: z.string().min(1).max(4000),
-  senderRole: z.enum(["guest", "host", "admin"]),
+  /** Ignored in production — role is derived server-side from the signed-in actor. */
+  senderRole: z.enum(["guest", "host", "admin"]).optional(),
   senderId: z.string().min(1),
   senderName: z.string().min(1).max(120),
 });
@@ -45,20 +47,28 @@ export const POST = withBookingAuth(async (request, context, actor) => {
       return NextResponse.json({ error: "Invalid message" }, { status: 400 });
     }
 
+    const booking = await loadBookingWithListing(id);
+    if (!booking) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
     if (!isDemoApiMode()) {
-      const booking = await loadBookingWithListing(id);
-      if (!booking) {
-        return NextResponse.json({ error: "Not found" }, { status: 404 });
-      }
       assertBookingParticipant(booking, actor);
       if (parsed.data.senderId !== actor.id) {
         return NextResponse.json({ error: "senderId must match signed-in user" }, { status: 403 });
       }
     }
 
+    const senderRole = isDemoApiMode()
+      ? (parsed.data.senderRole ?? "guest")
+      : resolveBookingMessageSender(booking, actor);
+
     const message = await createBookingMessage({
       bookingId: id,
-      ...parsed.data,
+      body: parsed.data.body,
+      senderRole,
+      senderId: parsed.data.senderId,
+      senderName: parsed.data.senderName,
     });
 
     if (!message) {

@@ -682,6 +682,29 @@ function mergeList<T extends { id: string }>(parsed: T[] | undefined, fallback: 
   return parsed && parsed.length > 0 ? parsed : fallback;
 }
 
+export function slugifyBlogTitle(title: string): string {
+  const slug = title
+    .trim()
+    .toLowerCase()
+    .replace(/['']/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || `post-${Date.now()}`;
+}
+
+function normalizeBlogPost(post: Partial<BlogPost> & { id: string }): BlogPost {
+  return {
+    id: post.id,
+    title: (post.title ?? "").trim(),
+    excerpt: (post.excerpt ?? "").trim(),
+    body: (post.body ?? "").trim(),
+    slug: (post.slug ?? "").trim(),
+    published: post.published ?? false,
+    publishedAt: post.publishedAt,
+    imageUrl: post.imageUrl?.trim() || undefined,
+  };
+}
+
 function mergeCms(parsed: Partial<CmsSettings> | undefined): CmsSettings {
   return {
     heroTitle: parsed?.heroTitle ?? DEFAULT_CMS.heroTitle,
@@ -693,7 +716,7 @@ function mergeCms(parsed: Partial<CmsSettings> | undefined): CmsSettings {
       parsed?.featuredListingIds && parsed.featuredListingIds.length > 0
         ? parsed.featuredListingIds
         : DEFAULT_CMS.featuredListingIds,
-    blogPosts: mergeList(parsed?.blogPosts, DEFAULT_CMS.blogPosts),
+    blogPosts: mergeList(parsed?.blogPosts, DEFAULT_CMS.blogPosts).map(normalizeBlogPost),
     contentSections: mergeList(parsed?.contentSections, DEFAULT_CMS.contentSections).sort(
       (a, b) => a.sortOrder - b.sortOrder
     ),

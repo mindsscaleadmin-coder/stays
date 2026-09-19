@@ -13,6 +13,7 @@ import {
   relabelListing,
   type ListingRelabelChanges,
 } from "./relabel-listings";
+import { pickHostListingUpdate } from "./pick-host-listing-update";
 
 const STORAGE_KEY = "farm-stays-listing-submissions";
 const DELETED_IDS_KEY = "farm-stays-deleted-listing-ids";
@@ -54,6 +55,7 @@ export function normalizeSubmittedListing(
     rooms: listing.rooms ?? [],
     venueDetails: listing.venueDetails,
     diningDetails: listing.diningDetails,
+    safetyChecklist: listing.safetyChecklist ?? [],
   });
 }
 
@@ -187,14 +189,17 @@ export function updateListing(id: string, input: UpdateListingInput): boolean {
   const existing = getSubmissionById(id);
   if (!existing) return false;
 
+  const safe = pickHostListingUpdate(input);
   const now = new Date().toISOString();
   const updated: SubmittedListing = {
     ...existing,
-    ...input,
+    ...safe,
     id: existing.id,
     hostId: existing.hostId,
     hostName: existing.hostName,
-    rooms: input.rooms ?? existing.rooms ?? [],
+    featured: existing.featured,
+    flaggedForReview: existing.flaggedForReview,
+    rooms: safe.rooms ?? existing.rooms ?? [],
     status: "pending",
     submittedAt: now,
     statusUpdatedAt: now,

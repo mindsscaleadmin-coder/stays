@@ -14,9 +14,19 @@ export async function fetchHostSupportFromApi(hostId: string): Promise<SupportTi
   return json.tickets;
 }
 
+export interface CreateHostSupportTicketInput {
+  subject: string;
+  message: string;
+  hostName?: string;
+  priority?: "low" | "normal" | "high" | "critical";
+  bookingRef?: string;
+  property?: string;
+  requesterEmail?: string;
+}
+
 export async function createHostSupportTicketViaApi(
   hostId: string,
-  input: { subject: string; message: string; hostName?: string }
+  input: CreateHostSupportTicketInput
 ): Promise<SupportTicket[]> {
   const res = await fetch(`/api/hosts/${encodeURIComponent(hostId)}/support`, {
     method: "POST",

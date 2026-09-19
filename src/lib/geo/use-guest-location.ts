@@ -60,7 +60,8 @@ export function useGuestLocation(): UseGuestLocationResult {
 
       const detected = countryCodeFromCoords(lat, lng);
       const enabled = enabledCountries.some((c) => c.code === detected);
-      if (enabled && detected !== countryCodeRef.current) {
+      const multiMarket = enabledCountries.length > 1;
+      if (multiMarket && enabled && detected !== countryCodeRef.current) {
         geoSyncRef.current = true;
         setCountry(detected);
       }
@@ -99,7 +100,9 @@ export function useGuestLocation(): UseGuestLocationResult {
       setLoading(false);
       setPermission("granted");
       const detected = countryCodeFromCoords(stored.lat, stored.lng);
+      const multiMarket = enabledCountries.length > 1;
       if (
+        multiMarket &&
         enabledCountries.some((c) => c.code === detected) &&
         detected !== countryCodeRef.current
       ) {

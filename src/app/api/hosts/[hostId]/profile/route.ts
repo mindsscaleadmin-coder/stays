@@ -1,17 +1,33 @@
 import { NextResponse } from "next/server";
 import { getHostProfile, saveHostProfile } from "@/lib/server/host-profile-repo";
+import { toGuestVisibleHostProfile } from "@/lib/server/host-profile-public";
 import {
+  assertHostSelfOrAdmin,
   hostDataErrorResponse,
   requireHostSelfOrAdmin,
 } from "@/lib/auth/listing-access";
-import { AuthError } from "@/lib/auth/session";
+import { AuthError, getSessionUser } from "@/lib/auth/session";
 import { BookingAccessError, isDemoApiMode } from "@/lib/auth/booking-access";
+import { resolveSessionActor } from "@/lib/auth/resolve-actor";
 import { getRequestId } from "@/lib/observability/logger";
 import type { HostPublicProfileInput } from "@/lib/host/host-profile-types";
 import { defaultHostPublicProfile } from "@/lib/host/host-profile-data";
 import { canAccessAdmin } from "@/lib/auth/roles";
 
 export const dynamic = "force-dynamic";
+
+async function canViewPrivateHostProfile(hostId: string): Promise<boolean> {
+  if (isDemoApiMode()) return true;
+  const user = await getSessionUser();
+  if (!user) return false;
+  try {
+    const actor = await resolveSessionActor(user);
+    await assertHostSelfOrAdmin(hostId, actor);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function GET(
   _request: Request,
@@ -22,7 +38,10 @@ export async function GET(
   if (!profile) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  return NextResponse.json({ profile });
+  const includePrivate = await canViewPrivateHostProfile(hostId);
+  return NextResponse.json({
+    profile: includePrivate ? profile : toGuestVisibleHostProfile(profile),
+  });
 }
 
 export async function PATCH(

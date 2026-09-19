@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { isDemoApiMode } from "@/lib/auth/booking-access";
 import { prisma } from "@/lib/prisma";
+import { asMoneyNumber, toMoneyDecimal } from "@/lib/money/prisma-decimal";
 import { countryMatchTokens } from "@/lib/currency";
 import type {
   AddListingRoomInput,
@@ -8,6 +9,7 @@ import type {
   SubmitListingInput,
   UpdateListingInput,
 } from "@/lib/listings/submission-types";
+import { pickHostListingUpdate } from "@/lib/listings/pick-host-listing-update";
 import { normalizeSubmittedListing } from "@/lib/listings/submission-data";
 import {
   relabelListing,
@@ -32,7 +34,7 @@ type ListingRow = {
   payload: string;
   status?: string | null;
   featured?: boolean | null;
-  pricePerNight?: number | null;
+  pricePerNight?: Prisma.Decimal | number | null;
   country?: string | null;
   state?: string | null;
   district?: string | null;
@@ -40,6 +42,10 @@ type ListingRow = {
   category?: string | null;
   subcategory?: string | null;
 };
+
+function pricePerNightToDb(value: number | null | undefined) {
+  return value != null ? toMoneyDecimal(value) : null;
+}
 
 function filterColumnsFromListing(listing: SubmittedListing) {
   return {
@@ -62,7 +68,10 @@ function toRow(listing: ListingRow): SubmittedListing {
     propertyReference: listing.propertyReference,
     status: dbStatus || data.status,
     featured: listing.featured ?? data.featured,
-    pricePerNight: listing.pricePerNight ?? data.pricePerNight ?? null,
+    pricePerNight:
+      listing.pricePerNight != null
+        ? asMoneyNumber(listing.pricePerNight)
+        : data.pricePerNight ?? null,
     country: listing.country || data.country,
     state: listing.state || data.state,
     district: listing.district || data.district,
@@ -319,7 +328,7 @@ export async function createListing(input: SubmitListingInput): Promise<Submitte
         listing.groupSizeMin && listing.groupSizeMin > 0
           ? Math.max(listing.groupSizeMin, listing.rooms?.[0]?.capacity ?? 4)
           : listing.rooms?.[0]?.capacity ?? 4,
-      pricePerNight: listing.rooms?.[0]?.price ?? null,
+      pricePerNight: pricePerNightToDb(listing.rooms?.[0]?.price),
     },
   });
   return listing;
@@ -340,7 +349,10 @@ export async function updateListingPayload(
       payload: JSON.stringify(next),
       ...filterColumnsFromListing(next),
       maxGuests: next.rooms?.[0]?.capacity ?? row.maxGuests,
-      pricePerNight: next.rooms?.[0]?.price ?? row.pricePerNight,
+      pricePerNight:
+        next.rooms?.[0]?.price != null
+          ? pricePerNightToDb(next.rooms[0].price)
+          : row.pricePerNight,
       hostId: next.hostId,
       featured: Boolean(next.featured),
     },
@@ -352,9 +364,14 @@ export async function updateListingFields(
   id: string,
   input: UpdateListingInput
 ): Promise<SubmittedListing | null> {
+  const safe = pickHostListingUpdate(input);
   return updateListingPayload(id, (prev) => ({
     ...prev,
-    ...input,
+    ...safe,
+    hostId: prev.hostId,
+    hostName: prev.hostName,
+    featured: prev.featured,
+    flaggedForReview: prev.flaggedForReview,
     status: prev.status === "approved" ? "pending" : prev.status,
     statusUpdatedAt: new Date().toISOString(),
   }));
@@ -401,12 +418,20 @@ export async function relabelListingsInDb(
   return { updated: updates.length, listings };
 }
 
-export async function deleteListing(id: string): Promise<boolean> {
+export async function deleteListing(
+  id: string
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "has_dependencies" }> {
   try {
     await prisma.listing.delete({ where: { id } });
-    return true;
-  } catch {
-    return false;
+    return { ok: true };
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      (error.code === "P2003" || error.code === "P2025")
+    ) {
+      return { ok: false, reason: error.code === "P2025" ? "not_found" : "has_dependencies" };
+    }
+    throw error;
   }
 }
 
@@ -434,7 +459,7 @@ export async function seedListingsIfEmpty(seed: SubmittedListing[]): Promise<num
         payload: JSON.stringify(item),
         ...filterColumnsFromListing(item),
         maxGuests: item.rooms?.[0]?.capacity ?? 4,
-        pricePerNight: item.rooms?.[0]?.price ?? null,
+        pricePerNight: pricePerNightToDb(item.rooms?.[0]?.price),
         createdAt: new Date(item.submittedAt),
       },
     });

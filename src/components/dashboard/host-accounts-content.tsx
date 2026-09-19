@@ -18,6 +18,7 @@ import { resolveHostId } from "@/lib/listings/use-listing-submissions";
 import { useHostAccounts } from "@/lib/host/use-host-accounts";
 import { buildInvoiceText } from "@/lib/host/host-accounts-data";
 import type { PayoutMethod } from "@/lib/host/host-accounts-types";
+import { LAUNCH_CURRENCY } from "@/lib/tax/launch-market";
 import { cn, formatPrice } from "@/lib/utils";
 
 function downloadTextFile(filename: string, content: string) {
@@ -48,7 +49,7 @@ export function HostAccountsContent() {
   const [upiId, setUpiId] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const currency = data?.transactions[0]?.currency ?? "AED";
+  const currency = data?.transactions[0]?.currency ?? LAUNCH_CURRENCY;
 
   const upcomingTotal = useMemo(
     () => data?.upcomingPayouts.reduce((n, p) => n + p.amount, 0) ?? 0,

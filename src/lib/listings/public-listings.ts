@@ -36,10 +36,10 @@ export type SortOption = "recommended" | "price_asc" | "price_desc" | "rating_de
 
 const QUICK_FILTER_TERMS: Record<string, string[]> = {
   nearby: [],
-  hills: ["hill", "hatta", "mountain"],
-  jungle: ["jungle", "forest", "garden"],
-  sharjah: ["sharjah", "kalba"],
-  fujairah: ["fujairah"],
+  hills: ["hill", "munnar", "shimla", "manali", "mountain"],
+  jungle: ["jungle", "forest", "garden", "wayanad"],
+  kerala: ["kerala", "kochi", "munnar", "alleppey"],
+  goa: ["goa", "north goa", "south goa"],
 };
 
 function stayHaystack(stay: Stay): string {
@@ -307,14 +307,25 @@ function matchesAdvancedFilter(
 ): boolean {
   const name = normalize(filterName);
 
-  if (name.includes("budget") || name.includes("under aed 500")) {
-    return stay.price < 500;
+  if (
+    name.includes("budget") ||
+    name.includes("under aed 500") ||
+    name.includes("under inr") ||
+    name.includes("under ₹")
+  ) {
+    return stay.price < 5000;
   }
-  if (name.includes("mid-range") || name.includes("500–1500") || name.includes("500-1500")) {
-    return stay.price >= 500 && stay.price <= 1500;
+  if (
+    name.includes("mid-range") ||
+    name.includes("500–1500") ||
+    name.includes("500-1500") ||
+    name.includes("5000–15000") ||
+    name.includes("5000-15000")
+  ) {
+    return stay.price >= 5000 && stay.price <= 15000;
   }
-  if (name.includes("luxury") || name.includes("1500+")) {
-    return stay.price > 1500;
+  if (name.includes("luxury") || name.includes("1500+") || name.includes("15000+")) {
+    return stay.price > 15000;
   }
   if (name.includes("instant")) {
     return true;

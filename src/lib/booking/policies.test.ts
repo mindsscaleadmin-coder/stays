@@ -6,6 +6,8 @@ import {
   getCancellationRule,
   isPendingExpired,
   computePendingExpiresAt,
+  computeUnpaidPaymentExpiresAt,
+  UNPAID_PAYMENT_HOLD_MINUTES,
 } from "./policies";
 
 describe("evaluateCancellationRefund", () => {
@@ -133,5 +135,11 @@ describe("pending expiry helpers", () => {
     expect(isPendingExpired(new Date("2020-01-01"), new Date("2026-01-01"))).toBe(true);
     expect(isPendingExpired(new Date("2030-01-01"), new Date("2026-01-01"))).toBe(false);
     expect(isPendingExpired(null)).toBe(false);
+  });
+
+  it("computeUnpaidPaymentExpiresAt uses short hold window", () => {
+    const start = new Date("2026-09-07T10:00:00Z");
+    const end = computeUnpaidPaymentExpiresAt(start);
+    expect(end.getTime() - start.getTime()).toBe(UNPAID_PAYMENT_HOLD_MINUTES * 60 * 1000);
   });
 });

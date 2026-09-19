@@ -24,7 +24,7 @@ export function LoginContent() {
   const [tab, setTab] = useState<Tab>("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [phone, setPhone] = useState("+971");
+  const [phone, setPhone] = useState("+91");
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -218,7 +218,7 @@ export function LoginContent() {
             required
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="+971 50 123 4567"
+            placeholder="+91 98 1234 5678"
           />
           <button
             type="submit"

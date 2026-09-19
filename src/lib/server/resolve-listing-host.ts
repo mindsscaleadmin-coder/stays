@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { asMoneyNumber } from "@/lib/money/prisma-decimal";
 import { resolveCatalogListingHost } from "@/lib/listings/catalog-listing-hosts";
 import type { ListingBookingSnapshot } from "@/lib/booking/ensure-listing";
 
@@ -37,7 +38,10 @@ export async function resolveListingHostForBooking(
       title: row.title,
       instantBook,
       maxGuests: row.maxGuests,
-      pricePerNight: row.pricePerNight ?? snapshot?.pricePerNight,
+      pricePerNight:
+        row.pricePerNight != null
+          ? asMoneyNumber(row.pricePerNight)
+          : snapshot?.pricePerNight,
     };
   }
 
